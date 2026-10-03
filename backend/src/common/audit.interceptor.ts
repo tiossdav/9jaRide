@@ -1,6 +1,6 @@
 import { CallHandler, ExecutionContext, Inject, Injectable, Logger, NestInterceptor } from '@nestjs/common';
 import { Pool } from 'pg';
-import { Observable, tap } from 'rxjs';
+import { Observable, catchError, from, mergeMap, throwError } from 'rxjs';
 import { PG_POOL } from './infra.module';
 
 /** Records every staff request that changes something (and every refusal of one) in the append-only audit log. */
@@ -21,11 +21,10 @@ export class StaffAuditInterceptor implements NestInterceptor {
           [req.principal.id, req.method, req.route?.path ?? req.path, JSON.stringify({ params: req.params, body: req.body }), status, req.ip ?? null],
         )
         .catch((e) => this.log.error(`audit write failed: ${e}`));
+    // The entry is written BEFORE the answer goes back, so a request that was answered is always in the log.
     return next.handle().pipe(
-      tap({
-        next: () => void write(res.statusCode),
-        error: (e) => void write(typeof e?.getStatus === 'function' ? e.getStatus() : 500),
-      }),
+      mergeMap((value) => from(write(res.statusCode).then(() => value))),
+      catchError((e) => from(write(typeof e?.getStatus === 'function' ? e.getStatus() : 500)).pipe(mergeMap(() => throwError(() => e)))),
     );
   }
 }

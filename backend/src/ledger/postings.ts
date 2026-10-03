@@ -90,6 +90,24 @@ export function planPayoutReversal(driverId: string, amount: Kobo): Posting[] {
   ];
 }
 
+/** Manual credit (refund, goodwill): the platform pays the user. platform:adjustments is the expense side. */
+export function planAdjustmentCredit(userId: string, amount: Kobo): Posting[] {
+  assertKobo(amount, 'adjustment');
+  return [
+    { account: 'platform:adjustments', amountKobo: -amount },
+    { account: walletCode(userId), amountKobo: amount },
+  ];
+}
+
+/** Manual debit: money moves from the user's wallet to the platform. */
+export function planAdjustmentDebit(userId: string, amount: Kobo): Posting[] {
+  assertKobo(amount, 'adjustment');
+  return [
+    { account: walletCode(userId), amountKobo: -amount },
+    { account: 'platform:adjustments', amountKobo: amount },
+  ];
+}
+
 export function assertBalanced(postings: Posting[]): void {
   const total = postings.reduce((sum, p) => sum + p.amountKobo, 0);
   if (total !== 0) throw new Error(`unbalanced postings: off by ${total} kobo`);

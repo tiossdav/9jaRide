@@ -48,6 +48,6 @@ export class PaymentsWorker {
     { provide: PAYMENT_PROVIDER, useExisting: PaystackClient },
     { provide: PAYOUT_PROVIDER, useExisting: PaystackClient },
   ],
-  exports: [PaymentsService, PayoutsService, ReconciliationService],
+  exports: [PaymentsService, PayoutsService, ReconciliationService, PAYMENT_PROVIDER],
 })
 export class PaymentsModule {}

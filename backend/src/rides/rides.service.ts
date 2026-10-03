@@ -109,8 +109,8 @@ export class RidesService {
     const cacheKey = `driver:${driverId}:category`;
     const cached = await this.redis.get(cacheKey);
     if (cached) return cached as Category;
-    const { rows } = await this.pool.query(`SELECT category FROM vehicles WHERE driver_id = $1 AND active`, [driverId]);
-    if (!rows[0]) throw new ConflictException({ code: 'no_active_vehicle', message: 'add an active vehicle before going online' });
+    const { rows } = await this.pool.query(`SELECT v.category FROM vehicles v JOIN users u ON u.id = v.driver_id WHERE v.driver_id = $1 AND v.active AND u.status = 'active'`, [driverId]);
+    if (!rows[0]) throw new ConflictException({ code: 'no_active_vehicle', message: 'you need an approved vehicle and an active account to go online' });
     await this.redis.set(cacheKey, rows[0].category, 'EX', CATEGORY_CACHE_SECONDS);
     return rows[0].category;
   }

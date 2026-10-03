@@ -13,8 +13,8 @@ import {
 } from './payments.types';
 
 export class SelfApprovalError extends Error {
-  constructor() {
-    super('a payout must be approved by someone other than the person who requested it');
+  constructor(what = 'payout') {
+    super(`a ${what} must be approved by someone other than the person who requested it`);
   }
 }
 export class PayoutStateError extends Error {}

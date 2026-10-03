@@ -25,6 +25,7 @@ npm run start:dev
 | Payments | A wallet is credited only after we ask Paystack and the amount matches; redelivered webhooks never double-credit; a missed webhook is recovered hourly | `src/payments/payments.service.ts`, `reconciliation.service.ts` |
 | Payouts | Money leaves the wallet at request time; a second person must approve; a transfer is claimed before it is sent, under a stable reference; an unknown outcome is never refunded blindly | `src/payments/payouts.service.ts`, `db/migrations/003_payments.sql` |
 | Auth | Every route needs a token unless marked `@Public()`; one-time codes are hashed, single-use and attempt-limited; refresh tokens rotate and a replayed one revokes the login | `src/auth/` |
+| Admin | Drivers reach dispatch only through a reviewed application; every manual money movement needs a second person; a wrong-amount payment is corrected only against what Paystack really collected | `src/admin/`, `db/migrations/005_admin.sql` |
 | Fare engine | Receipt lines always add up to the total (rounding is its own line); fare snapshot is immutable; rates are versioned data needing a second approver | `src/fare/`, `db/migrations/002_fare_engine.sql` |
 
 Dev pricing (Comfort and Regular rates from the admin screens): `psql $DATABASE_URL -f db/seed/dev_pricing.sql`.
@@ -38,10 +39,11 @@ Everything needs `Authorization: Bearer <access token>` except the routes marked
 | Public | `POST /auth/otp/request`, `/auth/otp/verify`, `/auth/register`, `/auth/refresh`, `/auth/logout`, `/auth/staff/login`; `GET /health`; `POST /webhooks/paystack` (signature is the login) |
 | Any signed-in user | `GET /me`, `POST /auth/logout-all`, `GET /rides/:id`, `GET /rides/:id/receipt` (own rides only; staff see all) |
 | Rider | `POST /rides/quote`, `POST /rides` |
-| Driver | `POST /driver/location`, `/driver/rides/:id/accept` `decline` `arrive` `start` `complete`, `POST /payouts`, `GET /payouts` |
+| Driver | `POST /driver/application`, `GET /driver/application`, `POST /driver/location`, `/driver/rides/:id/accept` `decline` `arrive` `start` `complete`, `POST /payouts`, `GET /payouts` |
 | Rider and driver | `GET /wallet`, `POST /wallet/topups`, `POST /sos`, `POST /sos/:id/location` |
-| Finance, admin | `GET /admin/payouts`, `POST /admin/payouts/:id/approve` `reject`, `GET /admin/reconciliation/findings`, `POST /admin/reconciliation/run` |
-| Support, admin | `GET /admin/sos`, `POST /admin/sos/:id/acknowledge` `assign` `notes` `resolve`, `GET /admin/sos/:id/timeline` |
+| Support, finance, admin | `POST /admin/adjustments` (ask for a refund, credit, debit or top-up correction), `GET /admin/adjustments`, `GET /admin/adjustments/:id` |
+| Finance, admin | `POST /admin/adjustments/:id/approve` `reject`, `GET /admin/payment-exceptions`, `POST /admin/payment-exceptions/resolve`, `GET /admin/payouts`, `POST /admin/payouts/:id/approve` `reject`, `GET /admin/reconciliation/findings`, `POST /admin/reconciliation/run` |
+| Support, admin | `GET /admin/driver-applications`, `GET /admin/driver-applications/:id`, `POST` `.../approve` `request-changes` `reject`, `POST /admin/users/:id/suspend` `reinstate`, `GET /admin/sos`, `POST /admin/sos/:id/acknowledge` `assign` `notes` `resolve`, `GET /admin/sos/:id/timeline` |
 
 Sign-in: request a code, verify it. A number with no account gets `422 registration_required` with a `registrationTicket`; the app then calls `/auth/register` with the ticket, a role and a name (no second SMS). Staff changes are written to `staff_audit_log`.
 
@@ -50,12 +52,22 @@ HTTP tests run the real app against Postgres and Valkey with only SMS and Paysta
 ## Auth and HTTP decisions I made (change any of them)
 
 - **Phone OTP for riders and drivers, password for staff.** Codes are 6 digits, valid 5 minutes, 5 wrong guesses lock a code, 3 requests per number per 10 minutes, 10 per day, 20 per source address per hour. Placeholders until agreed.
-- **Access tokens last 15 minutes, refresh tokens 30 days** (staff: 12 hours). A suspension takes effect at the next refresh, up to 15 minutes later, not instantly.
+- **Access tokens last 15 minutes, refresh tokens 30 days** (staff: 12 hours). A suspension takes effect immediately: a flag in Valkey blocks the still-valid access token, and refresh and sign-in are refused.
 - **Staff lock for 15 minutes after 5 wrong passwords.** No two-factor for staff yet; add it before real money moves.
 - **Role is fixed at registration.** A rider cannot become a driver by signing in differently.
 - **Another person's ride is a 404, not a 403**, so ride ids cannot be probed.
 - **A wallet ride holds the top of the quoted range** when it is requested, in the same transaction as the ride. No funds means no ride (402). The hold is released if no driver is found. Releasing it on rider or driver cancellation is not built, because cancellation is not built.
 - **A driver's category comes from their active vehicle**, cached for 5 minutes, never from the request.
+
+## Admin decisions I made (change any of them)
+
+- **Driver review:** a driver applies with a vehicle and documents; staff approve, ask for changes, or reject. The vehicle row dispatch uses is created only on approval, so there is no way onto the map without review. Required documents: driver's licence, vehicle papers, insurance (`REQUIRED_DOCUMENTS`); an expired one blocks approval. Support and admin review; finance cannot. File upload is not built: documents are storage keys (`fileRef`) the app would get from an upload service.
+- **Refunds are paid by the platform, not taken from the driver.** A refund credits the rider from `platform:adjustments` and never touches the driver's earnings. Recovering money from a driver is a separate `debit` adjustment, which also needs approval. A refund cannot exceed the fare, in total, per ride.
+- **Who decides:** support, finance and admin can ask; only finance and admin can approve, never the person who asked (service check plus a database CHECK). An amount over ₦50,000 (`ADJUSTMENT_ADMIN_THRESHOLD_KOBO`) needs an admin to approve. The limit is a placeholder.
+- **A wrong-amount payment** (Paystack collected something different from what the rider asked for) is parked and never credited. Finance asks for a `topup_correction`; when it is approved the app asks Paystack again and the payment must have succeeded for exactly that amount. It uses the normal top-up ledger key, so a payment can never be credited twice, whichever way it is fixed first.
+- **Payment exceptions** are one queue: wrong-amount top-ups, reconciliation findings (shown once, not once per hourly run) and failed payouts. Resolving records who decided what; it never moves money itself.
+- **A driver's wallet can go negative on a debit adjustment** (commission debt); a rider's cannot.
+- **Suspending** needs a reason, revokes sessions, removes the driver from the map and is written to `user_status_events`.
 
 ## Bug fixed on the way
 
@@ -82,7 +94,7 @@ A driver on a trip who kept sending location pings was put back in matching as `
 ## Not built yet
 
 - **The driver supplies the trip's distance and time** when completing a trip. There is no server-side trip tracking, so an inflated figure is caught only by the quote-range flag (`outside_quote_range`), not prevented. Same for the rider's quote: the distance comes from the app. Compute both server-side from the location pings and a routing service.
-- Rider/driver cancellation, driver-initiated no-show, ride history lists, driver earnings screens, vehicle and document onboarding, staff-managed pricing versions, refunds and adjustments with a second approver.
+- Rider/driver cancellation, driver-initiated no-show, ride history lists, driver earnings screens, document file upload and expiry reminders, staff-managed pricing versions (the second-approver rule is in the database; there is no screen or route), and a staff list/role management screen.
 - Rate limiting beyond sign-in (a general per-user/IP limiter backed by Valkey), request logging, and metrics.
 - A real SMS/voice provider for codes. Outside production the code is written to the log; in production sending fails until a provider is wired in.
 
