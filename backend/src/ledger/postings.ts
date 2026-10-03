@@ -63,6 +63,33 @@ export function planBonus(driverId: string, amount: Kobo): Posting[] {
   ];
 }
 
+/** Payout requested: the money leaves the driver wallet at once, so it cannot be withdrawn twice. */
+export function planPayoutRequest(driverId: string, amount: Kobo): Posting[] {
+  assertKobo(amount, 'payout');
+  return [
+    { account: walletCode(driverId), amountKobo: -amount },
+    { account: 'platform:payout', amountKobo: amount },
+  ];
+}
+
+/** Provider confirmed the transfer: the money has left our bank (platform:cash runs negative while it holds real money). */
+export function planPayoutPaid(amount: Kobo): Posting[] {
+  assertKobo(amount, 'payout');
+  return [
+    { account: 'platform:payout', amountKobo: -amount },
+    { account: 'platform:cash', amountKobo: amount },
+  ];
+}
+
+/** Payout rejected or failed: give the money back to the driver wallet. */
+export function planPayoutReversal(driverId: string, amount: Kobo): Posting[] {
+  assertKobo(amount, 'payout');
+  return [
+    { account: 'platform:payout', amountKobo: -amount },
+    { account: walletCode(driverId), amountKobo: amount },
+  ];
+}
+
 export function assertBalanced(postings: Posting[]): void {
   const total = postings.reduce((sum, p) => sum + p.amountKobo, 0);
   if (total !== 0) throw new Error(`unbalanced postings: off by ${total} kobo`);
