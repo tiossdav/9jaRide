@@ -83,7 +83,7 @@ suite('scheduled rides, cancellation, background location, app config', () => {
       await book(rider.token, { repeat: 'weekly' }).expect(400);
       const many = await book(rider.token, { repeat: 'weekly', weeks: 13 }).expect(400);
       expect(many.body.code).toBe('bad_weeks');
-      await book(rider.token, { category: 'limousine' }).expect(400);
+      await book(rider.token, { category: 'limousine' }).expect(422); // not a category that exists
       await h.http().post('/ride-schedules').set(h.auth(rider.token)).send(body()).expect(400); // Idempotency-Key required
       const driver = await h.login('driver');
       await book(driver.token).expect(403);

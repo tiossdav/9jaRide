@@ -229,7 +229,7 @@ fun SelectRideScreen(vm: RiderViewModel) {
                         val sel = vm.selectedCategory == c
                         Row(
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (sel) C.GreenTint else C.Raised)
-                                .border(1.5.dp, if (sel) C.GreenAccent else C.Border, RoundedCornerShape(16.dp)).tap({ vm.selectedCategory = c }, categoryLabel(c)).padding(14.dp),
+                                .border(1.5.dp, if (sel) C.GreenAccent else C.Border, RoundedCornerShape(16.dp)).tap({ vm.chooseCategory(c) }, categoryLabel(c)).padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             RoundIconTile(categoryIcon(c), C.GreenAccent, C.Surface, 44.dp, iconSize = 24.dp)
@@ -239,6 +239,7 @@ fun SelectRideScreen(vm: RiderViewModel) {
                     }
                 }
                 Txt("The final fare is worked out from the actual trip and may differ a little from the estimate.", 11.5f, 500, C.Muted)
+                PromoBox(vm)
                 Gap(2.dp)
                 Txt("PAY WITH", 11f, 500, C.Muted, letterSpacing = 1f)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -252,6 +253,28 @@ fun SelectRideScreen(vm: RiderViewModel) {
         }
     }
     if (vm.dialog == Dialog.Notice) com.ninejaride.rider.ui.screens.NoticeSheet(vm)
+}
+
+@Composable
+private fun PromoBox(vm: RiderViewModel) {
+    val applied = vm.promo
+    if (applied != null) {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.GreenTint).padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Icon24(Ic.Gift, C.GreenAccent, 20.dp)
+            Column(Modifier.weight(1f)) { Txt("${applied.code} applied", 14f, 800, C.GreenAccent); Txt("You save about ${naira(applied.discountKobo)}. You pay about ${naira(applied.payKobo)}.", 12f, 500, C.Muted) }
+            Txt("Remove", 13f, 700, C.GreenAccent, Modifier.tap(vm::clearPromo, "Remove promo code"))
+        }
+        return
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        BasicTextField(
+            value = vm.promoText, onValueChange = { vm.promoText = it.filter { c -> c.isLetterOrDigit() }.take(20).uppercase(); vm.promoMessage = null },
+            singleLine = true, textStyle = type(14.5f, 700, C.Ink), cursorBrush = SolidColor(C.GreenAccent), modifier = Modifier.weight(1f),
+            decorationBox = { inner -> Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.Raised).border(1.dp, C.Border, RoundedCornerShape(12.dp)).padding(horizontal = 14.dp, vertical = 12.dp)) { if (vm.promoText.isEmpty()) Txt("Promo code", 14.5f, 500, C.Disabled); inner() } },
+        )
+        Btn(if (vm.promoChecking) "..." else "Apply", vm::applyPromo, Modifier.width(88.dp), kind = BtnKind.Outline, height = 46.dp, size = 14f, enabled = vm.promoText.length >= 3 && !vm.promoChecking)
+    }
+    vm.promoMessage?.let { Txt(it, 12.5f, 600, C.RedText) }
 }
 
 @Composable

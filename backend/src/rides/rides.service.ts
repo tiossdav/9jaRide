@@ -4,6 +4,7 @@ import { Pool } from 'pg';
 import { PG_POOL, REDIS } from '../common/infra.module';
 import { DispatchService } from '../dispatch/dispatch.service';
 import { Category, keys } from '../dispatch/dispatch.types';
+import { PromoService } from '../promo/promo.service';
 
 // Placeholders: the trip distance a driver reports is flagged when it is this much longer than the recorded route.
 const TRAIL_MIN_POINTS = Number(process.env.TRAIL_MIN_POINTS ?? 10);
@@ -24,6 +25,8 @@ export interface RideInput {
   dropoff: { lat: number; lng: number };
   pickupAddress?: string;
   dropoffAddress?: string;
+  /** A promo code the rider typed. Checked again here, inside the transaction, so a code cannot be over-used. */
+  promoCode?: string;
 }
 
 const STAFF_ROLES = ['support', 'finance', 'admin'];
@@ -39,7 +42,14 @@ export class RidesService {
     private readonly fares: FareService,
     private readonly settlement: SettlementService,
     private readonly ledger: LedgerService,
+    private readonly promo: PromoService,
   ) {}
+
+  async checkPromo(riderId: string, code: string, category: Category, trip: { distanceM: number; durationS: number }) {
+    const estimate = await this.fares.preview(category, trip);
+    const { promo, discountKobo } = await this.promo.check(this.pool, riderId, code, category, estimate.expectedKobo);
+    return { code: promo.code, description: promo.description, discountKobo, expectedKobo: estimate.expectedKobo, payKobo: estimate.expectedKobo - discountKobo };
+  }
 
   quote(riderId: string, category: Category, trip: { distanceM: number; durationS: number }) {
     return this.fares.estimate(riderId, category, trip);
@@ -67,6 +77,10 @@ export class RidesService {
           const { rows } = await client.query(`SELECT high_kobo FROM fare_quotes WHERE id = $1`, [input.quoteId]);
           await this.ledger.holdForRide(client, riderId, rideId, Number(rows[0].high_kobo));
         }
+        if (input.promoCode?.trim()) {
+          const q = await client.query(`SELECT expected_kobo FROM fare_quotes WHERE id = $1`, [input.quoteId]);
+          await this.promo.reserve(client, rideId, riderId, input.promoCode, input.category, Number(q.rows[0].expected_kobo));
+        }
       },
     );
   }
@@ -81,12 +95,13 @@ export class RidesService {
               d.phone AS driver_phone,
               (SELECT round(avg(x.stars)::numeric, 1) FROM ride_ratings x JOIN rides xr ON xr.id = x.ride_id WHERE xr.driver_id = r.driver_id) AS driver_rating,
               (SELECT h.created_at FROM ride_status_history h WHERE h.ride_id = r.id ORDER BY h.id DESC LIMIT 1) AS status_changed_at,
-              q.low_kobo, q.high_kobo, f.total_kobo, f.distance_m AS fare_distance_m, f.duration_s AS fare_duration_s, rr.stars AS my_stars
+              q.low_kobo, q.high_kobo, f.total_kobo, r.promo_discount_kobo, pc.code AS promo_code, f.distance_m AS fare_distance_m, f.duration_s AS fare_duration_s, rr.stars AS my_stars
          FROM rides r
          LEFT JOIN users d ON d.id = r.driver_id
          LEFT JOIN vehicles v ON v.driver_id = r.driver_id AND v.active
          LEFT JOIN fare_quotes q ON q.id = r.fare_quote_id
          LEFT JOIN ride_fares f ON f.ride_id = r.id
+         LEFT JOIN promo_codes pc ON pc.id = r.promo_code_id
          LEFT JOIN ride_ratings rr ON rr.ride_id = r.id
         WHERE r.id = $1 AND (r.rider_id = $2 OR r.driver_id = $2 OR $3::boolean)`,
       [rideId, me.id, STAFF_ROLES.includes(me.role)],
@@ -107,6 +122,10 @@ export class RidesService {
       dropoffAddress: r.dropoff_address,
       estimate: r.low_kobo == null ? null : { lowKobo: Number(r.low_kobo), highKobo: Number(r.high_kobo) },
       fareKobo: r.total_kobo == null ? null : Number(r.total_kobo),
+      // What the rider actually pays: the fare less any promo code. Same as fareKobo when there is none.
+      discountKobo: r.promo_discount_kobo == null ? 0 : Number(r.promo_discount_kobo),
+      promoCode: r.promo_code ?? null,
+      payableKobo: r.total_kobo == null ? null : Number(r.total_kobo) - (r.promo_discount_kobo == null ? 0 : Number(r.promo_discount_kobo)),
       distanceM: r.fare_distance_m ?? null,
       durationS: r.fare_duration_s ?? null,
       myRating: r.my_stars ?? null,
@@ -193,10 +212,10 @@ export class RidesService {
   }
 
   async receipt(me: Principal, rideId: string) {
-    await this.get(me, rideId); // same visibility rule
+    const ride = await this.get(me, rideId); // same visibility rule
     const fare = await this.fares.getReceipt(rideId);
     if (!fare) throw new NotFoundException('no receipt yet: the trip has not been completed');
-    return fare;
+    return { ...fare, promoCode: ride.promoCode, discountKobo: ride.discountKobo, payableKobo: fare.totalKobo - ride.discountKobo };
   }
 
   // ------------------------------------------------------------------ driver side

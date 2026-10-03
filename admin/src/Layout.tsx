@@ -5,8 +5,8 @@ import { useConfirm } from './bits';
 import { ChangePassword } from './ChangePassword';
 import { Icon, IconName } from './ui';
 
-interface Child { label: string; icon: IconName; to?: string }
 type Role = 'support' | 'finance' | 'admin';
+interface Child { label: string; icon: IconName; to?: string; roles?: Role[] }
 interface Item { label: string; icon: IconName; to?: string; children?: Child[]; roles?: Role[] }
 const OPS: Role[] = ['support', 'admin'];
 const MONEY: Role[] = ['finance', 'admin'];
@@ -22,7 +22,7 @@ const NAV: { group: string; items: Item[] }[] = [
       { label: 'Users', icon: 'users', roles: OPS, children: [{ label: 'Drivers', icon: 'steer', to: '/drivers' }, { label: 'Customers', icon: 'users', to: '/customers' }] },
       { label: 'Vehicles', icon: 'car', to: '/vehicles', roles: OPS },
       { label: 'Trips', icon: 'pin', to: '/trips', roles: OPS },
-      { label: 'Support', icon: 'help', roles: OPS },
+      { label: 'Support', icon: 'help', to: '/support', roles: OPS },
     ],
   },
   {
@@ -32,21 +32,21 @@ const NAV: { group: string; items: Item[] }[] = [
         label: 'Finances', icon: 'wallet', roles: MONEY,
         children: [
           { label: 'Wallet', icon: 'wallet', to: '/finances/wallet' }, { label: 'Revenue', icon: 'trend', to: '/finances/revenue' }, { label: 'Reconciliation', icon: 'refresh', to: '/finances/reconciliation' },
-          { label: 'Stakeholder payouts', icon: 'bank2' }, { label: 'Driver payouts', icon: 'card', to: '/finances/payouts' },
+          { label: 'Stakeholder payouts', icon: 'bank2', to: '/finances/stakeholders' }, { label: 'Driver payouts', icon: 'card', to: '/finances/payouts' },
           { label: 'Adjustments', icon: 'book', to: '/finances/adjustments' }, { label: 'Ledger', icon: 'layers', to: '/finances/ledger' },
         ],
       },
-      { label: 'Promo', icon: 'tag', roles: MONEY },
+      { label: 'Promo', icon: 'tag', to: '/promo', roles: MONEY },
     ],
   },
   {
     group: 'Administration',
     items: [
       {
-        label: 'Setup', icon: 'gear', roles: OPS,
+        label: 'Setup', icon: 'gear', roles: ['support', 'finance', 'admin'],
         children: [
-          { label: 'Asset Type', icon: 'layers' }, { label: 'Trip Fees', icon: 'link', to: '/pricing' }, { label: 'Revenue Setup', icon: 'pie' },
-          { label: 'Bonus Rules', icon: 'gift' }, { label: 'Bonus Awards', icon: 'award' }, { label: 'Cancellation Policy', icon: 'ban' },
+          { label: 'Asset Type', icon: 'layers', to: '/setup/asset-types' }, { label: 'Trip Fees', icon: 'link', to: '/pricing', roles: OPS }, { label: 'Revenue Setup', icon: 'pie', to: '/setup/revenue' },
+          { label: 'Bonus Rules', icon: 'gift' }, { label: 'Bonus Awards', icon: 'award' }, { label: 'Cancellation Policy', icon: 'ban', to: '/setup/cancellation' },
         ],
       },
       { label: 'Team', icon: 'user', roles: ['admin'], children: [{ label: 'Members', icon: 'users', to: '/team' }, { label: 'Roles', icon: 'shield', to: '/team/roles' }] },
@@ -59,7 +59,8 @@ const NAV: { group: string; items: Item[] }[] = [
 /** Breadcrumb trail for each page, like "Dashboard / Setup / Trip Fees". */
 const CRUMBS: [string, string[]][] = [
   ['/live', ['Operations', 'Live operations']], ['/finances/revenue', ['Finances', 'Revenue']], ['/finances/ledger', ['Finances', 'Ledger']], ['/safety', ['Operations', 'Safety Center']], ['/customers', ['Users', 'Customers']],
-  ['/trips', ['Trips']], ['/pricing', ['Setup', 'Trip Fees']], ['/drivers', ['Users', 'Drivers']], ['/onboarding', ['Users', 'Drivers', 'Onboarding']],
+  ['/trips', ['Trips']], ['/pricing', ['Setup', 'Trip Fees']], ['/setup/asset-types', ['Setup', 'Asset Type']], ['/setup/revenue', ['Setup', 'Revenue Setup']], ['/setup/cancellation', ['Setup', 'Cancellation Policy']],
+  ['/finances/stakeholders', ['Finances', 'Stakeholder payouts']], ['/promo', ['Promo']], ['/support', ['Support']], ['/drivers', ['Users', 'Drivers']], ['/onboarding', ['Users', 'Drivers', 'Onboarding']],
   ['/people', ['Users', 'Profile']], ['/vehicles', ['Vehicles']], ['/finances/wallet', ['Finances', 'Wallet']], ['/finances/payouts', ['Finances', 'Driver payouts']],
   ['/finances/adjustments', ['Finances', 'Adjustments']], ['/finances/reconciliation', ['Finances', 'Reconciliation']], ['/activity', ['Activity Logs']], ['/team/roles', ['Team', 'Roles']], ['/team', ['Team', 'Members']],
 ];
@@ -115,7 +116,7 @@ export default function Layout({ toggleTheme }: { toggleTheme: () => void }) {
                       </button>
                       {expanded && !collapsed && (
                         <div className="sub-nav">
-                          {i.children.map((c) => c.to
+                          {i.children.filter((c) => !c.roles || !me || c.roles.includes(me.role as Role)).map((c) => c.to
                             ? <NavLink key={c.label} to={c.to} className={({ isActive }) => 'nav sub' + (isActive ? ' on' : '')}><Icon name={c.icon} size={16} /><span>{c.label}</span></NavLink>
                             : <Soon key={c.label} icon={c.icon} label={c.label} sub />)}
                         </div>

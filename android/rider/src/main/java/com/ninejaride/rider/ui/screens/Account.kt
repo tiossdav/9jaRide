@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -195,9 +196,13 @@ fun ReferScreen(vm: RiderViewModel) {
 @Composable
 fun HelpScreen(vm: RiderViewModel) {
     val ctx = LocalContext.current
-    Column(Modifier.fillMaxSize().background(C.Bg)) {
+    LaunchedEffect(Unit) { vm.loadReports() }
+    Column(Modifier.fillMaxSize().background(C.Bg).imePadding()) {
         Box(Modifier.statusBarsPadding()) { ScreenHeader("Help and support", onBack = vm::pop) }
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            com.ninejaride.core.ui.components.ReportProblemForm(vm.reportSending, vm.reportNotice) { topic, message -> vm.sendReport(topic, message) }
+            com.ninejaride.core.ui.components.MyReports(vm.reports)
+            Gap(8.dp)
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 MenuRow(Ic.Mail, "Email support", SUPPORT_EMAIL, { ctx.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$SUPPORT_EMAIL"))) })
                 MenuRow(Ic.Warning, "Emergency (112)", "Call the national emergency line", { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:112"))) }, tint = C.RedText)

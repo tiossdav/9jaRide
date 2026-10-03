@@ -37,13 +37,13 @@ npm run e2e:ui             # Playwright's visual runner: watch each step, rewind
 ```
 # terminal 1 (backend, with the admin site allowed)
 cd backend && npm run build
-DATABASE_URL=postgres://jaride:jaride@localhost:5432/jaride JWT_SECRET=any-long-random-string-at-least-32-chars ADMIN_ORIGIN=http://localhost:5173 node dist/src/main.js
+DATABASE_URL=postgres://jaride:jaride@localhost:5432/jaride JWT_SECRET=any-long-random-string-at-least-32-chars ADMIN_ORIGIN=http://localhost:4173,http://localhost:5173 node dist/src/main.js
 
 # terminal 2
 cd admin && npm run e2e
 ```
 
-The tests create their own staff accounts for the run (through `backend/scripts/create-staff.ts`) and never touch yours. A failing test leaves a screenshot, a trace and an `error-context.md` under `admin/test-results/`; open the trace with `npx playwright show-trace <trace.zip>` to step through what the browser did. The HTML report is `admin/playwright-report/`.
+The tests build the portal and serve it on port 4173 (like production would), so they do not depend on the dev server. The tests create their own staff accounts for the run (through `backend/scripts/create-staff.ts`) and never touch yours. A failing test leaves a screenshot, a trace and an `error-context.md` under `admin/test-results/`; open the trace with `npx playwright show-trace <trace.zip>` to step through what the browser did. The HTML report is `admin/playwright-report/`.
 
 ### Android
 
@@ -70,6 +70,8 @@ Android: in Android Studio, open the `android/` folder, choose the `rider` or `d
 - A confirmation box that closed as if an action had worked when the server had refused it (a page caught the error before the box could show it).
 - The same-start-time rule on fee changes (two versions cannot start at the same moment).
 - Dev servers disturbing integration runs that share a database.
+- A default 5-second test timeout that the heavier API tests outgrew as the database filled up (now 30 seconds).
+- A clock difference between the app and the database flipping a new promo code to "not active yet" (the database's clock now decides).
 
 ## What is not covered yet
 

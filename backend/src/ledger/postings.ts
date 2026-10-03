@@ -22,17 +22,27 @@ export function planTopUp(userId: string, amount: Kobo): Posting[] {
  * Split a fare. The flat daily tax is remitted to its own account and is not commissionable;
  * commission is taken on the rest (rounding line included). Assumption, pending the accountant (spec decision).
  */
-function splitFare(fare: Kobo, tax: Kobo, bps: number): { commission: Kobo; driverShare: Kobo } {
+function splitFare(fare: Kobo, tax: Kobo, bps: number, taxCommissionable = false): { commission: Kobo; driverShare: Kobo } {
   if (!Number.isSafeInteger(tax) || tax < 0 || tax > fare) throw new RangeError(`tax must be between 0 and the fare, got ${tax}`);
-  const commission = percentOf(fare - tax, bps);
+  // taxCommissionable: the commission is worked out on the whole fare, tax line included (an admin setting).
+  const commission = percentOf(taxCommissionable ? fare : fare - tax, bps);
+  if (commission + tax > fare) throw new RangeError(`commission ${commission} and tax ${tax} are more than the fare ${fare}`);
   return { commission, driverShare: fare - tax - commission };
 }
 
+function assertDiscount(discount: Kobo, fare: Kobo) {
+  if (!Number.isSafeInteger(discount) || discount < 0 || discount > fare) throw new RangeError(`discount must be between 0 and the fare, got ${discount}`);
+}
+
 /** Wallet trip: rider wallet -> driver wallet (fare minus tax minus commission), platform commission and tax. */
-export function planWalletTrip(riderId: string, driverId: string, fare: Kobo, tax: Kobo = 0, bps = COMMISSION_BPS): Posting[] {
+export function planWalletTrip(riderId: string, driverId: string, fare: Kobo, tax: Kobo = 0, bps = COMMISSION_BPS, taxCommissionable = false, discount: Kobo = 0): Posting[] {
   assertKobo(fare, 'fare');
-  const { commission, driverShare } = splitFare(fare, tax, bps);
-  const postings: Posting[] = [{ account: walletCode(riderId), amountKobo: -fare }];
+  assertDiscount(discount, fare);
+  const { commission, driverShare } = splitFare(fare, tax, bps, taxCommissionable);
+  // A promo code lowers what the rider pays; the platform makes up the difference, so the driver's share is untouched.
+  const postings: Posting[] = [];
+  if (fare - discount > 0) postings.push({ account: walletCode(riderId), amountKobo: -(fare - discount) });
+  if (discount > 0) postings.push({ account: 'platform:promo', amountKobo: -discount });
   if (driverShare > 0) postings.push({ account: walletCode(driverId), amountKobo: driverShare });
   if (commission > 0) postings.push({ account: 'platform:commission', amountKobo: commission });
   if (tax > 0) postings.push({ account: 'platform:tax', amountKobo: tax });
@@ -44,11 +54,15 @@ export function planWalletTrip(riderId: string, driverId: string, fare: Kobo, ta
  * they collected on the platform's behalf. It is a debt, so it can push their wallet negative
  * (spec: "Cash earnings and payouts").
  */
-export function planCashTrip(driverId: string, fare: Kobo, tax: Kobo = 0, bps = COMMISSION_BPS): Posting[] {
+export function planCashTrip(driverId: string, fare: Kobo, tax: Kobo = 0, bps = COMMISSION_BPS, taxCommissionable = false, discount: Kobo = 0): Posting[] {
   assertKobo(fare, 'fare');
-  const { commission } = splitFare(fare, tax, bps);
-  const owed = commission + tax;
-  const postings: Posting[] = [{ account: walletCode(driverId), amountKobo: -owed }];
+  assertDiscount(discount, fare);
+  const { commission } = splitFare(fare, tax, bps, taxCommissionable);
+  // The rider paid the driver less cash because of the promo; the platform pays the driver the difference.
+  const owed = commission + tax - discount;
+  const postings: Posting[] = [];
+  if (owed !== 0) postings.push({ account: walletCode(driverId), amountKobo: -owed });
+  if (discount > 0) postings.push({ account: 'platform:promo', amountKobo: -discount });
   if (commission > 0) postings.push({ account: 'platform:commission', amountKobo: commission });
   if (tax > 0) postings.push({ account: 'platform:tax', amountKobo: tax });
   return postings;

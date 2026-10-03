@@ -184,6 +184,25 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---- report a problem
+    var reportSending by mutableStateOf(false)
+    var reportNotice by mutableStateOf<String?>(null)
+    val reports = androidx.compose.runtime.mutableStateListOf<com.ninejaride.core.ui.components.MyReport>()
+    private var reportKey: String? = null
+
+    fun loadReports() { if (!demo) viewModelScope.launch { runCatching { api.myReports() }.getOrNull()?.let { reports.clear(); reports.addAll(it) } } }
+
+    fun sendReport(topic: String, message: String) {
+        if (demo) { reportNotice = "Demo mode: reports are not sent anywhere."; return }
+        val key = reportKey ?: java.util.UUID.randomUUID().toString().also { reportKey = it }
+        viewModelScope.launch {
+            reportSending = true; reportNotice = null
+            try { api.reportProblem(key, topic, message); reportKey = null; reportNotice = "Thank you. We have your report and will look into it."; loadReports() }
+            catch (e: ApiException) { reportNotice = if (e.status >= 500) "We could not send that. Please try again." else e.message }
+            finally { reportSending = false }
+        }
+    }
+
     fun logout() {
         dialog = null
         viewModelScope.launch {

@@ -1,4 +1,5 @@
-export type Category = 'regular' | 'comfort' | 'package';
+/** A ride category's code, such as 'regular'. The list is data an admin manages (asset_types), not a fixed set. */
+export type Category = string;
 
 export const OFFER_TIMEOUT_SECONDS = Number(process.env.OFFER_TIMEOUT_SECONDS ?? 15);
 export const SEARCH_WINDOW_SECONDS = Number(process.env.SEARCH_WINDOW_SECONDS ?? 90);

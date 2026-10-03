@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -331,26 +332,16 @@ fun BonusScreen(vm: DriverViewModel) {
     }
 }
 
-/** P5. Messaging is not connected to a support desk yet. */
+/** P5. Reports go to the support desk in the admin portal; the reply shows here once staff resolve them. */
 @Composable
 fun HelpScreen(vm: DriverViewModel) {
-    var notice by remember { mutableStateOf<String?>(null) }
-    Box(Modifier.fillMaxSize().background(C.Bg)) {
-        Column(Modifier.fillMaxSize()) {
-            ScreenHeader("Help & support", "Contact our team", vm::pop)
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                MenuRow(Ic.Warning, "Safety issue", "Goes straight to the safety team", { notice = "Safety reports are not connected yet. If you are in danger, use the SOS button on the home screen." }, tint = C.Red)
-                MenuRow(Ic.Box, "Problem with a trip", "Pick a trip and tell us", { notice = "Trip reports are not connected yet." })
-                MenuRow(Ic.Wallet, "Wallet or payout", "Top-ups, bonuses, payouts", { notice = "Wallet and payout questions are not connected yet." })
-                MenuRow(Ic.Phone, "Call us", "[SUPPORT PHONE]", { notice = "The support phone number has not been set yet." }, showChevron = false)
-            }
-        }
-        if (notice != null) {
-            SheetOverlay(onDismiss = { notice = null }) {
-                Txt("Not available yet", 18f, 800)
-                Txt(notice!!, 13.5f, 500, C.Muted)
-                Btn("OK", { notice = null }, Modifier.fillMaxWidth())
-            }
+    androidx.compose.runtime.LaunchedEffect(Unit) { vm.loadReports() }
+    Column(Modifier.fillMaxSize().background(C.Bg).imePadding()) {
+        ScreenHeader("Help & support", "Tell us what went wrong", vm::pop)
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            com.ninejaride.core.ui.components.ReportProblemForm(vm.reportSending, vm.reportNotice) { topic, message -> vm.sendReport(topic, message) }
+            com.ninejaride.core.ui.components.MyReports(vm.reports)
+            Txt("In danger? Use the SOS button on the home screen, or call 112.", 12.5f, 600, C.RedText, Modifier.padding(top = 8.dp))
         }
     }
 }

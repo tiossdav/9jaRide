@@ -125,7 +125,7 @@ describe('go() inside the second click', () => {
     expect(after).toHaveBeenCalledTimes(1);
   });
   it('useAction().run reports the error itself and does not throw', async () => {
-    let result: ReturnType<typeof useAction>;
+    let result!: ReturnType<typeof useAction>;
     function Probe() { result = useAction(); return null; }
     render(<Probe />);
     await act(async () => { await result.run(() => Promise.reject(new Error('boom'))); });

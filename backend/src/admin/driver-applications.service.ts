@@ -14,7 +14,7 @@ export const REQUIRED_DOCUMENTS: DocumentKind[] = (process.env.REQUIRED_DOCUMENT
 const NEEDS_EXPIRY: DocumentKind[] = ['drivers_licence', 'insurance', 'road_worthiness'];
 
 export interface ApplicationInput {
-  vehicle: { category: 'regular' | 'comfort' | 'package'; make: string; colour: string; plate: string };
+  vehicle: { category: string; make: string; colour: string; plate: string };
   documents: { kind: DocumentKind; fileRef: string; expiresOn?: string }[];
 }
 
@@ -158,6 +158,8 @@ export class DriverApplicationsService {
       ];
       if (problems.length) throw new ConflictException({ code: 'documents_not_ready', message: problems.join('; ') });
 
+      const cat = await client.query(`SELECT active FROM asset_types WHERE code = $1`, [app.vehicle_category]);
+      if (!cat.rows[0]?.active) throw new ConflictException({ code: 'category_off', message: 'that vehicle category is switched off' });
       await client.query(`UPDATE vehicles SET active = false WHERE driver_id = $1 AND active`, [app.driver_id]);
       try {
         await client.query(

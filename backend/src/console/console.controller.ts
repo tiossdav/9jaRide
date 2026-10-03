@@ -4,7 +4,7 @@ import { CurrentUser, Principal } from '../auth/auth.types';
 import { StaffAuditInterceptor } from '../common/audit.interceptor';
 import { PricingAdminService } from './pricing-admin.service';
 import { VehiclesAdminService } from './vehicles-admin.service';
-import { IsDate, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsDate, IsIn, IsInt, IsOptional, IsString, Matches, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { Roles } from '../auth/auth.types';
 import { ConsoleService } from './console.service';
 
@@ -32,7 +32,7 @@ class LedgerQuery {
 class DaysQuery { @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(90) days?: number; }
 
 class ProposalDto {
-  @IsIn(['regular', 'comfort', 'package']) category!: 'regular' | 'comfort' | 'package';
+  @Matches(/^[a-z][a-z0-9_]{1,29}$/) category!: string;
   @Type(() => Date) @IsDate() effectiveFrom!: Date;
   @IsInt() @Min(0) @Max(100_000_000) baseKobo!: number;
   @IsInt() @Min(0) @Max(10_000_000) perKmKobo!: number;
@@ -49,7 +49,7 @@ class ReasonDto { @IsString() @MinLength(3) @MaxLength(500) reason!: string; }
 
 class NewVehicleDto {
   @IsUUID() driverId!: string;
-  @IsIn(['regular', 'comfort', 'package']) category!: string;
+  @Matches(/^[a-z][a-z0-9_]{1,29}$/) category!: string;
   @IsString() @MinLength(2) @MaxLength(50) make!: string;
   @IsString() @MinLength(2) @MaxLength(30) colour!: string;
   @IsString() @MinLength(5) @MaxLength(14) plate!: string;

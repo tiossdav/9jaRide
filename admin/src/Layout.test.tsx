@@ -33,9 +33,17 @@ describe('sidebar by role', () => {
     for (const name of ['Dashboard', 'Live operations', 'Safety Center', 'Trips', 'Team']) expect(side.queryByText(name)).not.toBeInTheDocument();
   });
 
+  it('lets finance reach the revenue rules but not the trip fees', async () => {
+    const side = await open('finance', '/finances/wallet');
+    await userEvent.click(side.getByRole('button', { name: /Setup/ }));
+    expect(side.getByText('Revenue Setup')).toBeInTheDocument();
+    expect(side.queryByText('Trip Fees')).not.toBeInTheDocument();
+  });
+
   it('marks pages that are not built yet as coming soon', async () => {
     const side = await open('admin');
-    expect(side.getByText('Support').closest('[aria-disabled="true"]')).not.toBeNull();
+    expect(side.getByText('Referrals').closest('[aria-disabled="true"]')).not.toBeNull();
+    expect(side.getByText('Support').closest('[aria-disabled="true"]')).toBeNull(); // built, so it is a real link
   });
 
   it('asks before signing out', async () => {

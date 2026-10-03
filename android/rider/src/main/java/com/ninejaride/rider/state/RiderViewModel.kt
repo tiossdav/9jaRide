@@ -70,10 +70,12 @@ enum class Dialog { OtpDone, NotAllowed, CancelRide, NoDriver, Logout, Appearanc
 
 val CANCEL_REASONS = listOf("Driver is taking too long", "I changed my plans", "Booked by mistake", "Driver asked me to cancel", "Other")
 val TRIP_TAGS = listOf("Polite", "On time", "Clean car", "Safe driving")
-val CATEGORIES = listOf("regular", "comfort", "package")
+/** The categories on offer right now, in the order an admin set. Filled from the server; these three are only the first-run fallback. */
+var CATEGORY_NAMES: Map<String, String> = linkedMapOf("regular" to "Regular", "comfort" to "Comfort", "package" to "Send Package")
+val CATEGORIES: List<String> get() = CATEGORY_NAMES.keys.toList()
 val LAGOS: ZoneId = ZoneId.of("Africa/Lagos")
 
-fun categoryLabel(c: String) = when (c) { "regular" -> "Regular"; "comfort" -> "Comfort"; "package" -> "Send Package"; else -> c }
+fun categoryLabel(c: String) = CATEGORY_NAMES[c] ?: c.replace('_', ' ').replaceFirstChar { it.uppercase() }
 
 class RiderViewModel(app: Application) : AndroidViewModel(app) {
     private val client = ApiClient(app, BuildConfig.API_BASE_URL, BuildConfig.VERSION_NAME)
@@ -203,7 +205,14 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
 
     fun locationDone() { reset(Dest.Main); afterSignIn(); location.start() }
 
+    /** Which kinds of ride to show. Asked of the server so an admin's changes appear without a new app. */
+    fun loadCategories() {
+        viewModelScope.launch { runCatching { api.categories() }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { list -> CATEGORY_NAMES = list.associate { it.code to it.label }; categoriesVersion++ } }
+    }
+    var categoriesVersion by mutableIntStateOf(0)
+
     private fun afterSignIn() {
+        loadCategories()
         viewModelScope.launch { profile = runCatching { api.profile() }.getOrNull() }
         refreshWallet()
         refreshTrips()
@@ -216,6 +225,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
             if (api.session == null) { reset(Dest.Welcome); return@launch }
             try {
                 profile = api.profile()
+                loadCategories()
                 reset(Dest.Main)
                 location.start()
                 refreshWallet(); refreshTrips(); resumeRide()
@@ -305,6 +315,29 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     var selectedCategory by mutableStateOf("regular")
     var payMethod by mutableStateOf("cash")
     var requesting by mutableStateOf(false)
+
+    // ---- promo code
+    var promoText by mutableStateOf("")
+    var promo by mutableStateOf<com.ninejaride.rider.data.PromoResult?>(null)
+    var promoMessage by mutableStateOf<String?>(null)
+    var promoChecking by mutableStateOf(false)
+
+    fun applyPromo() {
+        val r = route ?: return
+        val code = promoText.trim()
+        if (code.length < 3) { promoMessage = "Enter a promo code."; return }
+        viewModelScope.launch {
+            promoChecking = true; promoMessage = null
+            try { promo = api.checkPromo(code, selectedCategory, r.distanceM, r.durationS); promoText = promo!!.code }
+            catch (e: ApiException) { promo = null; promoMessage = words(e, "We could not check that code. Please try again.") }
+            finally { promoChecking = false }
+        }
+    }
+
+    fun clearPromo() { promo = null; promoMessage = null; promoText = "" }
+
+    /** A code is checked against one category; choosing another one asks again. */
+    fun chooseCategory(c: String) { selectedCategory = c; if (promo != null) { val keep = promoText; promo = null; promoText = keep; applyPromo() } }
     private var rideKey: String? = null
 
     fun goToRideSelection() {
@@ -346,13 +379,13 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
             val key = rideKey ?: RiderApi.newKey().also { rideKey = it }
             try {
                 val id = try {
-                    api.requestRide(key, q.id, selectedCategory, payMethod, a.point, a.address, b.point, b.address)
+                    api.requestRide(key, q.id, selectedCategory, payMethod, a.point, a.address, b.point, b.address, promo?.code)
                 } catch (e: ApiException) {
                     if (e.code != "quote_invalid") throw e
                     // The quote only lasts five minutes: take a fresh one and try again once.
                     val r = route ?: Routing.routeInfo(a.point, b.point)
                     val fresh = api.quote(selectedCategory, r.distanceM, r.durationS)
-                    api.requestRide(RiderApi.newKey().also { rideKey = it }, fresh.id, selectedCategory, payMethod, a.point, a.address, b.point, b.address)
+                    api.requestRide(RiderApi.newKey().also { rideKey = it }, fresh.id, selectedCategory, payMethod, a.point, a.address, b.point, b.address, promo?.code)
                 }
                 rideKey = null
                 startWatching(id)
@@ -368,7 +401,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun clearBooking() { pickup = null; dropoff = null; pickupText = ""; dropoffText = ""; suggestions = emptyList(); route = null; quotes.value = emptyMap(); rideKey = null }
+    fun clearBooking() { promo = null; promoText = ""; promoMessage = null; pickup = null; dropoff = null; pickupText = ""; dropoffText = ""; suggestions = emptyList(); route = null; quotes.value = emptyMap(); rideKey = null }
 
     // ------------------------------------------------------------------ the ride in progress
     var ride by mutableStateOf<RideView?>(null)
@@ -483,6 +516,24 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         val b = ride?.let { Place(it.dropoffAddress ?: "Drop-off", it.dropoff) }
         endRide()
         if (a != null && b != null) { pickup = a; dropoff = b; pickupText = a.address; dropoffText = b.address; push(Dest.WhereTo); goToRideSelection() }
+    }
+
+    // ------------------------------------------------------------------ report a problem
+    var reportSending by mutableStateOf(false)
+    var reportNotice by mutableStateOf<String?>(null)
+    val reports = mutableStateListOf<com.ninejaride.core.ui.components.MyReport>()
+    private var reportKey: String? = null
+
+    fun loadReports() { viewModelScope.launch { runCatching { api.myReports() }.getOrNull()?.let { reports.clear(); reports.addAll(it) } } }
+
+    fun sendReport(topic: String, message: String) {
+        val key = reportKey ?: RiderApi.newKey().also { reportKey = it }
+        viewModelScope.launch {
+            reportSending = true; reportNotice = null
+            try { api.reportProblem(key, topic, message); reportKey = null; reportNotice = "Thank you. We have your report and will look into it."; loadReports() }
+            catch (e: ApiException) { reportNotice = words(e, "We could not send that. Please try again.") }
+            finally { reportSending = false }
+        }
     }
 
     // ------------------------------------------------------------------ SOS

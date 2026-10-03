@@ -12,6 +12,9 @@ import {
   walletCode,
 } from './postings';
 
+/** The revenue rules in force when the trip began. Left out, the long-standing defaults apply. */
+export interface TripRules { commissionBps?: number; taxCommissionable?: boolean; discountKobo?: number }
+
 export class InsufficientFundsError extends Error {
   constructor(public readonly account: string, public readonly availableKobo: number, public readonly neededKobo: number) {
     super(`insufficient funds in ${account}: available ${availableKobo}, needed ${neededKobo} kobo`);
@@ -159,7 +162,7 @@ export class LedgerService {
   }
 
   /** Complete a wallet trip: capture the hold and post the split in the same transaction. */
-  async completeWalletTrip(client: PoolClient, rideId: string, riderId: string, driverId: string, fare: number, tax = 0) {
+  async completeWalletTrip(client: PoolClient, rideId: string, riderId: string, driverId: string, fare: number, tax = 0, rules: TripRules = {}) {
     // The hold already reserved this money, so check against the raw balance, not balance minus holds.
     const posted = await this.post(
       client,
@@ -167,7 +170,7 @@ export class LedgerService {
         kind: 'trip_wallet',
         reference: rideId,
         idempotencyKey: `trip:${rideId}`,
-        postings: planWalletTrip(riderId, driverId, fare, tax),
+        postings: planWalletTrip(riderId, driverId, fare, tax, rules.commissionBps, rules.taxCommissionable, rules.discountKobo),
       },
       { ignoreHolds: true },
     );
@@ -179,7 +182,7 @@ export class LedgerService {
   }
 
   /** Complete a cash trip: the driver owes the commission. The driver wallet may go negative. */
-  async completeCashTrip(client: PoolClient, rideId: string, driverId: string, fare: number, tax = 0) {
+  async completeCashTrip(client: PoolClient, rideId: string, driverId: string, fare: number, tax = 0, rules: TripRules = {}) {
     await this.ensureWallet(client, driverId);
     // Commission debt may take this wallet negative; allow it for this posting only.
     const posted = await this.post(
@@ -188,7 +191,7 @@ export class LedgerService {
         kind: 'trip_cash',
         reference: rideId,
         idempotencyKey: `trip:${rideId}`,
-        postings: planCashTrip(driverId, fare, tax),
+        postings: planCashTrip(driverId, fare, tax, rules.commissionBps, rules.taxCommissionable, rules.discountKobo),
       },
       { allowNegative: [walletCode(driverId)] },
     );

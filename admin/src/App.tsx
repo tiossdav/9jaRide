@@ -12,6 +12,10 @@ import Person from './pages/Person';
 import { LedgerPage, Revenue } from './pages/Insights';
 import VehicleDetail from './pages/VehicleDetail';
 import Vehicles from './pages/Vehicles';
+import { AssetTypes, StakeholderPayouts } from './pages/Catalog';
+import Promos from './pages/Promos';
+import { CancellationPolicy, RevenueSetup } from './pages/Rules';
+import { SupportQueue, TicketDetail } from './pages/SupportDesk';
 import { MemberDetail, Members, Roles } from './pages/Team';
 import Live from './pages/Live';
 import Login from './pages/Login';
@@ -53,6 +57,13 @@ export default function App() {
         <Route path="finances/reconciliation" element={<Reconciliation />} />
         <Route path="finances/revenue" element={<Revenue />} />
         <Route path="finances/ledger" element={<LedgerPage />} />
+        <Route path="setup/asset-types" element={<AssetTypes />} />
+        <Route path="setup/revenue" element={<RevenueSetup />} />
+        <Route path="setup/cancellation" element={<CancellationPolicy />} />
+        <Route path="finances/stakeholders" element={<StakeholderPayouts />} />
+        <Route path="promo" element={<Promos />} />
+        <Route path="support" element={<SupportQueue />} />
+        <Route path="support/:id" element={<TicketDetail />} />
         <Route path="activity" element={<Activity />} />
         <Route path="team" element={<Members />} />
         <Route path="team/:id" element={<MemberDetail />} />

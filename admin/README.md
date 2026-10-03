@@ -26,6 +26,10 @@ cd admin && npm install && npm run dev                                        # 
 | Finances: Wallet overview, Driver payouts (approve, reject), Adjustments (request, approve, reject), Reconciliation (run, resolve exceptions) | `/admin/console/finance`, `/admin/payouts*`, `/admin/adjustments*`, `/admin/payment-exceptions*`, `/admin/reconciliation/run` |
 | Team: members (invite, change role, switch off, reset password), member profile, Roles overview. Admin only | `/admin/team*` |
 | Change password, and a forced change for new invitees | `POST /auth/staff/change-password` |
+| **Setup:** Asset Types (add, rename, switch off), Revenue Setup (commission %, with or without tax, who shares it), Cancellation Policy (window, minimum trips, tiers). Rule changes are proposed with a start time and approved by a different admin | `/admin/asset-types`, `/admin/settings/*` |
+| Stakeholder payouts: what each party is owed from the commission, request and approve payouts | `/admin/stakeholders*` |
+| Promo: create and edit codes (percent or fixed, caps, limits, dates, categories), uses | `/admin/promos*` |
+| Support: tickets raised from the apps, take, note, resolve with a reply the person sees, reopen | `/admin/support*` |
 | Activity Logs (admin only) | `/admin/console/activity` |
 | Trip Fees: live rates, version history, propose new fees, approve by a different admin, discard | `/admin/console/pricing*` |
 | Finances: Revenue (by day, category, method) and Ledger (every transaction with its entries) | `/admin/console/revenue`, `/admin/console/ledger*` |
@@ -37,8 +41,9 @@ Support and admin staff can use the operations screens; finance and admin staff 
 
 - **Two-step code at sign-in**: the backend has none. Inviting a team member shows a one-time password to the admin (no email is sent yet); the invitee must change it at first sign-in.
 - **Custom roles**: the three roles (support, finance, admin) are enforced by the server, so the Roles page is read-only.
-- Support tickets, Promo, Referrals, Asset Types, Bonus Rules and Awards, Cancellation Policy, Revenue Setup and Stakeholder payouts. These menu items are shown but dimmed: each needs business rules decided and new backend tables first.
+- **Bonus Rules, Bonus Awards and Referrals**: left out on purpose until the reward and bonus criteria are decided. They stay dimmed in the menu.
 - Document viewing in onboarding: file upload is not built, so only the stored reference is shown.
+- Support tickets have staff notes and a final reply; there is no back-and-forth chat with the rider or driver.
 
 ## Before launch
 

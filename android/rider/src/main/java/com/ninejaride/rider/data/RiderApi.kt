@@ -43,6 +43,10 @@ data class RideView(
     val dropoffAddress: String?,
     val estimate: Pair<Long, Long>?,
     val fareKobo: Long?,
+    /** Taken off by a promo code. Zero when there is none. */
+    val discountKobo: Long,
+    val payableKobo: Long?,
+    val promoCode: String?,
     val distanceM: Int?,
     val durationS: Int?,
     val myRating: Int?,
@@ -68,7 +72,10 @@ data class RideListItem(
 )
 
 data class ReceiptLine(val kind: String, val label: String, val amountKobo: Long)
-data class Receipt(val lines: List<ReceiptLine>, val totalKobo: Long)
+data class Receipt(val lines: List<ReceiptLine>, val totalKobo: Long, val discountKobo: Long, val promoCode: String?, val payableKobo: Long)
+
+data class Category(val code: String, val label: String)
+data class PromoResult(val code: String, val description: String, val discountKobo: Long, val expectedKobo: Long, val payKobo: Long)
 
 data class ScheduledRide(val rideId: String, val status: String, val scheduledFor: String)
 data class ScheduleView(
@@ -108,7 +115,7 @@ private fun ride(o: JsonObject): RideView {
         category = o.str("category") ?: "regular", paymentMethod = o.str("paymentMethod") ?: "cash",
         pickup = point(o.obj("pickup")), dropoff = point(o.obj("dropoff")),
         pickupAddress = o.str("pickupAddress"), dropoffAddress = o.str("dropoffAddress"),
-        estimate = estimate(o.obj("estimate")), fareKobo = o.long("fareKobo"), distanceM = o.int("distanceM"), durationS = o.int("durationS"),
+        estimate = estimate(o.obj("estimate")), fareKobo = o.long("fareKobo"), discountKobo = o.long("discountKobo") ?: 0, payableKobo = o.long("payableKobo"), promoCode = o.str("promoCode"), distanceM = o.int("distanceM"), durationS = o.int("durationS"),
         myRating = o.int("myRating"), scheduledFor = o.str("scheduledFor"), statusChangedAt = o.str("statusChangedAt"),
         createdAt = o.str("createdAt"), cancelReason = o.str("cancelReason"),
         driver = d?.let { DriverView(it.str("name") ?: "Driver", it.dbl("rating"), it.str("phone"), v?.str("make") ?: "", v?.str("colour") ?: "", v?.str("plate") ?: "") },
@@ -130,13 +137,31 @@ class RiderApi(private val client: ApiClient) {
     }
 
     /** One key per attempt, reused on a retry, so a bad connection can never book two rides. */
-    suspend fun requestRide(key: String, quoteId: String, category: String, method: String, from: MapPoint, fromAddress: String?, to: MapPoint, toAddress: String?): String {
+    /** The kinds of ride on offer right now: switched on by an admin, with fees in force. */
+    suspend fun categories(): List<Category> = client.call("GET", "/rides/categories", auth = true).items().map { Category(it.str("code")!!, it.str("label") ?: it.str("code")!!) }
+
+    /** Would this code work, and what would it take off? Using it up happens only when the ride is requested. */
+    suspend fun checkPromo(code: String, category: String, distanceM: Int, durationS: Int): PromoResult {
+        val o = client.call("POST", "/rides/promo/check", buildJsonObject { put("code", code); put("category", category); put("distanceM", distanceM.coerceAtLeast(1)); put("durationS", durationS) }.toString(), auth = true)
+        return PromoResult(o.str("code")!!, o.str("description") ?: "", o.long("discountKobo") ?: 0, o.long("expectedKobo") ?: 0, o.long("payKobo") ?: 0)
+    }
+
+    suspend fun reportProblem(key: String, topic: String, message: String, rideId: String? = null) {
+        client.call("POST", "/support/tickets", buildJsonObject { put("topic", topic); put("message", message); rideId?.let { put("rideId", it) } }.toString(), auth = true, headers = mapOf("Idempotency-Key" to key))
+    }
+
+    suspend fun myReports(): List<com.ninejaride.core.ui.components.MyReport> = client.call("GET", "/support/tickets", auth = true).items().map {
+        com.ninejaride.core.ui.components.MyReport(it.str("code") ?: "", it.str("topic") ?: "", it.str("message") ?: "", it.str("status") ?: "OPEN", it.str("resolution"))
+    }
+
+    suspend fun requestRide(key: String, quoteId: String, category: String, method: String, from: MapPoint, fromAddress: String?, to: MapPoint, toAddress: String?, promoCode: String? = null): String {
         val body = buildJsonObject {
             put("quoteId", quoteId); put("category", category); put("paymentMethod", method)
             put("pickup", buildJsonObject { put("lat", from.lat); put("lng", from.lng) })
             put("dropoff", buildJsonObject { put("lat", to.lat); put("lng", to.lng) })
             fromAddress?.let { put("pickupAddress", it) }
             toAddress?.let { put("dropoffAddress", it) }
+            promoCode?.let { put("promoCode", it) }
         }.toString()
         return client.call("POST", "/rides", body, auth = true, headers = mapOf("Idempotency-Key" to key))["rideId"]!!.jsonPrimitive.content
     }
@@ -168,7 +193,8 @@ class RiderApi(private val client: ApiClient) {
 
     suspend fun receipt(rideId: String): Receipt {
         val o = client.call("GET", "/rides/$rideId/receipt", auth = true)
-        return Receipt(o.arr("lines")!!.map { l -> val x = l.jsonObject; ReceiptLine(x.str("kind") ?: "", x.str("label") ?: "", x.long("amountKobo") ?: 0) }, o.long("totalKobo") ?: 0)
+        return Receipt(o.arr("lines")!!.map { l -> val x = l.jsonObject; ReceiptLine(x.str("kind") ?: "", x.str("label") ?: "", x.long("amountKobo") ?: 0) }, o.long("totalKobo") ?: 0,
+            o.long("discountKobo") ?: 0, o.str("promoCode"), o.long("payableKobo") ?: (o.long("totalKobo") ?: 0))
     }
 
     suspend fun sos(key: String, at: MapPoint?): SosResult {

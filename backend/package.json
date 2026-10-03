@@ -65,6 +65,7 @@
       "!main.ts",
       "!**/*.module.ts"
     ],
-    "coverageDirectory": "../coverage"
+    "coverageDirectory": "../coverage",
+    "testTimeout": 30000
   }
 }

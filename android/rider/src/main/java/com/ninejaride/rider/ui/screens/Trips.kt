@@ -174,7 +174,10 @@ fun TripDetailsScreen(vm: RiderViewModel, id: String) {
                 MoneyLine("Category", categoryLabel(r.category))
                 MoneyLine("Paid with", if (r.paymentMethod == "wallet") "Wallet" else "Cash")
                 r.distanceM?.let { MoneyLine("Distance", "%.1f km".format(it / 1000.0)) }
-                if (r.fareKobo != null) { Divider(); MoneyLine("Fare", naira(r.fareKobo), bold = true) }
+                if (r.fareKobo != null) {
+                    Divider(); MoneyLine("Fare", naira(r.fareKobo), bold = r.discountKobo == 0L)
+                    if (r.discountKobo > 0) { MoneyLine("Promo ${r.promoCode ?: ""}", "-" + naira(r.discountKobo)); Divider(); MoneyLine("You paid", naira(r.payableKobo ?: r.fareKobo), bold = true) }
+                }
                 else r.estimate?.let { Divider(); MoneyLine("Estimate", fareRange(it.first, it.second)) }
             }
             r.driver?.let { d ->
@@ -205,7 +208,12 @@ fun ReceiptScreen(vm: RiderViewModel, id: String) {
             else Card {
                 rc.lines.forEach { MoneyLine(it.label.ifBlank { it.kind }, naira(it.amountKobo, true)) }
                 Divider()
-                MoneyLine("Total", naira(rc.totalKobo, true), bold = true)
+                MoneyLine("Total", naira(rc.totalKobo, true), bold = rc.discountKobo == 0L)
+                if (rc.discountKobo > 0) {
+                    MoneyLine("Promo ${rc.promoCode ?: ""}", "-" + naira(rc.discountKobo, true))
+                    Divider()
+                    MoneyLine("You paid", naira(rc.payableKobo, true), bold = true)
+                }
             }
         }
         Box(Modifier.navigationBarsPadding().padding(20.dp)) { Btn("Done", { vm.pop() }, Modifier.fillMaxWidth()) }

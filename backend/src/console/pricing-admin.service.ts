@@ -3,7 +3,7 @@ import { Pool } from 'pg';
 import { PG_POOL } from '../common/infra.module';
 
 export interface PricingProposal {
-  category: 'regular' | 'comfort' | 'package';
+  category: string;
   effectiveFrom: Date;
   baseKobo: number; perKmKobo: number; perMinuteKobo: number; waitingPerMinuteKobo: number; freeWaitingSeconds: number;
   taxKobo: number; roundingStepKobo: number; estimateLowBps: number; estimateHighBps: number;
@@ -29,6 +29,7 @@ export class PricingAdminService {
       );
       return { id: rows[0].id };
     } catch (e: any) {
+      if (e?.code === '23503') throw new BadRequestException('unknown category');
       if (e?.code === '23505') throw new ConflictException('fees for that category already start at that exact time');
       throw e;
     }

@@ -215,7 +215,8 @@ private fun TripCompleteScreen(vm: RiderViewModel, r: RideView) {
             Gap(16.dp)
             Box(Modifier.size(72.dp).clip(CircleShape).background(C.GreenAccent), contentAlignment = Alignment.Center) { Icon24(Ic.Check, Color.White, 36.dp, 2.8f) }
             Txt("You have arrived", 24f, 800, align = TextAlign.Center)
-            Txt(r.fareKobo?.let { naira(it) } ?: "", 34f, 800, C.GreenAccent)
+            Txt((r.payableKobo ?: r.fareKobo)?.let { naira(it) } ?: "", 34f, 800, C.GreenAccent)
+            if (r.discountKobo > 0) Txt("${r.promoCode ?: "Promo"} saved you ${naira(r.discountKobo)}", 13.5f, 700, C.GreenAccent)
             Txt(if (r.paymentMethod == "wallet") "Paid from your wallet" else "Pay your driver in cash", 13.5f, 600, C.Muted)
             Card(Modifier.fillMaxWidth()) { com.ninejaride.core.ui.components.RouteBlock(r.pickupAddress ?: "Pickup", r.dropoffAddress ?: "Drop-off") }
             if (r.myRating == null) {

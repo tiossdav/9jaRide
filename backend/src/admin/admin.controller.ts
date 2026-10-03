@@ -18,7 +18,7 @@ function Reason() {
 // ---------------------------------------------------------------- driver side
 
 class VehicleDto {
-  @IsIn(['regular', 'comfort', 'package']) category!: 'regular' | 'comfort' | 'package';
+  @Matches(/^[a-z][a-z0-9_]{1,29}$/) category!: string;
   @IsString() @MinLength(2) @MaxLength(50) make!: string;
   @IsString() @MinLength(2) @MaxLength(30) colour!: string;
   @IsString() @MinLength(5) @MaxLength(14) plate!: string;

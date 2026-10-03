@@ -1,6 +1,6 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from '@nestjs/common';
 import { InsufficientFundsError } from '../ledger/ledger.service';
-import { NoPricingError, QuoteInvalidError } from '../fare/fare.service';
+import { CategoryUnavailableError, NoPricingError, QuoteInvalidError } from '../fare/fare.service';
 import { InvalidWebhookSignatureError } from '../payments/payments.service';
 import { PayoutStateError, SelfApprovalError } from '../payments/payouts.service';
 
@@ -21,6 +21,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
     }
     if (e instanceof InsufficientFundsError) return send(402, 'insufficient_funds', 'not enough money in the wallet');
     if (e instanceof QuoteInvalidError) return send(422, 'quote_invalid', e.message);
+    if (e instanceof CategoryUnavailableError) return send(422, 'category_unavailable', 'that kind of ride is not available right now');
     if (e instanceof NoPricingError) return send(503, 'no_pricing', 'pricing is not available for this category right now');
     if (e instanceof SelfApprovalError) return send(403, 'self_approval', e.message);
     if (e instanceof PayoutStateError) return send(409, 'payout_state', e.message);

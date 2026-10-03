@@ -57,6 +57,9 @@ export class VehiclesAdminService {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
+      const cat = await client.query(`SELECT active FROM asset_types WHERE code = $1`, [input.category]);
+      if (!cat.rows[0]) throw new NotFoundException('unknown category');
+      if (!cat.rows[0].active) throw new ConflictException({ code: 'category_off', message: 'that category is switched off' });
       const driver = (await client.query(`SELECT id FROM users WHERE id = $1 AND role = 'driver' FOR UPDATE`, [input.driverId])).rows[0];
       if (!driver) throw new NotFoundException('driver not found');
       const old = (await client.query(`UPDATE vehicles SET active = false WHERE driver_id = $1 AND active RETURNING id, category`, [input.driverId])).rows;

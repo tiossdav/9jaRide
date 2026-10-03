@@ -4,6 +4,11 @@ import { AdminModule } from './admin/admin.module';
 import { AppConfigModule } from './app-config/app-config.module';
 import { AuthModule } from './auth/auth.module';
 import { TeamModule } from './team/team.module';
+import { PromoModule } from './promo/promo.module';
+import { SupportModule } from './support/support.module';
+import { StakeholdersModule } from './stakeholders/stakeholders.module';
+import { CatalogModule } from './catalog/catalog.module';
+import { SettingsModule } from './settings/settings.module';
 import { ConsoleModule } from './console/console.module';
 import { HealthController } from './common/health.controller';
 import { InfraModule } from './common/infra.module';
@@ -16,6 +21,6 @@ import { SafetyModule } from './safety/safety.module';
 
 @Module({
   controllers: [HealthController],
-  imports: [ScheduleModule.forRoot(), InfraModule, AuthModule, LedgerModule, FareModule, PaymentsModule, DispatchModule, RidesModule, SafetyModule, AdminModule, ConsoleModule, TeamModule, AppConfigModule],
+  imports: [ScheduleModule.forRoot(), InfraModule, SettingsModule, CatalogModule, AuthModule, LedgerModule, FareModule, PaymentsModule, DispatchModule, RidesModule, SafetyModule, AdminModule, ConsoleModule, TeamModule, StakeholdersModule, PromoModule, SupportModule, AppConfigModule],
 })
 export class AppModule {}

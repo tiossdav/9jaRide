@@ -45,5 +45,14 @@ class Api(context: Context) {
         return AppConfig(o["forceUpdate"]?.jsonPrimitive?.booleanOrNull ?: false, o["updateUrl"]?.jsonPrimitive?.contentOrNull, tips)
     }
 
+    suspend fun reportProblem(key: String, topic: String, message: String) {
+        client.call("POST", "/support/tickets", kotlinx.serialization.json.buildJsonObject { put("topic", kotlinx.serialization.json.JsonPrimitive(topic)); put("message", kotlinx.serialization.json.JsonPrimitive(message)) }.toString(), auth = true, headers = mapOf("Idempotency-Key" to key))
+    }
+
+    suspend fun myReports(): List<com.ninejaride.core.ui.components.MyReport> = client.call("GET", "/support/tickets", auth = true)["items"]?.jsonArray?.map {
+        val o = it.jsonObject
+        com.ninejaride.core.ui.components.MyReport(o["code"]?.jsonPrimitive?.contentOrNull ?: "", o["topic"]?.jsonPrimitive?.contentOrNull ?: "", o["message"]?.jsonPrimitive?.contentOrNull ?: "", o["status"]?.jsonPrimitive?.contentOrNull ?: "OPEN", o["resolution"]?.jsonPrimitive?.contentOrNull)
+    } ?: emptyList()
+
     suspend fun logout() = client.logout()
 }

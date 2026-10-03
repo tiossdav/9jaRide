@@ -10,6 +10,12 @@ export class NoPricingError extends Error {
     super(`no approved pricing in effect for category ${category}`);
   }
 }
+/** The category does not exist, or an admin has switched it off. */
+export class CategoryUnavailableError extends Error {
+  constructor(category: string) {
+    super(`the ${category} category is not available`);
+  }
+}
 export class QuoteInvalidError extends Error {
   constructor() {
     super('quote is expired, not yours, or does not match this ride');
@@ -51,6 +57,9 @@ export class FareService {
 
   /** The approved pricing version in force at `at`. Unapproved or future versions are never used. */
   private async activeVersion(db: Pick<Pool, 'query'>, category: string, at: Date) {
+    // A category an admin has switched off, or that does not exist, is not offered for any new booking.
+    const offered = await db.query(`SELECT active FROM asset_types WHERE code = $1`, [category]);
+    if (!offered.rows[0]?.active) throw new CategoryUnavailableError(category);
     const { rows } = await db.query(
       `SELECT * FROM pricing_versions
         WHERE category = $1 AND zone = $2 AND approved_at IS NOT NULL AND effective_from <= $3

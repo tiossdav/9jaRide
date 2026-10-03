@@ -1,17 +1,17 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query, UseInterceptors } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import {
-  ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsBooleanString, IsDate, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested,
+  ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsBooleanString, IsDate, IsIn, IsInt, Matches, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested,
 } from 'class-validator';
 import { CurrentUser, Principal, Roles } from '../auth/auth.types';
 import { StaffAuditInterceptor } from '../common/audit.interceptor';
+import { AssetTypesService } from '../catalog/asset-types.service';
 import { IdempotencyKey } from '../common/idempotency-key';
 import { LocationService, MAX_BATCH } from './location.service';
 import { RidesService } from './rides.service';
 import { ScheduledRidesService } from './scheduled-rides.service';
 
-const CATEGORIES = ['regular', 'comfort', 'package'] as const;
-type Cat = (typeof CATEGORIES)[number];
+type Cat = string;
 
 class LatLng {
   @IsNumber() @Min(-90) @Max(90) lat!: number;
@@ -19,7 +19,7 @@ class LatLng {
 }
 
 class QuoteDto {
-  @IsIn(CATEGORIES) category!: Cat;
+  @Matches(/^[a-z][a-z0-9_]{1,29}$/) category!: Cat;
   @IsInt() @Min(1) @Max(500_000) distanceM!: number;
   @IsInt() @Min(0) @Max(86_400) durationS!: number;
 }
@@ -28,10 +28,18 @@ class RequestRideDto {
   @IsOptional() @IsString() @MaxLength(200) pickupAddress?: string;
   @IsOptional() @IsString() @MaxLength(200) dropoffAddress?: string;
   @IsUUID() quoteId!: string;
-  @IsIn(CATEGORIES) category!: Cat;
+  @IsOptional() @IsString() @MaxLength(20) promoCode?: string;
+  @Matches(/^[a-z][a-z0-9_]{1,29}$/) category!: Cat;
   @IsIn(['cash', 'wallet']) paymentMethod!: 'cash' | 'wallet';
   @ValidateNested() @Type(() => LatLng) pickup!: LatLng;
   @ValidateNested() @Type(() => LatLng) dropoff!: LatLng;
+}
+
+class PromoCheckDto {
+  @IsString() @MinLength(3) @MaxLength(20) code!: string;
+  @Matches(/^[a-z][a-z0-9_]{1,29}$/) category!: Cat;
+  @IsInt() @Min(1) @Max(500_000) distanceM!: number;
+  @IsInt() @Min(0) @Max(86_400) durationS!: number;
 }
 
 class PingDto extends LatLng {
@@ -65,7 +73,7 @@ class CancelDto {
 class ScheduleDto {
   @IsOptional() @IsString() @MaxLength(200) pickupAddress?: string;
   @IsOptional() @IsString() @MaxLength(200) dropoffAddress?: string;
-  @IsIn(CATEGORIES) category!: Cat;
+  @Matches(/^[a-z][a-z0-9_]{1,29}$/) category!: Cat;
   @IsIn(['cash', 'wallet']) paymentMethod!: 'cash' | 'wallet';
   @ValidateNested() @Type(() => LatLng) pickup!: LatLng;
   @ValidateNested() @Type(() => LatLng) dropoff!: LatLng;
@@ -92,9 +100,22 @@ export class RidesController {
     private readonly rides: RidesService,
     private readonly location: LocationService,
     private readonly scheduled: ScheduledRidesService,
+    private readonly assetTypes: AssetTypesService,
   ) {}
 
   // ------------------------------------------------------------------ rider
+
+  /** What a rider can book right now: categories an admin has switched on that have fees in force. */
+  @Roles('rider') @Get('rides/categories')
+  categories() {
+    return this.assetTypes.offered();
+  }
+
+  /** Would this code work, and what would it take off? Nothing is used up by asking. */
+  @Roles('rider') @Post('rides/promo/check') @HttpCode(200)
+  async checkPromo(@CurrentUser() me: Principal, @Body() dto: PromoCheckDto) {
+    return this.rides.checkPromo(me.id, dto.code, dto.category, { distanceM: dto.distanceM, durationS: dto.durationS });
+  }
 
   @Roles('rider') @Post('rides/quote') @HttpCode(200)
   quote(@CurrentUser() me: Principal, @Body() dto: QuoteDto) {

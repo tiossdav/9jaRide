@@ -1,4 +1,6 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { SettingsService } from '../settings/settings.service';
+import { penaltyFor } from '../settings/settings.types';
 import { shortCode } from '../common/short-code';
 import Redis from 'ioredis';
 import { Pool, PoolClient } from 'pg';
@@ -29,7 +31,30 @@ export class DispatchService {
     @Inject(PG_POOL) private readonly pool: Pool,
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(OFFER_NOTIFIER) private readonly notifier: OfferNotifier,
+    @Optional() private readonly settings?: SettingsService,
   ) {}
+
+  /**
+   * Minutes added to a driver's ranking because they cancel often (the admin's Cancellation Policy). Zero while the
+   * policy is off, and for drivers with too few trips to judge. Cached a minute so ranking stays one Redis read.
+   */
+  private async cancellationPenaltyKm(driverId: string): Promise<number> {
+    if (!this.settings) return 0;
+    const rules = await this.settings.effective('cancellation');
+    if (!rules.enabled) return 0;
+    const key = `driver:${driverId}:cancel-penalty:${rules.windowDays}:${rules.minRequests}:${rules.tiers.map((t) => t.penaltyMinutes).join('-')}`;
+    const hit = await this.redis.get(key);
+    if (hit !== null) return Number(hit);
+    const { rows } = await this.pool.query(
+      `SELECT count(*)::int AS accepted, count(*) FILTER (WHERE status = 'CANCELLED_BY_DRIVER')::int AS cancelled
+         FROM rides WHERE driver_id = $1 AND created_at > now() - make_interval(days => $2)`,
+      [driverId, rules.windowDays],
+    );
+    // A penalty in minutes is turned into the distance a car covers in that time at city speed, because ranking is by distance.
+    const km = (penaltyFor(rules, rows[0].accepted, rows[0].cancelled) * 25) / 60;
+    await this.redis.set(key, String(km), 'EX', 60);
+    return km;
+  }
 
   // ------------------------------------------------------------------ driver presence
 
@@ -186,7 +211,7 @@ export class DispatchService {
       if (state.status !== 'available') continue;
       const distanceKm = Number(dist);
       const score = Number(state.score ?? 1);
-      out.push({ driverId, distanceKm, rank: distanceKm * (2 - score) });
+      out.push({ driverId, distanceKm, rank: distanceKm * (2 - score) + (await this.cancellationPenaltyKm(driverId)) });
     }
     return out.sort((a, b) => a.rank - b.rank);
   }
