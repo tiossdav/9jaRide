@@ -5,6 +5,8 @@ import { PG_POOL, REDIS } from '../common/infra.module';
 import { DispatchService } from '../dispatch/dispatch.service';
 import { Category, keys } from '../dispatch/dispatch.types';
 import { PromoService } from '../promo/promo.service';
+import { SettingsService } from '../settings/settings.service';
+import { splitFare } from '../ledger/postings';
 
 // Placeholders: the trip distance a driver reports is flagged when it is this much longer than the recorded route.
 const TRAIL_MIN_POINTS = Number(process.env.TRAIL_MIN_POINTS ?? 10);
@@ -43,6 +45,7 @@ export class RidesService {
     private readonly settlement: SettlementService,
     private readonly ledger: LedgerService,
     private readonly promo: PromoService,
+    private readonly settings: SettingsService,
   ) {}
 
   async checkPromo(riderId: string, code: string, category: Category, trip: { distanceM: number; durationS: number }) {
@@ -256,12 +259,89 @@ export class RidesService {
     const { rows } = await this.pool.query(`SELECT 1 FROM rides WHERE id = $1 AND driver_id = $2`, [rideId, driverId]);
     if (!rows[0]) throw new NotFoundException('ride not found');
     const fare = await this.settlement.settleCompletedTrip(rideId, measured);
+    const earnings = await this.driverEarnings(rideId, fare.totalKobo, fare.taxKobo);
     // Free the driver for matching again; their next ping puts them back on the map.
     await this.redis.del(keys.driverState(driverId), keys.driverRide(driverId));
     // The money is settled; a failure here must never undo or hide that, so it is logged, not thrown.
     await this.checkTripDistance(rideId, driverId, measured.distanceM).catch((e) => this.log.error(`distance check failed for ${rideId}: ${e}`));
-    return fare;
+    return { ...fare, ...earnings };
   }
+
+  /** What the driver keeps from a fare and what the platform takes, by the rules in force when the ride was booked. */
+  private async driverEarnings(rideId: string, totalKobo: number, taxKobo: number) {
+    const { rows } = await this.pool.query(`SELECT created_at, COALESCE(promo_discount_kobo, 0)::bigint AS discount FROM rides WHERE id = $1`, [rideId]);
+    const rules = await this.settings.effective('revenue', rows[0].created_at);
+    const { commission, driverShare } = splitFare(totalKobo, taxKobo, rules.commissionBps, rules.taxBase === 'included');
+    return { commissionKobo: commission, driverEarnKobo: driverShare, discountKobo: Number(rows[0].discount) };
+  }
+
+  // ------------------------------------------------------------------ what the driver app shows
+
+  /** The offer waiting for this driver, if any: where to, how far, what it pays, and how long is left. */
+  async driverOffer(driverId: string) {
+    const rideId = await this.redis.get(keys.driverOffer(driverId));
+    if (!rideId) return null;
+    const ttl = await this.redis.ttl(keys.driverOffer(driverId));
+    const state = await this.redis.hgetall(keys.driverState(driverId));
+    const { rows } = await this.pool.query(
+      `SELECT r.id, r.short_code, r.status, r.category, r.payment_method, r.pickup_address, r.dropoff_address, u.full_name AS rider_name,
+              ST_Y(r.pickup::geometry) AS plat, ST_X(r.pickup::geometry) AS plng, ST_Y(r.dropoff::geometry) AS dlat, ST_X(r.dropoff::geometry) AS dlng,
+              q.expected_kobo, q.low_kobo, q.high_kobo, a.label AS category_label,
+              (SELECT round(avg(x.stars)::numeric, 1)::float8 FROM ride_ratings x JOIN rides xr ON xr.id = x.ride_id WHERE xr.rider_id = r.rider_id) AS rider_rating
+         FROM rides r JOIN users u ON u.id = r.rider_id LEFT JOIN fare_quotes q ON q.id = r.fare_quote_id LEFT JOIN asset_types a ON a.code = r.category
+        WHERE r.id = $1 AND r.status = 'SEARCHING_DRIVER'`, [rideId],
+    );
+    const r = rows[0];
+    if (!r) return null;
+    const from = state.lat && state.lng ? { lat: Number(state.lat), lng: Number(state.lng) } : null;
+    const km = from ? haversineKm(from, { lat: r.plat, lng: r.plng }) : null;
+    return {
+      rideId: r.id, code: r.short_code, secondsLeft: Math.max(0, ttl), category: r.category_label ?? r.category, paymentMethod: r.payment_method,
+      pickup: { lat: r.plat, lng: r.plng, address: r.pickup_address }, dropoff: { lat: r.dlat, lng: r.dlng, address: r.dropoff_address },
+      pickupKm: km == null ? null : Math.round(km * 10) / 10, estimate: r.expected_kobo == null ? null : { expectedKobo: Number(r.expected_kobo), lowKobo: Number(r.low_kobo), highKobo: Number(r.high_kobo) },
+      rider: { name: String(r.rider_name).split(' ')[0], rating: r.rider_rating },
+    };
+  }
+
+  /** The ride this driver is on right now (so the app can pick up where it left off), or null. */
+  async driverActiveRide(driverId: string) {
+    const { rows } = await this.pool.query(
+      `SELECT r.id, r.short_code, r.status, r.category, r.payment_method, r.pickup_address, r.dropoff_address, u.full_name AS rider_name, u.phone AS rider_phone,
+              ST_Y(r.pickup::geometry) AS plat, ST_X(r.pickup::geometry) AS plng, ST_Y(r.dropoff::geometry) AS dlat, ST_X(r.dropoff::geometry) AS dlng,
+              q.expected_kobo, a.label AS category_label
+         FROM rides r JOIN users u ON u.id = r.rider_id LEFT JOIN fare_quotes q ON q.id = r.fare_quote_id LEFT JOIN asset_types a ON a.code = r.category
+        WHERE r.driver_id = $1 AND r.status IN ('DRIVER_ASSIGNED', 'DRIVER_ARRIVED', 'TRIP_STARTED') ORDER BY r.updated_at DESC LIMIT 1`, [driverId],
+    );
+    const r = rows[0];
+    if (!r) return null;
+    return {
+      rideId: r.id, code: r.short_code, status: r.status, category: r.category_label ?? r.category, paymentMethod: r.payment_method,
+      pickup: { lat: r.plat, lng: r.plng, address: r.pickup_address }, dropoff: { lat: r.dlat, lng: r.dlng, address: r.dropoff_address },
+      expectedKobo: r.expected_kobo == null ? null : Number(r.expected_kobo), rider: { name: String(r.rider_name).split(' ')[0], phone: r.rider_phone },
+    };
+  }
+
+  /**
+   * The driver gives up a ride they accepted (before the trip starts). The rider is told it was cancelled by the driver;
+   * frequent cancelling counts in the Cancellation Policy.
+   */
+  async cancelByDriver(driverId: string, rideId: string, reason?: string): Promise<{ cancelled: boolean }> {
+    const outcome = await this.ledger.withTransaction(async (client) => {
+      const { rows } = await client.query(`SELECT status FROM rides WHERE id = $1 AND driver_id = $2 FOR UPDATE`, [rideId, driverId]);
+      const ride = rows[0];
+      if (!ride) throw new NotFoundException('ride not found');
+      if (ride.status === 'CANCELLED_BY_DRIVER') return false; // a retried tap
+      if (!['DRIVER_ASSIGNED', 'DRIVER_ARRIVED'].includes(ride.status)) throw new ConflictException({ code: 'wrong_state', message: `a ride that is ${ride.status} cannot be cancelled` });
+      await client.query(`UPDATE rides SET status = 'CANCELLED_BY_DRIVER', cancel_reason = $2, updated_at = now(), payment_status = CASE WHEN payment_status = 'HELD' THEN 'UNPAID' ELSE payment_status END WHERE id = $1`, [rideId, reason ?? null]);
+      await client.query(`INSERT INTO ride_status_history (ride_id, from_status, to_status, actor_id, reason) VALUES ($1, $2, 'CANCELLED_BY_DRIVER', $3, $4)`, [rideId, ride.status, driverId, reason ?? null]);
+      await this.ledger.releaseHold(client, rideId);
+      return true;
+    });
+    if (outcome) await this.redis.del(keys.driverState(driverId), keys.driverRide(driverId));
+    return { cancelled: outcome };
+  }
+
+
 
   /**
    * Phone clocks are not the server clock, so the window is padded by 30 s before the start and 60 s after the end
@@ -354,4 +434,11 @@ export class RidesService {
     if (outcome.driverId) await this.redis.del(keys.driverState(outcome.driverId), keys.driverRide(outcome.driverId));
     return { cancelled: true };
   }
+}
+
+/** Straight-line distance in km between two points. */
+function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
 }

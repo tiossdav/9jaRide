@@ -314,7 +314,7 @@ fun ReceiptCard(r: FareReceipt, paymentIsCash: Boolean) {
 /** D05: end of trip. For a cash trip the driver collects the fare in hand. */
 @Composable
 fun CollectFareScreen(vm: DriverViewModel) {
-    val r = DEMO_RECEIPT
+    val r = vm.receipt
     Column(Modifier.fillMaxSize().background(C.Bg).statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.padding(top = 24.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Txt("Collect cash from rider", 13f, 500, C.Muted)
@@ -343,7 +343,7 @@ fun RateRiderScreen(vm: DriverViewModel) {
                 Icon24(Ic.Check, Color.White, 30.dp, 2.6f)
             }
             Txt("Trip complete", 22f, 800)
-            Txt("You earned ${naira(DEMO_RECEIPT.earn, true)}", 14f, 500, C.Muted)
+            Txt("You earned ${naira(vm.receipt.earn, true)}", 14f, 500, C.Muted)
         }
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(18.dp),

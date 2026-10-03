@@ -196,6 +196,22 @@ export class RidesController {
     return this.location.ingest(me.id, dto.points);
   }
 
+  /** The offer waiting for this driver. The app asks every few seconds while the driver is online. */
+  @Roles('driver') @Get('driver/offer')
+  async myOffer(@CurrentUser() me: Principal) {
+    return { offer: await this.rides.driverOffer(me.id) };
+  }
+
+  @Roles('driver') @Get('driver/rides/active')
+  async myRide(@CurrentUser() me: Principal) {
+    return { ride: await this.rides.driverActiveRide(me.id) };
+  }
+
+  @Roles('driver') @Post('driver/rides/:id/cancel') @HttpCode(200)
+  driverCancel(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CancelDto) {
+    return this.rides.cancelByDriver(me.id, id, dto.reason);
+  }
+
   @Roles('driver') @Post('driver/rides/:id/accept') @HttpCode(200)
   accept(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string) {
     return this.rides.accept(me.id, id);

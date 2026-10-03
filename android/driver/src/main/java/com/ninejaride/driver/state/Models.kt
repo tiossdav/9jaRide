@@ -31,6 +31,8 @@ data class RideOffer(
     val pickup: String,
     val dropoff: String,
     val rider: Rider,
+    /** The server's id for the ride. Empty in demo mode. */
+    val rideId: String = "",
 )
 
 /** The receipt lines as the server prices them. The fare is the sum of the lines; rounding is its own line. */

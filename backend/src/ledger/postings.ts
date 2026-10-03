@@ -22,7 +22,7 @@ export function planTopUp(userId: string, amount: Kobo): Posting[] {
  * Split a fare. The flat daily tax is remitted to its own account and is not commissionable;
  * commission is taken on the rest (rounding line included). Assumption, pending the accountant (spec decision).
  */
-function splitFare(fare: Kobo, tax: Kobo, bps: number, taxCommissionable = false): { commission: Kobo; driverShare: Kobo } {
+export function splitFare(fare: Kobo, tax: Kobo, bps: number, taxCommissionable = false): { commission: Kobo; driverShare: Kobo } {
   if (!Number.isSafeInteger(tax) || tax < 0 || tax > fare) throw new RangeError(`tax must be between 0 and the fare, got ${tax}`);
   // taxCommissionable: the commission is worked out on the whole fare, tax line included (an admin setting).
   const commission = percentOf(taxCommissionable ? fare : fare - tax, bps);

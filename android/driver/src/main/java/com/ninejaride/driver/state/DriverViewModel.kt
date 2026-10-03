@@ -177,6 +177,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                     // If the app was closed or the phone restarted, sharing stopped with it: pick it up again, or show offline.
                     if (online && !LocationService.start(getApplication())) online = false
                     reset(Dest.Main)
+                    startRealRideLoop() // pick up a ride that was already in progress, and watch for new offers
                     return@launch
                 }
             }
@@ -303,6 +304,8 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         }
         online = on
         if (on && demo) scheduleOffer(6)
+        if (on && !demo) startRealRideLoop()
+        if (!on) { pollJob?.cancel() }
         if (on) maybeShowBatteryTips()
     }
 
@@ -323,8 +326,9 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ the map
     /** Demo ride, somewhere in Ibadan. Real rides will bring their own coordinates from the server. */
-    val demoPickup = MapPoint(7.4303, 3.9568)
-    val demoDropoff = MapPoint(7.4237, 3.9529)
+    // Demo values until a real ride sets them. The screens read these two for the pickup and drop-off pins.
+    var demoPickup by mutableStateOf(MapPoint(7.4303, 3.9568))
+    var demoDropoff by mutableStateOf(MapPoint(7.4237, 3.9529))
     private val demoStart = MapPoint(7.4210, 3.9490)
 
     var routeToPickup by mutableStateOf<List<MapPoint>>(emptyList())
@@ -372,6 +376,9 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     // ------------------------------------------------------------------ the ride (scripted in demo mode)
     var phase by mutableStateOf(Phase.None)
     var offer by mutableStateOf(DEMO_OFFER)
+    /** What the last finished trip paid: the sample receipt in demo mode, the server's own figures otherwise. */
+    var receipt by mutableStateOf(DEMO_RECEIPT)
+    private var realRideId: String? = null
     var offerSeconds by mutableIntStateOf(15)
     var waitingSeconds by mutableIntStateOf(0)
     var tripSeconds by mutableIntStateOf(0)
@@ -382,6 +389,113 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     var sosSteps by mutableIntStateOf(1)
     var sosAdmin by mutableStateOf<String?>(null)
     private var rideJob: Job? = null
+
+    // ------------------------------------------------------------------ real rides (a server, not the script)
+    private var pollJob: Job? = null
+    private var tripStartedPoint: MapPoint? = null
+
+    private fun say(title: String, text: String) { toast = title to text }
+
+    /** While online: pick up a ride already in progress, then keep asking the server for offers and watching the ride. */
+    private fun startRealRideLoop() {
+        if (demo) return
+        pollJob?.cancel()
+        pollJob = viewModelScope.launch {
+            runCatching { api.activeRide() }.getOrNull()?.let { restoreRide(it) }
+            while (true) {
+                try {
+                    when (phase) {
+                        Phase.None -> if (online) api.offer()?.let { showRealOffer(it) }
+                        Phase.ToPickup, Phase.Waiting -> if (api.activeRide() == null) {
+                            // The rider cancelled (or the ride ended some other way): nothing left to do here.
+                            rideJob?.cancel(); clearRide(); realRideId = null; phase = Phase.None
+                            say("Ride cancelled", "The rider cancelled this ride.")
+                        }
+                        else -> {}
+                    }
+                } catch (e: ApiException) {
+                    if (e.status == 401 || e.status == 403) return@launch // signed out or suspended: stop asking
+                }
+                delay(3000)
+            }
+        }
+    }
+
+    private fun kmToMinutes(km: Double?) = if (km == null) 0 else Math.max(1, Math.round(km / 25.0 * 60).toInt())
+
+    private fun showRealOffer(o: com.ninejaride.driver.data.ServerOffer) {
+        realRideId = o.rideId
+        offer = RideOffer(
+            code = o.code, category = o.category, payment = if (o.paymentMethod == "wallet") "Wallet" else "Cash", pickupKm = o.pickupKm ?: 0.0, pickupMin = kmToMinutes(o.pickupKm),
+            fare = o.expectedKobo ?: 0L, pickup = o.pickupAddress ?: "Pickup point", dropoff = o.dropoffAddress ?: "Drop-off point", rider = Rider(o.riderName, Math.round(o.riderRating ?: 5.0).toInt()), rideId = o.rideId,
+        )
+        demoPickup = o.pickup; demoDropoff = o.dropoff
+        carPoint = deviceLocation
+        offerSeconds = o.secondsLeft
+        routeToPickup = emptyList(); routeTrip = emptyList()
+        viewModelScope.launch { routeTrip = Routing.route(o.pickup, o.dropoff) }
+        deviceLocation?.let { from -> viewModelScope.launch { routeToPickup = Routing.route(from, o.pickup) } }
+        phase = Phase.Offer
+        rideJob?.cancel()
+        rideJob = viewModelScope.launch {
+            while (offerSeconds > 0 && phase == Phase.Offer) { delay(1000); offerSeconds-- }
+            if (phase == Phase.Offer) { phase = Phase.None; realRideId = null } // not answered in time: the server moves to the next driver
+        }
+    }
+
+    /** The app was closed or restarted mid-ride: show the screen the ride is up to. */
+    private fun restoreRide(r: com.ninejaride.driver.data.ServerRide) {
+        realRideId = r.rideId
+        offer = RideOffer(r.code, r.category, if (r.paymentMethod == "wallet") "Wallet" else "Cash", 0.0, 0, r.expectedKobo ?: 0L, r.pickupAddress ?: "Pickup point", r.dropoffAddress ?: "Drop-off point", Rider(r.riderName, 5), r.rideId)
+        demoPickup = r.pickup; demoDropoff = r.dropoff
+        viewModelScope.launch { routeTrip = Routing.route(r.pickup, r.dropoff) }
+        when (r.status) {
+            "DRIVER_ASSIGNED" -> beginPickupLeg()
+            "DRIVER_ARRIVED" -> beginWaiting()
+            else -> beginTripLeg()
+        }
+    }
+
+    private fun beginPickupLeg() {
+        phase = Phase.ToPickup
+        deviceLocation?.let { from -> viewModelScope.launch { routeToPickup = Routing.route(from, demoPickup) } }
+        rideJob?.cancel()
+        rideJob = viewModelScope.launch { while (phase == Phase.ToPickup) { carPoint = deviceLocation ?: carPoint; delay(1000) } }
+    }
+
+    private fun beginWaiting() {
+        waitingSeconds = 0
+        phase = Phase.Waiting
+        rideJob?.cancel()
+        rideJob = viewModelScope.launch { while (phase == Phase.Waiting) { delay(1000); waitingSeconds++ } }
+    }
+
+    private fun beginTripLeg() {
+        tripSeconds = 0; tripKm = 0.0; stopReason = null
+        tripStartedPoint = deviceLocation
+        phase = Phase.InTrip
+        rideJob?.cancel()
+        rideJob = viewModelScope.launch {
+            var last = deviceLocation
+            while (phase == Phase.InTrip) {
+                delay(1000)
+                tripSeconds++
+                val now = deviceLocation
+                if (now != null) {
+                    // distance really driven, from the phone's own readings; tiny jumps are GPS noise
+                    if (last != null) { val d = Routing.haversineKm(last, now); if (d > 0.008) { tripKm += d; last = now } } else last = now
+                    carPoint = now
+                }
+            }
+        }
+    }
+
+    /** Runs a call to the server for the driver; a refusal is shown as a short notice instead of silently doing nothing. */
+    private fun server(failTitle: String, block: suspend () -> Unit) {
+        viewModelScope.launch {
+            try { block() } catch (e: ApiException) { say(failTitle, if (e.status >= 500) "Something went wrong. Please try again." else e.message) }
+        }
+    }
 
     private fun scheduleOffer(afterSeconds: Int) {
         offerJob?.cancel()
@@ -412,9 +526,22 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         pendingConfirm = com.ninejaride.core.ui.components.ConfirmRequest(title, text, label, danger, action)
     }
 
-    fun decline() { rideJob?.cancel(); clearRide(); phase = Phase.None; if (online) scheduleOffer(20) }
+    fun decline() {
+        rideJob?.cancel(); clearRide(); phase = Phase.None
+        if (demo) { if (online) scheduleOffer(20) } else realRideId?.let { id -> realRideId = null; server("Could not decline") { api.decline(id) } }
+    }
 
     fun accept() {
+        if (!demo) {
+            val id = realRideId ?: return
+            viewModelScope.launch {
+                try {
+                    if (api.accept(id)) beginPickupLeg()
+                    else { rideJob?.cancel(); clearRide(); realRideId = null; phase = Phase.None; say("Too late", "That ride was taken or timed out.") }
+                } catch (e: ApiException) { say("Could not accept", if (e.status >= 500) "Something went wrong. Please try again." else e.message) }
+            }
+            return
+        }
         rideJob?.cancel()
         phase = Phase.ToPickup
         // The car drives to the pickup along the road line over about 25 seconds.
@@ -429,6 +556,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun arrived() {
+        if (!demo) { val id = realRideId ?: return; server("Could not update") { api.arrive(id); beginWaiting() }; return }
         waitingSeconds = 0
         carPoint = demoPickup
         phase = Phase.Waiting
@@ -436,11 +564,18 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         rideJob = viewModelScope.launch { while (phase == Phase.Waiting) { delay(1000); waitingSeconds++ } }
     }
 
-    fun noShow() { rideJob?.cancel(); clearRide(); phase = Phase.None; if (online) scheduleOffer(20) }
+    fun noShow() = giveUp("Rider did not show up")
 
-    fun cancelTrip() { rideJob?.cancel(); clearRide(); phase = Phase.None; if (online) scheduleOffer(20) }
+    fun cancelTrip() = giveUp(null)
+
+    private fun giveUp(reason: String?) {
+        if (demo) { rideJob?.cancel(); clearRide(); phase = Phase.None; if (online) scheduleOffer(20); return }
+        val id = realRideId ?: return
+        server("Could not cancel") { api.cancelRide(id, reason); rideJob?.cancel(); clearRide(); realRideId = null; phase = Phase.None }
+    }
 
     fun startTrip() {
+        if (!demo) { val id = realRideId ?: return; server("Could not start") { api.startTrip(id); beginTripLeg() }; return }
         tripSeconds = 0; tripKm = 0.0; stopReason = null
         phase = Phase.InTrip
         rideJob?.cancel()
@@ -454,10 +589,20 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun endTrip() { rideJob?.cancel(); carPoint = demoDropoff; phase = Phase.Collect }
+    fun endTrip() {
+        if (demo) { rideJob?.cancel(); carPoint = demoDropoff; phase = Phase.Collect; return }
+        val id = realRideId ?: return
+        server("Could not end the trip") {
+            val fare = api.completeTrip(id, (tripKm * 1000).toInt(), tripSeconds, waitingSeconds)
+            rideJob?.cancel()
+            receipt = FareReceipt(fare.lines.map { FareLine(it.first, it.second) }, fare.totalKobo, fare.commissionKobo, fare.driverEarnKobo, if (fare.totalKobo > 0) Math.round(fare.commissionKobo * 100.0 / Math.max(1L, fare.totalKobo - fare.taxKobo)).toInt() else 0)
+            phase = Phase.Collect
+        }
+    }
 
     /** Cash trip: the service charge comes out of the wallet, which can take it below zero. */
     fun cashCollected() {
+        if (!demo) { rating = 5; phase = Phase.Rate; return } // the server settled the trip when it ended
         val r = DEMO_RECEIPT
         walletKobo -= r.serviceCharge
         transactions.add(0, WalletTx("Service charge · trip ${offer.code}", "Just now", r.serviceCharge, TxDirection.Out))
@@ -473,9 +618,10 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
 
     fun finishRide() {
         clearRide()
+        realRideId = null
         phase = Phase.None
         tab = Tab.Home
-        if (online) scheduleOffer(25)
+        if (online && demo) scheduleOffer(25)
     }
 
     // ------------------------------------------------------------------ SOS
@@ -485,6 +631,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     fun askSos() { dialog = Dialog.Sos }
 
     fun sendSos() {
+        if (!demo) server("The alert could not be sent. Call 112 now.") { api.sos(java.util.UUID.randomUUID().toString(), deviceLocation ?: demoPickup.takeIf { realRideId != null }) }
         dialog = null
         phaseBeforeSos = phase
         sosSteps = 1
