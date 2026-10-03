@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { post } from '../api';
-import { ReasonModal, Toast, kv, useAction, useConfirm } from '../bits';
+import { ReasonModal, Toast, go, kv, useAction, useConfirm } from '../bits';
 import { Loading, Pill, dateTime, title, useLoad } from '../ui';
 
 interface App {
@@ -46,7 +46,7 @@ export default function OnboardingDetail() {
             <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <h3>Decision</h3>
               {blocked && <div className="note">Approval is blocked until every required document is present and in date.</div>}
-              <button className="btn" disabled={act.busy || blocked} onClick={() => confirm.ask({ title: `Approve ${a.driverName}?`, text: 'They can go online and take trips as soon as you confirm. This creates their vehicle record.', confirm: 'Yes, approve' }, () => act.run(() => post(`/admin/driver-applications/${a.id}/approve`), () => { setToast('Driver approved'); reload(); }))}>Approve driver</button>
+              <button className="btn" disabled={act.busy || blocked} onClick={() => confirm.ask({ title: `Approve ${a.driverName}?`, text: 'They can go online and take trips as soon as you confirm. This creates their vehicle record.', confirm: 'Yes, approve' }, () => go(() => post(`/admin/driver-applications/${a.id}/approve`), () => { setToast('Driver approved'); reload(); }))}>Approve driver</button>
               <button className="btn ghost" onClick={() => setAsk('changes')}>Request changes</button>
               <button className="btn outline-red" onClick={() => setAsk('reject')}>Reject</button>
             </div>

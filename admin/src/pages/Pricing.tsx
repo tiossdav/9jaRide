@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { del, post } from '../api';
-import { Toast, useAction, useConfirm } from '../bits';
+import { Toast, useAction, useConfirm, go } from '../bits';
 import { Loading, Modal, dateTime, naira, title, useLoad } from '../ui';
 
 interface Version {
@@ -26,7 +26,6 @@ function ProposeModal({ base, category, onClose, onDone }: { base?: Version; cat
     low: String((base?.estimateLowBps ?? 8500) / 100), high: String((base?.estimateHighBps ?? 11000) / 100),
   });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value.replace(/[^0-9.]/g, '') });
-  const { busy, error, run } = useAction();
   const confirm = useConfirm();
   const filled = Object.values(f).every((v) => v !== '') && new Date(when).getTime() > Date.now() + 10 * 60_000;
   const money: [keyof typeof f, string][] = [['base', 'Base fare (₦)'], ['perKm', 'Distance fee (₦ per km)'], ['perMin', 'Time fee (₦ per minute)'], ['wait', 'Waiting fee (₦ per minute)'], ['tax', 'Daily tax fee (₦)'], ['round', 'Round the total to the nearest (₦)']];
@@ -42,13 +41,12 @@ function ProposeModal({ base, category, onClose, onDone }: { base?: Version; cat
         <div className="field"><label htmlFor="f-low">Estimate range, low (% of expected)</label><input id="f-low" className="input" inputMode="decimal" value={f.low} onChange={set('low')} /></div>
         <div className="field"><label htmlFor="f-high">Estimate range, high (% of expected)</label><input id="f-high" className="input" inputMode="decimal" value={f.high} onChange={set('high')} /></div>
       </div>
-      {error && <div className="error" role="alert">{error}</div>}
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <button className="btn ghost" onClick={onClose}>Cancel</button>
-        <button className="btn" disabled={busy || !filled} onClick={() => confirm.ask({ title: `Propose new ${label(cat)} fees?`, text: `Starting ${new Date(when).toLocaleString('en-GB')}. A different admin must approve before it counts.`, confirm: 'Yes, propose' }, () => run(() => post('/admin/console/pricing', {
+        <button className="btn" disabled={!filled} onClick={() => confirm.ask({ title: `Propose new ${label(cat)} fees?`, text: `Starting ${new Date(when).toLocaleString('en-GB')}. A different admin must approve before it counts.`, confirm: 'Yes, propose' }, () => go(() => post('/admin/console/pricing', {
           category: cat, effectiveFrom: new Date(when).toISOString(), baseKobo: toKobo(f.base), perKmKobo: toKobo(f.perKm), perMinuteKobo: toKobo(f.perMin), waitingPerMinuteKobo: toKobo(f.wait),
           freeWaitingSeconds: Math.round(Number(f.free) * 60), taxKobo: toKobo(f.tax), roundingStepKobo: toKobo(f.round), estimateLowBps: Math.round(Number(f.low) * 100), estimateHighBps: Math.round(Number(f.high) * 100),
-        }), () => { onDone(); onClose(); }))}>{busy ? 'Saving…' : 'Propose'}</button>
+        }), () => { onDone(); onClose(); }))}>Propose</button>
       </div>
       {confirm.node}
     </Modal>
@@ -81,8 +79,8 @@ export default function Pricing() {
             <div className="line" key={v.id}>
               <span>Starts {dateTime(v.effectiveFrom)} · base {naira(v.baseKobo)} · {naira(v.perKmKobo)}/km · {naira(v.perMinuteKobo)}/min · tax {naira(v.taxKobo)}</span>
               <span style={{ whiteSpace: 'nowrap' }}>
-                <button className="btn" style={{ height: 30 }} disabled={act.busy} onClick={() => confirm.ask({ title: 'Approve these fees?', text: `They apply to ${label(v.category)} trips from ${dateTime(v.effectiveFrom)}. Once approved they can never be edited.`, confirm: 'Yes, approve' }, () => act.run(() => post(`/admin/console/pricing/${v.id}/approve`), () => { setToast('Fees approved'); reload(); }))}>Approve</button>{' '}
-                <button className="btn outline-red" style={{ height: 30 }} disabled={act.busy} onClick={() => confirm.ask({ title: 'Discard this proposal?', text: 'It is removed. The current fees stay as they are.', confirm: 'Yes, discard', danger: true }, () => act.run(() => del(`/admin/console/pricing/${v.id}`), () => { setToast('Proposal discarded'); reload(); }))}>Discard</button>
+                <button className="btn" style={{ height: 30 }} disabled={act.busy} onClick={() => confirm.ask({ title: 'Approve these fees?', text: `They apply to ${label(v.category)} trips from ${dateTime(v.effectiveFrom)}. Once approved they can never be edited.`, confirm: 'Yes, approve' }, () => go(() => post(`/admin/console/pricing/${v.id}/approve`), () => { setToast('Fees approved'); reload(); }))}>Approve</button>{' '}
+                <button className="btn outline-red" style={{ height: 30 }} disabled={act.busy} onClick={() => confirm.ask({ title: 'Discard this proposal?', text: 'It is removed. The current fees stay as they are.', confirm: 'Yes, discard', danger: true }, () => go(() => del(`/admin/console/pricing/${v.id}`), () => { setToast('Proposal discarded'); reload(); }))}>Discard</button>
               </span>
             </div>
           ))}

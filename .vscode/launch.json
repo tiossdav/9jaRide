@@ -1,0 +1,67 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Backend: run and debug (NestJS)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start:debug"],
+      "cwd": "${workspaceFolder}/backend",
+      "env": {
+        "DATABASE_URL": "postgres://jaride:jaride@localhost:5432/jaride",
+        "JWT_SECRET": "local-debug-secret-change-me-0123456789abcdef0123456789abcdef",
+        "PORT": "3000",
+        "ADMIN_ORIGIN": "http://localhost:5173"
+      },
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Backend: attach to a running --inspect process",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "restart": true,
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Backend: debug the current unit test file",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/backend/node_modules/jest/bin/jest.js",
+      "args": ["--runInBand", "--no-coverage", "${fileBasenameNoExtension}"],
+      "cwd": "${workspaceFolder}/backend",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Backend: debug the current integration test file",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/backend/node_modules/jest/bin/jest.js",
+      "args": ["--runInBand", "--no-coverage", "${fileBasenameNoExtension}"],
+      "cwd": "${workspaceFolder}/backend",
+      "env": { "INTEGRATION": "1", "DATABASE_URL": "postgres://jaride:jaride@localhost:5432/jaride" },
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Admin: debug in Chrome (start `npm run dev` in admin first)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/admin/src"
+    },
+    {
+      "name": "Admin: debug the current component test file",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/admin/node_modules/vitest/vitest.mjs",
+      "args": ["run", "${relativeFile}"],
+      "cwd": "${workspaceFolder}/admin",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { post } from '../api';
-import { ReasonModal, Segmented, Toast, useAction, useConfirm } from '../bits';
+import { ReasonModal, Segmented, Toast, useAction, useConfirm, go } from '../bits';
 import { AdjustModal } from '../adjust';
 import { Loading, Pill, Stat, dateTime, naira, title, useLoad } from '../ui';
 
@@ -75,7 +75,7 @@ export function Payouts() {
                   <td className="num">{naira(p.amountKobo)}</td>
                   <td><Pill tone={tone(p.status)}>{title(p.status)}</Pill>{(p.rejectedReason || p.failureReason) && <div className="note">{p.rejectedReason ?? p.failureReason}</div>}</td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{p.status === 'PENDING_APPROVAL' && <>
-                    <button className="btn" style={{ height: 30 }} disabled={act.busy} onClick={() => confirm.ask({ title: `Approve ${naira(p.amountKobo)}?`, text: `Money is sent to ${p.accountName}, ${p.accountNumber}. It cannot be taken back once the transfer starts.`, confirm: 'Yes, approve payout' }, () => act.run(() => post(`/admin/payouts/${p.id}/approve`), () => { setToast('Payout approved'); reload(); }))}>Approve</button>{' '}
+                    <button className="btn" style={{ height: 30 }} disabled={act.busy} onClick={() => confirm.ask({ title: `Approve ${naira(p.amountKobo)}?`, text: `Money is sent to ${p.accountName}, ${p.accountNumber}. It cannot be taken back once the transfer starts.`, confirm: 'Yes, approve payout' }, () => go(() => post(`/admin/payouts/${p.id}/approve`), () => { setToast('Payout approved'); reload(); }))}>Approve</button>{' '}
                     <button className="btn outline-red" style={{ height: 30 }} onClick={() => setRejecting(p)}>Reject</button></>}</td>
                 </tr>
               ))}
@@ -119,7 +119,7 @@ export function Adjustments() {
                   <td><Link to={`/people/${a.userId}`} style={{ color: 'var(--accent)' }}>Profile</Link>{a.rideId && <> · <Link to={`/trips/${a.rideId}`} style={{ color: 'var(--accent)' }}>Trip</Link></>}</td>
                   <td className="num">{naira(a.amountKobo, true)}</td><td style={{ maxWidth: 280 }}>{a.reason}{a.rejectedReason && <div className="note">Rejected: {a.rejectedReason}</div>}</td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{a.status === 'PENDING_APPROVAL' && <>
-                    <button className="btn" style={{ height: 30 }} disabled={act.busy} onClick={() => confirm.ask({ title: `Approve ${naira(a.amountKobo, true)} ${title(a.kind).toLowerCase()}?`, text: 'The money moves as soon as you confirm. It is written to the ledger and cannot be edited.', confirm: 'Yes, approve and post' }, () => act.run(() => post(`/admin/adjustments/${a.id}/approve`), () => { setToast('Adjustment approved and posted'); reload(); }))}>Approve</button>{' '}
+                    <button className="btn" style={{ height: 30 }} disabled={act.busy} onClick={() => confirm.ask({ title: `Approve ${naira(a.amountKobo, true)} ${title(a.kind).toLowerCase()}?`, text: 'The money moves as soon as you confirm. It is written to the ledger and cannot be edited.', confirm: 'Yes, approve and post' }, () => go(() => post(`/admin/adjustments/${a.id}/approve`), () => { setToast('Adjustment approved and posted'); reload(); }))}>Approve</button>{' '}
                     <button className="btn outline-red" style={{ height: 30 }} onClick={() => setRejecting(a)}>Reject</button></>}</td>
                 </tr>
               ))}
@@ -148,7 +148,7 @@ export function Reconciliation() {
   return (
     <>
       <div className="head"><div><h1>Reconciliation</h1><div className="sub">Problems found when our books are checked against Paystack, plus failed payouts. Each needs a decision.</div></div><div className="grow" />
-        <button className="btn ghost" disabled={act.busy} onClick={() => confirm.ask({ title: 'Run reconciliation now?', text: 'This checks our books against Paystack. It can take a minute.', confirm: 'Yes, run it' }, () => act.run(() => post('/admin/reconciliation/run'), () => { setToast('Reconciliation finished'); reload(); }))}>{act.busy ? 'Running…' : 'Run now'}</button></div>
+        <button className="btn ghost" disabled={act.busy} onClick={() => confirm.ask({ title: 'Run reconciliation now?', text: 'This checks our books against Paystack. It can take a minute.', confirm: 'Yes, run it' }, () => go(() => post('/admin/reconciliation/run'), () => { setToast('Reconciliation finished'); reload(); }))}>{act.busy ? 'Running…' : 'Run now'}</button></div>
       {act.error && <div className="banner error" role="alert">{act.error}</div>}
       {!data ? <Loading error={error} retry={reload} /> : (
         <div className="card" style={{ padding: 0 }}>

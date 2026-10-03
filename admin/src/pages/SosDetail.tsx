@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ApiError, post } from '../api';
-import { useConfirm } from '../bits';
+import { post } from '../api';
+import { go, useConfirm } from '../bits';
 import { LeafletMap, Loading, initials, timeOnly, title, useLoad } from '../ui';
 import { sosChip } from './Safety';
 
@@ -24,15 +24,9 @@ export default function SosDetail() {
   const { data: s, error, reload } = useLoad<Sos>(`/admin/console/sos/${id}`, 10_000);
   const [outcome, setOutcome] = useState('');
   const [notes, setNotes] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
   const confirm = useConfirm();
   if (!s) return <Loading error={error} retry={reload} />;
 
-  async function act(fn: () => Promise<unknown>) {
-    setBusy(true); setProblem(null);
-    try { await fn(); reload(); } catch (e) { setProblem((e as ApiError).message); } finally { setBusy(false); }
-  }
   const resolved = s.status === 'RESOLVED';
 
   return (
@@ -42,9 +36,8 @@ export default function SosDetail() {
           <div className="sub">{s.role === 'driver' ? 'Driver' : 'Rider'} SOS{s.trip ? ` from trip ${s.trip.code}` : ''}</div></div>
         <div className="grow" />
         {sosChip(s.status)}
-        {s.status === 'OPEN' && <button className="btn" disabled={busy} onClick={() => confirm.ask({ title: 'Acknowledge this alert?', text: 'It shows that you are handling it. The time to acknowledge is measured.', confirm: 'Yes, acknowledge' }, () => act(() => post(`/admin/sos/${s.id}/acknowledge`)))}>Acknowledge</button>}
+        {s.status === 'OPEN' && <button className="btn" onClick={() => confirm.ask({ title: 'Acknowledge this alert?', text: 'It shows that you are handling it. The time to acknowledge is measured.', confirm: 'Yes, acknowledge' }, () => go(() => post(`/admin/sos/${s.id}/acknowledge`), reload))}>Acknowledge</button>}
       </div>
-      {problem && <div className="banner error" role="alert">{problem}</div>}
       <div className="grid g21">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="card">
@@ -78,11 +71,11 @@ export default function SosDetail() {
               <div className="field"><label htmlFor="o">Outcome</label>
                 <select id="o" className="select" value={outcome} onChange={(e) => setOutcome(e.target.value)}><option value="">Select outcome</option>{OUTCOMES.map((o) => <option key={o}>{o}</option>)}</select></div>
               <div className="field"><label htmlFor="n">Notes</label><textarea id="n" className="input" placeholder="What happened and what was done" value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
-              <button className="btn" disabled={busy || !outcome} onClick={() => confirm.ask({ title: 'Mark this alert resolved?', text: `Outcome: ${outcome}. Resolved alerts leave the open list.`, confirm: 'Yes, mark resolved' }, () => act(async () => {
+              <button className="btn" disabled={!outcome} onClick={() => confirm.ask({ title: 'Mark this alert resolved?', text: `Outcome: ${outcome}. Resolved alerts leave the open list.`, confirm: 'Yes, mark resolved' }, () => go(async () => {
                 if (notes.trim()) await post(`/admin/sos/${s.id}/notes`, { kind: 'note', detail: { text: notes.trim() } });
                 await post(`/admin/sos/${s.id}/resolve`, { outcome });
                 setNotes('');
-              }))}>Mark resolved</button>
+              }, reload))}>Mark resolved</button>
             </div>
           )}
         </div>

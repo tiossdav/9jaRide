@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { post } from '../api';
-import { ReasonModal, Toast, useAction, useConfirm } from '../bits';
+import { ReasonModal, Toast, go, useConfirm } from '../bits';
 import { Loading, Modal, Pill, dateTime, title, useLoad } from '../ui';
 
 interface Vehicle {
@@ -62,7 +62,6 @@ export function AddVehicleModal({ driverId, driverName, onClose, onDone }: { dri
 function AddVehicleForm({ driverId, driverName, onClose, onDone }: { driverId: string; driverName: string; onClose: () => void; onDone: () => void }) {
   const [category, setCategory] = useState('regular');
   const [make, setMake] = useState(''); const [colour, setColour] = useState(''); const [plate, setPlate] = useState('');
-  const { busy, error, run } = useAction();
   const confirm = useConfirm();
   const ok = make.trim().length >= 2 && colour.trim().length >= 2 && plate.trim().length >= 5;
   return (
@@ -76,10 +75,9 @@ function AddVehicleForm({ driverId, driverName, onClose, onDone }: { driverId: s
         <div className="field"><label htmlFor="vo">Colour</label><input id="vo" className="input" placeholder="Silver" value={colour} onChange={(e) => setColour(e.target.value)} /></div>
       </div>
       <div className="field"><label htmlFor="vp">Plate number</label><input id="vp" className="input" placeholder="KJA-482AB" value={plate} onChange={(e) => setPlate(e.target.value.toUpperCase())} /></div>
-      {error && <div className="error" role="alert">{error}</div>}
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <button className="btn ghost" onClick={onClose}>Cancel</button>
-        <button className="btn" disabled={busy || !ok} onClick={() => confirm.ask({ title: `Add ${plate}?`, text: `It becomes ${driverName}'s vehicle and the old one is retired.`, confirm: 'Yes, add vehicle' }, () => run(() => post('/admin/console/vehicles', { driverId, category, make, colour, plate }), () => { onDone(); onClose(); }))}>{busy ? 'Adding…' : 'Add vehicle'}</button>
+        <button className="btn" disabled={!ok} onClick={() => confirm.ask({ title: `Add ${plate}?`, text: `It becomes ${driverName}'s vehicle and the old one is retired.`, confirm: 'Yes, add vehicle' }, () => go(() => post('/admin/console/vehicles', { driverId, category, make, colour, plate }), () => { onDone(); onClose(); }))}>Add vehicle</button>
       </div>
       {confirm.node}
     </Modal>

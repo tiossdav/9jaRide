@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { newKey, post } from './api';
-import { useAction, useConfirm } from './bits';
+import { go, useConfirm } from './bits';
 import { Modal } from './ui';
 
 export type AdjustKind = 'refund' | 'credit' | 'debit' | 'topup_correction';
@@ -26,7 +26,6 @@ export function AdjustModal({ userId, rideId, kind: start = 'credit', who, onClo
   const [naira, setNaira] = useState('');
   const [reason, setReason] = useState('');
   const [key] = useState(newKey);
-  const { busy, error, run } = useAction();
   const confirm = useConfirm();
   const kobo = Math.round(Number(naira) * 100);
   const valid = /^[0-9a-f-]{36}$/i.test(user) && kobo > 0 && reason.trim().length >= 3 && (kind !== 'refund' || /^[0-9a-f-]{36}$/i.test(ride)) && (kind !== 'topup_correction' || ref.length >= 6);
@@ -43,12 +42,11 @@ export function AdjustModal({ userId, rideId, kind: start = 'credit', who, onClo
       <div className="field"><label htmlFor="amt">Amount (₦)</label><input id="amt" className="input" inputMode="decimal" placeholder="0.00" value={naira} onChange={(e) => setNaira(e.target.value.replace(/[^0-9.]/g, ''))} /></div>
       <div className="field"><label htmlFor="why">Reason</label><textarea id="why" className="input" placeholder="What happened and why this is right" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} /></div>
       <div className="note">A second person must approve this before any money moves.</div>
-      {error && <div className="error" role="alert">{error}</div>}
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <button className="btn ghost" onClick={onClose}>Cancel</button>
-        <button className="btn" disabled={busy || !valid} onClick={() => confirm.ask({ title: `Send ₦${kobo / 100} for approval?`, text: 'A second person must approve it before any money moves.', confirm: 'Yes, send' }, () => run(() => post('/admin/adjustments', {
+        <button className="btn" disabled={!valid} onClick={() => confirm.ask({ title: `Send ₦${kobo / 100} for approval?`, text: 'A second person must approve it before any money moves.', confirm: 'Yes, send' }, () => go(() => post('/admin/adjustments', {
           kind, userId: user, amountKobo: kobo, reason: reason.trim(), ...(kind === 'refund' ? { rideId: ride } : {}), ...(kind === 'topup_correction' ? { providerReference: ref } : {}),
-        }, { 'Idempotency-Key': key }), () => { onDone(); onClose(); }))}>{busy ? 'Sending…' : 'Send for approval'}</button>
+        }, { 'Idempotency-Key': key }), () => { onDone(); onClose(); }))}>Send for approval</button>
       </div>
       {confirm.node}
     </Modal>

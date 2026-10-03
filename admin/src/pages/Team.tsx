@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { post } from '../api';
-import { Segmented, SearchBox, Toast, useAction, useConfirm } from '../bits';
+import { Segmented, SearchBox, Toast, useAction, useConfirm, go } from '../bits';
 import { Icon, Loading, Modal, Pill, Stat, dateTime, initials, title, useLoad } from '../ui';
 
 export type StaffRole = 'support' | 'finance' | 'admin';
@@ -36,7 +36,6 @@ function InviteModal({ onClose, onDone }: { onClose: () => void; onDone: (who: s
   const [first, setFirst] = useState(''); const [last, setLast] = useState('');
   const [email, setEmail] = useState(''); const [phone, setPhone] = useState('');
   const [role, setRole] = useState<StaffRole>('support');
-  const { busy, error, run } = useAction();
   const confirm = useConfirm();
   const valid = first.trim().length >= 1 && last.trim().length >= 1 && /^\S+@\S+\.\S+$/.test(email);
   return (
@@ -52,13 +51,12 @@ function InviteModal({ onClose, onDone }: { onClose: () => void; onDone: (who: s
         <div className="field"><label htmlFor="rl">Role</label><select id="rl" className="select" value={role} onChange={(e) => setRole(e.target.value as StaffRole)}>{(Object.keys(ROLE_TEXT) as StaffRole[]).map((r) => <option key={r} value={r}>{ROLE_TEXT[r].label}</option>)}</select></div>
       </div>
       <div className="note">{ROLE_TEXT[role].blurb}</div>
-      {error && <div className="error" role="alert">{error}</div>}
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <button className="btn ghost" onClick={onClose}>Cancel</button>
-        <button className="btn" disabled={busy || !valid} onClick={() => confirm.ask({ title: `Create an account for ${first.trim()} ${last.trim()}?`, text: `They get ${ROLE_TEXT[role].label} access. ${ROLE_TEXT[role].blurb}`, confirm: 'Yes, create account' }, () => run(async () => {
+        <button className="btn" disabled={!valid} onClick={() => confirm.ask({ title: `Create an account for ${first.trim()} ${last.trim()}?`, text: `They get ${ROLE_TEXT[role].label} access. ${ROLE_TEXT[role].blurb}`, confirm: 'Yes, create account' }, () => go(async () => {
           const r = await post<{ temporaryPassword: string }>('/admin/team', { email: email.trim(), fullName: `${first.trim()} ${last.trim()}`, role, ...(phone.trim() ? { phone: phone.trim() } : {}) });
           onDone(`${first.trim()} ${last.trim()}`, r.temporaryPassword);
-        }))}>{busy ? 'Creating…' : 'Create account'}</button>
+        }))}>Create account</button>
       </div>
       {confirm.node}
     </Modal>
@@ -122,12 +120,12 @@ export function MemberDetail() {
         <div className="grow"><h1 style={{ fontSize: 22, fontWeight: 800 }}>{m.name}</h1>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}><Pill tone="green">{ROLE_TEXT[m.role].label}</Pill>{stateOf(m)}{m.invitedBy && <span className="note">Invited by {m.invitedBy}</span>}</div>
           <div className="note" style={{ marginTop: 6 }}>{m.email}{m.phone ? ` · ${m.phone}` : ''}</div></div>
-        <select className="select" style={{ width: 150 }} aria-label="Role" value={m.role} onChange={(e) => { const role = e.target.value as StaffRole; confirm.ask({ title: `Make ${m.name} ${ROLE_TEXT[role].label}?`, text: `${ROLE_TEXT[role].blurb} They are signed out and use the new role at their next sign-in.`, confirm: 'Yes, change role' }, () => act.run(() => post(`/admin/team/${m.id}/role`, { role }), done('Role changed. They sign in again to use it.'))); }}>
+        <select className="select" style={{ width: 150 }} aria-label="Role" value={m.role} onChange={(e) => { const role = e.target.value as StaffRole; confirm.ask({ title: `Make ${m.name} ${ROLE_TEXT[role].label}?`, text: `${ROLE_TEXT[role].blurb} They are signed out and use the new role at their next sign-in.`, confirm: 'Yes, change role' }, () => go(() => post(`/admin/team/${m.id}/role`, { role }), done('Role changed. They sign in again to use it.'))); }}>
           {(Object.keys(ROLE_TEXT) as StaffRole[]).map((r) => <option key={r} value={r}>{ROLE_TEXT[r].label}</option>)}</select>
-        <button className="btn ghost" disabled={act.busy} onClick={() => confirm.ask({ title: `Reset ${m.name}'s password?`, text: 'Their current password stops working and they are signed out. You get a one-time password to pass on.', confirm: 'Yes, reset' }, () => act.run(async () => { const r = await post<{ temporaryPassword: string }>(`/admin/team/${m.id}/reset-password`); setShown(r.temporaryPassword); }))}>Reset password</button>
+        <button className="btn ghost" disabled={act.busy} onClick={() => confirm.ask({ title: `Reset ${m.name}'s password?`, text: 'Their current password stops working and they are signed out. You get a one-time password to pass on.', confirm: 'Yes, reset' }, () => go(async () => { const r = await post<{ temporaryPassword: string }>(`/admin/team/${m.id}/reset-password`); setShown(r.temporaryPassword); }))}>Reset password</button>
         {m.active
-          ? <button className="btn outline-red" disabled={act.busy} onClick={() => confirm.ask({ title: `Switch off ${m.name}?`, text: 'They are signed out and cannot sign in until you restore access.', confirm: 'Yes, switch off', danger: true }, () => act.run(() => post(`/admin/team/${m.id}/active`, { active: false }), done('Access switched off')))}>Switch off</button>
-          : <button className="btn" disabled={act.busy} onClick={() => confirm.ask({ title: `Restore access for ${m.name}?`, text: 'They can sign in again with their current password.', confirm: 'Yes, restore' }, () => act.run(() => post(`/admin/team/${m.id}/active`, { active: true }), done('Access restored')))}>Restore access</button>}
+          ? <button className="btn outline-red" disabled={act.busy} onClick={() => confirm.ask({ title: `Switch off ${m.name}?`, text: 'They are signed out and cannot sign in until you restore access.', confirm: 'Yes, switch off', danger: true }, () => go(() => post(`/admin/team/${m.id}/active`, { active: false }), done('Access switched off')))}>Switch off</button>
+          : <button className="btn" disabled={act.busy} onClick={() => confirm.ask({ title: `Restore access for ${m.name}?`, text: 'They can sign in again with their current password.', confirm: 'Yes, restore' }, () => go(() => post(`/admin/team/${m.id}/active`, { active: true }), done('Access restored')))}>Restore access</button>}
       </div>
       {act.error && <div className="banner error" role="alert" style={{ marginTop: 14 }}>{act.error}</div>}
       <div className="pilltabs" style={{ marginTop: 14 }}>

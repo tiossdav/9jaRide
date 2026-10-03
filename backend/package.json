@@ -7,9 +7,14 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "test": "jest",
-    "test:int": "jest --runInBand",
+    "test:int": "node scripts/run-int.js",
     "migrate": "ts-node scripts/migrate.ts",
-    "staff:create": "ts-node scripts/create-staff.ts"
+    "staff:create": "ts-node scripts/create-staff.ts",
+    "test:unit": "jest --testPathIgnorePatterns \\.int\\.spec",
+    "test:cov": "jest --testPathIgnorePatterns \\.int\\.spec --coverage",
+    "test:cov:all": "node scripts/run-int.js --coverage",
+    "test:debug": "node --inspect-brk node_modules/jest/bin/jest.js --runInBand",
+    "start:debug": "nest start --debug --watch"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.0",
@@ -52,6 +57,14 @@
     "transform": {
       "^.+\\.ts$": "ts-jest"
     },
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "collectCoverageFrom": [
+      "**/*.ts",
+      "!**/*.spec.ts",
+      "!**/*.testing.ts",
+      "!main.ts",
+      "!**/*.module.ts"
+    ],
+    "coverageDirectory": "../coverage"
   }
 }

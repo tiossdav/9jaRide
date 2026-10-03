@@ -64,6 +64,15 @@ export function Toast({ text, onDone }: { text: string; onDone: () => void }) {
   return <div className="toast" role="status">{text}</div>;
 }
 
+/**
+ * For the action given to `useConfirm().ask`: runs it and lets a failure reach the confirm box, which shows the reason and
+ * stays open. (`useAction().run` would catch the error itself and the box would close as if it had worked.)
+ */
+export async function go(fn: () => Promise<unknown>, after?: () => void): Promise<void> {
+  await fn();
+  after?.();
+}
+
 interface ConfirmOptions { title: string; text?: string; confirm: string; danger?: boolean }
 
 /**
