@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import Redis from 'ioredis';
-import { Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
 import { PG_POOL, REDIS } from '../common/infra.module';
 import {
   AcceptResult,
@@ -40,11 +40,13 @@ export class DispatchService {
   async recordPing(ping: DriverPing): Promise<void> {
     if (ping.mockLocation) return; // spoofed positions never enter matching
     const stateKey = keys.driverState(ping.driverId);
+    // A driver on a trip keeps pinging; that must not put them back into matching.
+    const status = (await this.redis.hget(stateKey, 'status')) === 'on_trip' ? 'on_trip' : 'available';
     await this.redis
       .multi()
       .geoadd(keys.geo(ping.category), ping.lng, ping.lat, ping.driverId)
       .hset(stateKey, {
-        status: 'available',
+        status,
         category: ping.category,
         score: String(ping.score ?? 1),
         lat: String(ping.lat),
@@ -65,7 +67,11 @@ export class DispatchService {
   // ------------------------------------------------------------------ requesting
 
   /** Idempotent: the same (rider, key) always returns the same ride, so a retry never creates a second one. */
-  async requestRide(req: RideRequest): Promise<{ rideId: string; created: boolean }> {
+  async requestRide(
+    req: RideRequest,
+    /** Runs in the same transaction for a NEW ride (attach the fare quote, hold wallet money). If it throws, no ride is created. */
+    inTransaction?: (client: PoolClient, rideId: string) => Promise<void>,
+  ): Promise<{ rideId: string; created: boolean }> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -95,6 +101,7 @@ export class DispatchService {
         `INSERT INTO ride_status_history (ride_id, from_status, to_status) VALUES ($1, 'REQUESTED', 'SEARCHING_DRIVER')`,
         [rideId],
       );
+      if (inTransaction) await inTransaction(client, rideId);
       await client.query('COMMIT');
       // Fire-and-forget is safe: if this fails, the sweeper picks the ride up within one tick.
       this.advance(rideId).catch((e) => this.log.error(`advance failed for ${rideId}: ${e}`));
@@ -320,6 +327,8 @@ export class DispatchService {
       `INSERT INTO ride_status_history (ride_id, from_status, to_status, reason) VALUES ($1, 'SEARCHING_DRIVER', 'NO_DRIVER_FOUND', 'search window elapsed')`,
       [rideId],
     );
+    // No ride, so the reserved wallet money goes back to the rider.
+    await this.pool.query(`UPDATE wallet_holds SET status = 'RELEASED' WHERE ride_id = $1 AND status = 'ACTIVE'`, [rideId]);
     await this.notifier.noDriverFound(riderId, rideId);
   }
 

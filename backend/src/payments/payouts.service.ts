@@ -207,6 +207,44 @@ export class PayoutsService {
     });
   }
 
+  private static readonly COLUMNS = `id, driver_id, amount_kobo, bank_code, account_number, account_name, status,
+    requested_by, approved_by, approved_at, rejected_reason, failure_reason, created_at, settled_at`;
+
+  private present(r: any) {
+    return {
+      id: r.id,
+      driverId: r.driver_id,
+      amountKobo: Number(r.amount_kobo),
+      bankCode: r.bank_code,
+      accountNumber: r.account_number,
+      accountName: r.account_name,
+      status: r.status,
+      requestedBy: r.requested_by,
+      approvedBy: r.approved_by,
+      approvedAt: r.approved_at,
+      rejectedReason: r.rejected_reason,
+      failureReason: r.failure_reason,
+      createdAt: r.created_at,
+      settledAt: r.settled_at,
+    };
+  }
+
+  async listForDriver(driverId: string) {
+    const { rows } = await this.pool.query(
+      `SELECT ${PayoutsService.COLUMNS} FROM payout_requests WHERE driver_id = $1 ORDER BY created_at DESC LIMIT 100`,
+      [driverId],
+    );
+    return rows.map((r) => this.present(r));
+  }
+
+  async listByStatus(status?: string) {
+    const { rows } = await this.pool.query(
+      `SELECT ${PayoutsService.COLUMNS} FROM payout_requests WHERE ($1::text IS NULL OR status = $1) ORDER BY created_at DESC LIMIT 200`,
+      [status ?? null],
+    );
+    return rows.map((r) => this.present(r));
+  }
+
   /** Ask the provider what happened to a payout and apply it. Used by the webhook and by reconciliation. */
   async refreshFromProvider(providerReference: string): Promise<string> {
     const { rows } = await this.pool.query(`SELECT id, status, EXTRACT(EPOCH FROM now() - processing_at)::float8 AS age_s FROM payout_requests WHERE provider_reference = $1`, [providerReference]);

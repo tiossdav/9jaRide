@@ -3,44 +3,16 @@ import { Pool } from 'pg';
 import { LedgerService } from '../ledger/ledger.service';
 import { InvalidWebhookSignatureError, PaymentsService } from './payments.service';
 import { PayoutsService, SelfApprovalError } from './payouts.service';
-import { BankDestination, ProviderTransaction, TransferRejectedError, TransferStatus } from './payments.types';
-import { PaystackClient, paystackSignature } from './paystack.client';
+import { BankDestination } from './payments.types';
+import { paystackSignature } from './paystack.client';
+import { FakeProvider, TEST_KEY as KEY } from './testing/fake-provider.testing';
 import { ReconciliationService } from './reconciliation.service';
 
 // Real Postgres, fake provider. Skipped unless INTEGRATION=1 (it writes rows to DATABASE_URL, and the ledger is
 // append-only, so use a local dev database):  INTEGRATION=1 DATABASE_URL=... npm test -- payments.int
 const suite = process.env.INTEGRATION && process.env.DATABASE_URL ? describe : describe.skip;
 
-const KEY = 'sk_test_unit';
 const BANK: BankDestination = { bankCode: '058', accountNumber: '0123456789', accountName: 'Test Driver' };
-
-/** Real signature check, in-memory "network". */
-class FakeProvider extends PaystackClient {
-  txs = new Map<string, ProviderTransaction>();
-  transfers = new Map<string, TransferStatus>();
-  transferMode: 'ok' | 'reject' | 'unknown' = 'ok';
-  constructor() {
-    super(KEY);
-  }
-  async initialize(i: { reference: string }) {
-    return { authorizationUrl: `https://pay.test/${i.reference}` };
-  }
-  async verifyTransaction(reference: string) {
-    return this.txs.get(reference) ?? null;
-  }
-  async listSuccessful() {
-    return [...this.txs.values()].filter((t) => t.status === 'success');
-  }
-  async transfer(i: { reference: string }) {
-    if (this.transferMode === 'reject') throw new TransferRejectedError('bad account');
-    if (this.transferMode === 'unknown') throw new Error('timeout');
-    this.transfers.set(i.reference, 'SUCCESS');
-    return { status: 'SUCCESS' as const };
-  }
-  async verifyTransfer(reference: string) {
-    return this.transfers.get(reference) ?? 'NOT_FOUND';
-  }
-}
 
 suite('payments and payouts (real Postgres)', () => {
   let pool: Pool;
@@ -201,7 +173,9 @@ suite('payments and payouts (real Postgres)', () => {
       await expect(
         pool.query(`UPDATE payout_requests SET status = 'APPROVED', approved_by = $2, approved_at = now() WHERE id = $1`, [id, staff]),
       ).rejects.toThrow(/check constraint/);
-      expect(await payouts.sendApproved(5)).toBe(0); // nothing approved, nothing sent
+      await payouts.sendApproved(50); // other suites may have approved payouts; this one must not be among those sent
+      const state = await pool.query(`SELECT status FROM payout_requests WHERE id = $1`, [id]);
+      expect(state.rows[0].status).toBe('PENDING_APPROVAL');
       expect(await payouts.approve(id, randomUUID())).toBe(true);
     });
 

@@ -1,6 +1,7 @@
 import { Injectable, Logger, Module } from '@nestjs/common';
 import { Cron, Interval } from '@nestjs/schedule';
 import { LedgerModule } from '../ledger/ledger.module';
+import { AdminPaymentsController, WalletController, WebhookController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { PAYMENT_PROVIDER, PAYOUT_PROVIDER } from './payments.types';
 import { PaystackClient } from './paystack.client';
@@ -37,6 +38,7 @@ export class PaymentsWorker {
 // its signature check, so an unconfigured environment can never credit or pay anything.
 @Module({
   imports: [LedgerModule],
+  controllers: [WalletController, WebhookController, AdminPaymentsController],
   providers: [
     PaymentsService,
     PayoutsService,

@@ -1,5 +1,6 @@
 import { Injectable, Logger, Module } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
+import { AdminSosController, SosController } from './sos.controller';
 import { SosService } from './sos.service';
 import {
   CALL_ESCALATOR,
@@ -37,6 +38,7 @@ export class SafetyWorker {
 }
 
 @Module({
+  controllers: [SosController, AdminSosController],
   providers: [
     SosService,
     SafetyWorker,
