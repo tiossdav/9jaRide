@@ -18,28 +18,40 @@ export function planTopUp(userId: string, amount: Kobo): Posting[] {
   ];
 }
 
-/** Wallet trip: rider wallet -> driver wallet (fare minus commission) and platform commission. */
-export function planWalletTrip(riderId: string, driverId: string, fare: Kobo, bps = COMMISSION_BPS): Posting[] {
+/**
+ * Split a fare. The flat daily tax is remitted to its own account and is not commissionable;
+ * commission is taken on the rest (rounding line included). Assumption, pending the accountant (spec decision).
+ */
+function splitFare(fare: Kobo, tax: Kobo, bps: number): { commission: Kobo; driverShare: Kobo } {
+  if (!Number.isSafeInteger(tax) || tax < 0 || tax > fare) throw new RangeError(`tax must be between 0 and the fare, got ${tax}`);
+  const commission = percentOf(fare - tax, bps);
+  return { commission, driverShare: fare - tax - commission };
+}
+
+/** Wallet trip: rider wallet -> driver wallet (fare minus tax minus commission), platform commission and tax. */
+export function planWalletTrip(riderId: string, driverId: string, fare: Kobo, tax: Kobo = 0, bps = COMMISSION_BPS): Posting[] {
   assertKobo(fare, 'fare');
-  const commission = percentOf(fare, bps);
-  const driverShare = fare - commission;
+  const { commission, driverShare } = splitFare(fare, tax, bps);
   const postings: Posting[] = [{ account: walletCode(riderId), amountKobo: -fare }];
   if (driverShare > 0) postings.push({ account: walletCode(driverId), amountKobo: driverShare });
   if (commission > 0) postings.push({ account: 'platform:commission', amountKobo: commission });
+  if (tax > 0) postings.push({ account: 'platform:tax', amountKobo: tax });
   return postings;
 }
 
 /**
- * Cash trip: the driver already holds the cash, so only the commission moves.
- * It is a debt the driver owes, so it can push their wallet negative (spec: "Cash earnings and payouts").
+ * Cash trip: the driver already holds the cash, so only what they owe moves: the commission and the tax
+ * they collected on the platform's behalf. It is a debt, so it can push their wallet negative
+ * (spec: "Cash earnings and payouts").
  */
-export function planCashTrip(driverId: string, fare: Kobo, bps = COMMISSION_BPS): Posting[] {
+export function planCashTrip(driverId: string, fare: Kobo, tax: Kobo = 0, bps = COMMISSION_BPS): Posting[] {
   assertKobo(fare, 'fare');
-  const commission = percentOf(fare, bps);
-  return [
-    { account: walletCode(driverId), amountKobo: -commission },
-    { account: 'platform:commission', amountKobo: commission },
-  ];
+  const { commission } = splitFare(fare, tax, bps);
+  const owed = commission + tax;
+  const postings: Posting[] = [{ account: walletCode(driverId), amountKobo: -owed }];
+  if (commission > 0) postings.push({ account: 'platform:commission', amountKobo: commission });
+  if (tax > 0) postings.push({ account: 'platform:tax', amountKobo: tax });
+  return postings;
 }
 
 /** Daily trip bonus: platform bonus account -> driver wallet. */

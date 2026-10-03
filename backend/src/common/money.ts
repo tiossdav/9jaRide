@@ -17,7 +17,13 @@ export function percentOf(amount: Kobo, basisPoints: number): Kobo {
   return Math.floor((amount * basisPoints + 5000) / 10000);
 }
 
+/** Round to the nearest multiple of `step` kobo, halves up, integer maths only. */
+export function roundToStep(amount: Kobo, step: Kobo): Kobo {
+  if (!Number.isSafeInteger(step) || step <= 0) throw new RangeError(`rounding step must be a positive integer, got ${step}`);
+  return Math.floor((2 * amount + step) / (2 * step)) * step;
+}
+
 /** Round to the nearest ₦10 (1,000 kobo). Shown to riders as its own receipt line. */
 export function roundToNearestTenNaira(amount: Kobo): Kobo {
-  return Math.floor((amount + 500) / 1000) * 1000;
+  return roundToStep(amount, 1000);
 }

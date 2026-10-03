@@ -40,6 +40,26 @@ describe('ledger postings', () => {
     ]);
   });
 
+  it('sends the flat tax to its own account and takes commission on the fare excluding tax (wallet trip)', () => {
+    // ₦2,260 fare including ₦30 tax: commission is 12% of ₦2,230 = ₦267.60; driver gets ₦1,962.40
+    const postings = planWalletTrip('rider', 'driver', nairaToKobo(2260), nairaToKobo(30));
+    expect(sum(postings)).toBe(0);
+    expect(postings).toContainEqual({ account: 'platform:tax', amountKobo: nairaToKobo(30) });
+    expect(postings).toContainEqual({ account: 'platform:commission', amountKobo: nairaToKobo(267.6) });
+    expect(postings).toContainEqual({ account: 'wallet:driver', amountKobo: nairaToKobo(1962.4) });
+  });
+
+  it('makes the cash-trip driver owe commission plus the tax they collected', () => {
+    const postings = planCashTrip('driver', nairaToKobo(2260), nairaToKobo(30));
+    expect(sum(postings)).toBe(0);
+    expect(postings).toContainEqual({ account: 'wallet:driver', amountKobo: -nairaToKobo(297.6) });
+    expect(postings).toContainEqual({ account: 'platform:tax', amountKobo: nairaToKobo(30) });
+  });
+
+  it('rejects a tax larger than the fare', () => {
+    expect(() => planWalletTrip('r', 'd', 1000, 2000)).toThrow(/tax/);
+  });
+
   it('balances top-ups and bonuses', () => {
     expect(sum(planTopUp('u', 500_000))).toBe(0);
     expect(sum(planBonus('d', 200_000))).toBe(0);
