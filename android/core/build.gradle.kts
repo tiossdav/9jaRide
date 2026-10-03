@@ -1,0 +1,35 @@
+plugins {
+    id("com.android.library")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
+}
+
+android {
+    namespace = "com.ninejaride.core"
+    compileSdk = 36
+    defaultConfig { minSdk = 26 }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = "17" }
+    buildFeatures { compose = true }
+}
+
+// api(): the apps use these types directly, so they come through with the module.
+dependencies {
+    val composeBom = platform("androidx.compose:compose-bom:2025.07.00")
+    api(composeBom)
+    api("androidx.compose.ui:ui")
+    api("androidx.compose.ui:ui-graphics")
+    api("androidx.compose.foundation:foundation")
+    api("androidx.activity:activity-compose:1.10.1")
+    api("androidx.core:core-ktx:1.16.0")
+    api("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.2")
+    api("androidx.lifecycle:lifecycle-runtime-compose:2.9.2")
+    api("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+    api("com.squareup.okhttp3:okhttp:4.12.0")
+    api("org.osmdroid:osmdroid-android:6.1.20")
+}
