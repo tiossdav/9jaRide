@@ -39,6 +39,8 @@ export interface RideRequest {
   paymentMethod: 'cash' | 'wallet';
   pickup: { lat: number; lng: number };
   dropoff: { lat: number; lng: number };
+  pickupAddress?: string;
+  dropoffAddress?: string;
 }
 
 export type AcceptResult =

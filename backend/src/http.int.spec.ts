@@ -251,7 +251,7 @@ suite('HTTP API (auth, rides, wallet, payouts, SOS)', () => {
 
       const seen = await http().get(`/rides/${rideId}`).set(auth(rider.token)).expect(200);
       expect(seen.body.status).toBe('DRIVER_ASSIGNED');
-      expect(seen.body.driver).toEqual({ name: 'Driver Dee', vehicle: { make: 'Toyota', colour: 'Silver', plate: driverVehiclePlate } });
+      expect(seen.body.driver).toEqual({ name: 'Driver Dee', phone: expect.any(String), rating: null, vehicle: { make: 'Toyota', colour: 'Silver', plate: driverVehiclePlate } });
       await http().get(`/rides/${rideId}`).set(auth(stranger.token)).expect(404); // not their ride
       await http().get(`/rides/${rideId}`).set(auth((await staff('support')).token)).expect(200); // staff can look
 

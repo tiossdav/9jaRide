@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, HttpException, HttpStatus, Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { randomBytes, scrypt as scryptCb, timingSafeEqual } from 'crypto';
 import { promisify } from 'util';
 import { Pool } from 'pg';
@@ -97,6 +97,15 @@ export class AuthService {
     return rows[0] ? { id, kind, role: rows[0].role } : null;
   }
 
+  /** Who is signed in: the token's identity plus the name and phone the apps show. */
+  async profile(p: Principal) {
+    const { rows } =
+      p.kind === 'user'
+        ? await this.pool.query(`SELECT full_name AS name, phone FROM users WHERE id = $1`, [p.id])
+        : await this.pool.query(`SELECT full_name AS name, email, must_change_password FROM staff_users WHERE id = $1`, [p.id]);
+    return { id: p.id, kind: p.kind, role: p.role, name: rows[0]?.name ?? null, phone: rows[0]?.phone ?? null, email: rows[0]?.email ?? null, mustChangePassword: rows[0]?.must_change_password ?? false };
+  }
+
   refresh(refreshToken: string): Promise<TokenPair> {
     return this.tokens.rotate(refreshToken, (k, id) => this.currentPrincipal(k, id));
   }
@@ -111,10 +120,10 @@ export class AuthService {
 
   // ------------------------------------------------------------------ staff
 
-  async staffLogin(rawEmail: string, password: string): Promise<{ tokens: TokenPair; role: Role }> {
+  async staffLogin(rawEmail: string, password: string): Promise<{ tokens: TokenPair; role: Role; mustChangePassword: boolean }> {
     const email = rawEmail.trim().toLowerCase();
     const { rows } = await this.pool.query(
-      `SELECT id, role, password_hash, active, locked_until > now() AS locked FROM staff_users WHERE email = $1`,
+      `SELECT id, role, password_hash, active, must_change_password, locked_until > now() AS locked FROM staff_users WHERE email = $1`,
       [email],
     );
     const staff = rows[0];
@@ -133,9 +142,20 @@ export class AuthService {
       );
       throw bad();
     }
-    await this.pool.query(`UPDATE staff_users SET failed_logins = 0, locked_until = NULL WHERE id = $1`, [staff.id]);
+    await this.pool.query(`UPDATE staff_users SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1`, [staff.id]);
     const tokens = await this.tokens.startSession({ id: staff.id, kind: 'staff', role: staff.role });
-    return { tokens, role: staff.role };
+    return { tokens, role: staff.role, mustChangePassword: staff.must_change_password };
+  }
+
+  /** Staff change their own password. Every session is ended, so the caller signs in again with the new one. */
+  async changeStaffPassword(staffId: string, current: string, next: string): Promise<void> {
+    if (next.length < 12) throw new BadRequestException('the new password must be at least 12 characters');
+    if (next === current) throw new BadRequestException('the new password must be different from the current one');
+    if (!/[A-Za-z]/.test(next) || !/[0-9]/.test(next)) throw new BadRequestException('use letters and numbers in the new password');
+    const { rows } = await this.pool.query(`SELECT password_hash FROM staff_users WHERE id = $1 AND active`, [staffId]);
+    if (!rows[0] || !(await checkPassword(current, rows[0].password_hash))) throw new UnauthorizedException('the current password is wrong');
+    await this.pool.query(`UPDATE staff_users SET password_hash = $2, must_change_password = false WHERE id = $1`, [staffId, await hashPassword(next)]);
+    await this.tokens.revokeAll('staff', staffId);
   }
 
   async createStaff(email: string, fullName: string, role: 'support' | 'finance' | 'admin', password: string): Promise<string> {

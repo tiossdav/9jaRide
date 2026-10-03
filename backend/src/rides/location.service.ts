@@ -43,10 +43,10 @@ export class LocationService {
     const cached = await this.redis.get(cacheKey);
     if (cached) return cached as Category;
     const { rows } = await this.pool.query(
-      `SELECT v.category FROM vehicles v JOIN users u ON u.id = v.driver_id WHERE v.driver_id = $1 AND v.active AND u.status = 'active'`,
+      `SELECT v.category FROM vehicles v JOIN users u ON u.id = v.driver_id WHERE v.driver_id = $1 AND v.active AND v.suspended_at IS NULL AND u.status = 'active'`,
       [driverId],
     );
-    if (!rows[0]) throw new ConflictException({ code: 'no_active_vehicle', message: 'you need an approved vehicle and an active account to go online' });
+    if (!rows[0]) throw new ConflictException({ code: 'no_active_vehicle', message: 'you need an approved, unsuspended vehicle and an active account to go online' });
     await this.redis.set(cacheKey, rows[0].category, 'EX', CATEGORY_CACHE_SECONDS);
     return rows[0].category;
   }

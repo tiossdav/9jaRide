@@ -25,6 +25,8 @@ class QuoteDto {
 }
 
 class RequestRideDto {
+  @IsOptional() @IsString() @MaxLength(200) pickupAddress?: string;
+  @IsOptional() @IsString() @MaxLength(200) dropoffAddress?: string;
   @IsUUID() quoteId!: string;
   @IsIn(CATEGORIES) category!: Cat;
   @IsIn(['cash', 'wallet']) paymentMethod!: 'cash' | 'wallet';
@@ -47,11 +49,22 @@ class BatchDto {
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(MAX_BATCH) @ValidateNested({ each: true }) @Type(() => PointDto) points!: PointDto[];
 }
 
+class RateDto {
+  @IsInt() @Min(1) @Max(5) stars!: number;
+  @IsOptional() @IsArray() @ArrayMaxSize(6) @IsString({ each: true }) @MaxLength(30, { each: true }) tags?: string[];
+}
+
+class ListQuery {
+  @IsOptional() @IsIn(['active', 'history']) scope?: 'active' | 'history';
+}
+
 class CancelDto {
   @IsOptional() @IsString() @MinLength(2) @MaxLength(300) reason?: string;
 }
 
 class ScheduleDto {
+  @IsOptional() @IsString() @MaxLength(200) pickupAddress?: string;
+  @IsOptional() @IsString() @MaxLength(200) dropoffAddress?: string;
   @IsIn(CATEGORIES) category!: Cat;
   @IsIn(['cash', 'wallet']) paymentMethod!: 'cash' | 'wallet';
   @ValidateNested() @Type(() => LatLng) pickup!: LatLng;
@@ -118,9 +131,30 @@ export class RidesController {
 
   // ------------------------------------------------------------------ rider, driver and staff
 
+  // These two sit above rides/:id so "active" is not read as an id.
+  @Roles('rider') @Get('rides')
+  list(@CurrentUser() me: Principal, @Query() q: ListQuery) {
+    return this.rides.listForRider(me.id, q.scope ?? 'history');
+  }
+
+  @Roles('rider') @Get('rides/active')
+  active(@CurrentUser() me: Principal) {
+    return this.rides.activeForRider(me.id);
+  }
+
+  @Roles('rider') @Post('rides/:id/rating') @HttpCode(200)
+  rate(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RateDto) {
+    return this.rides.rate(me.id, id, dto.stars, dto.tags ?? []);
+  }
+
   @Get('rides/:id')
   get(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string) {
     return this.rides.get(me, id);
+  }
+
+  @Roles('rider') @Get('rides/:id/driver-location')
+  driverLocation(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.rides.driverPosition(me, id).then((p) => p ?? { lat: null, lng: null, at: null });
   }
 
   @Get('rides/:id/receipt')

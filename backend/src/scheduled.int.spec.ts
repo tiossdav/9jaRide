@@ -37,7 +37,7 @@ suite('scheduled rides, cancellation, background location, app config', () => {
   }, 60_000);
   afterAll(async () => {
     // Rides this file started searching must not stay open for 10 minutes and offer themselves to other suites' drivers.
-    await h.pool.query(`UPDATE rides SET status = 'CANCELLED_BY_SYSTEM', cancel_reason = 'test cleanup' WHERE status = 'SEARCHING_DRIVER' AND search_window_seconds = 600`);
+    await h.pool.query(`UPDATE rides SET status = 'CANCELLED_BY_SYSTEM', cancel_reason = 'test cleanup' WHERE status = 'SEARCHING_DRIVER' AND search_window_seconds = 900`);
     await h.pool.query(`DELETE FROM app_config WHERE key = 'client'`);
     await h.close();
   });
@@ -138,7 +138,7 @@ suite('scheduled rides, cancellation, background location, app config', () => {
       await makeDue(r1, 10);
       await scheduled.activateDue();
       const live = await status(r1);
-      expect(live).toMatchObject({ status: 'SEARCHING_DRIVER', search_window_seconds: 600 });
+      expect(live).toMatchObject({ status: 'SEARCHING_DRIVER', search_window_seconds: 900 });
       expect(live.pricing_version_id).not.toBeNull(); // priced at activation
       expect(live.fare_quote_id).not.toBeNull();
       expect((await status(r2)).status).toBe('SCHEDULED');
@@ -199,9 +199,9 @@ suite('scheduled rides, cancellation, background location, app config', () => {
       await scheduled.activateDue();
       await h.pool.query(`UPDATE rides SET search_started_at = now() - interval '200 seconds' WHERE id = $1`, [rideId]);
       await dispatch.advance(rideId);
-      expect((await status(rideId)).status).toBe('SEARCHING_DRIVER'); // still inside its 600 s window
+      expect((await status(rideId)).status).toBe('SEARCHING_DRIVER'); // still inside its 900 s window
 
-      await h.pool.query(`UPDATE rides SET search_started_at = now() - interval '700 seconds' WHERE id = $1`, [rideId]);
+      await h.pool.query(`UPDATE rides SET search_started_at = now() - interval '1000 seconds' WHERE id = $1`, [rideId]);
       await dispatch.advance(rideId);
       expect((await status(rideId)).status).toBe('NO_DRIVER_FOUND');
     });

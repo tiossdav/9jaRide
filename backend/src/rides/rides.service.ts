@@ -22,6 +22,8 @@ export interface RideInput {
   paymentMethod: 'cash' | 'wallet';
   pickup: { lat: number; lng: number };
   dropoff: { lat: number; lng: number };
+  pickupAddress?: string;
+  dropoffAddress?: string;
 }
 
 const STAFF_ROLES = ['support', 'finance', 'admin'];
@@ -56,6 +58,8 @@ export class RidesService {
         paymentMethod: input.paymentMethod,
         pickup: input.pickup,
         dropoff: input.dropoff,
+        pickupAddress: input.pickupAddress,
+        dropoffAddress: input.dropoffAddress,
       },
       async (client, rideId) => {
         await this.fares.attachQuote(client, rideId, riderId, input.quoteId);
@@ -73,10 +77,17 @@ export class RidesService {
       `SELECT r.id, r.short_code, r.status, r.payment_status, r.category, r.payment_method, r.rider_id, r.driver_id,
               ST_Y(r.pickup::geometry) AS pickup_lat, ST_X(r.pickup::geometry) AS pickup_lng,
               ST_Y(r.dropoff::geometry) AS dropoff_lat, ST_X(r.dropoff::geometry) AS dropoff_lng,
-              r.created_at, r.scheduled_for, r.schedule_id, r.cancel_reason, d.full_name AS driver_name, v.make, v.colour, v.plate
+              r.created_at, r.scheduled_for, r.schedule_id, r.cancel_reason, r.pickup_address, r.dropoff_address, d.full_name AS driver_name, v.make, v.colour, v.plate,
+              d.phone AS driver_phone,
+              (SELECT round(avg(x.stars)::numeric, 1) FROM ride_ratings x JOIN rides xr ON xr.id = x.ride_id WHERE xr.driver_id = r.driver_id) AS driver_rating,
+              (SELECT h.created_at FROM ride_status_history h WHERE h.ride_id = r.id ORDER BY h.id DESC LIMIT 1) AS status_changed_at,
+              q.low_kobo, q.high_kobo, f.total_kobo, f.distance_m AS fare_distance_m, f.duration_s AS fare_duration_s, rr.stars AS my_stars
          FROM rides r
          LEFT JOIN users d ON d.id = r.driver_id
          LEFT JOIN vehicles v ON v.driver_id = r.driver_id AND v.active
+         LEFT JOIN fare_quotes q ON q.id = r.fare_quote_id
+         LEFT JOIN ride_fares f ON f.ride_id = r.id
+         LEFT JOIN ride_ratings rr ON rr.ride_id = r.id
         WHERE r.id = $1 AND (r.rider_id = $2 OR r.driver_id = $2 OR $3::boolean)`,
       [rideId, me.id, STAFF_ROLES.includes(me.role)],
     );
@@ -92,11 +103,93 @@ export class RidesService {
       pickup: { lat: r.pickup_lat, lng: r.pickup_lng },
       dropoff: { lat: r.dropoff_lat, lng: r.dropoff_lng },
       createdAt: r.created_at,
+      pickupAddress: r.pickup_address,
+      dropoffAddress: r.dropoff_address,
+      estimate: r.low_kobo == null ? null : { lowKobo: Number(r.low_kobo), highKobo: Number(r.high_kobo) },
+      fareKobo: r.total_kobo == null ? null : Number(r.total_kobo),
+      distanceM: r.fare_distance_m ?? null,
+      durationS: r.fare_duration_s ?? null,
+      myRating: r.my_stars ?? null,
       scheduledFor: r.scheduled_for,
       scheduleId: r.schedule_id,
       cancelReason: r.cancel_reason,
-      driver: r.driver_id ? { name: r.driver_name, vehicle: { make: r.make, colour: r.colour, plate: r.plate } } : null,
+      statusChangedAt: r.status_changed_at,
+      // The driver's number is shared with the rider only while the trip is live, so they can find each other.
+      driver: r.driver_id
+        ? {
+            name: r.driver_name,
+            rating: r.driver_rating == null ? null : Number(r.driver_rating),
+            phone: ['DRIVER_ASSIGNED', 'DRIVER_ARRIVED', 'TRIP_STARTED'].includes(r.status) && r.rider_id === me.id ? r.driver_phone : null,
+            vehicle: { make: r.make, colour: r.colour, plate: r.plate },
+          }
+        : null,
     };
+  }
+
+  /** Where the rider's driver is right now, from the live position the driver app sends. Null when there is none to show. */
+  async driverPosition(me: Principal, rideId: string): Promise<{ lat: number; lng: number; at: number } | null> {
+    const { rows } = await this.pool.query(
+      `SELECT driver_id, status FROM rides WHERE id = $1 AND rider_id = $2`,
+      [rideId, me.id],
+    );
+    const ride = rows[0];
+    if (!ride) throw new NotFoundException('ride not found');
+    if (!ride.driver_id || !['DRIVER_ASSIGNED', 'DRIVER_ARRIVED', 'TRIP_STARTED'].includes(ride.status)) return null;
+    const state = await this.redis.hgetall(keys.driverState(ride.driver_id));
+    if (!state.lat || !state.lng) return null;
+    return { lat: Number(state.lat), lng: Number(state.lng), at: Number(state.at) };
+  }
+
+  /** The rider's rides, newest first. `scope=active` is the ones still in progress; `history` is everything else. */
+  async listForRider(riderId: string, scope: 'active' | 'history', limit = 50) {
+    const active = "('SCHEDULED','REQUESTED','SEARCHING_DRIVER','DRIVER_ASSIGNED','DRIVER_ARRIVED','TRIP_STARTED')";
+    const { rows } = await this.pool.query(
+      `SELECT r.id, r.short_code, r.status, r.payment_method, r.category, r.created_at, r.scheduled_for, r.schedule_id,
+              r.pickup_address, r.dropoff_address, f.total_kobo, q.low_kobo, q.high_kobo
+         FROM rides r
+         LEFT JOIN ride_fares f ON f.ride_id = r.id
+         LEFT JOIN fare_quotes q ON q.id = r.fare_quote_id
+        WHERE r.rider_id = $1 AND (r.status IN ${active}) = $2
+        ORDER BY COALESCE(r.scheduled_for, r.created_at) ${scope === 'active' ? 'ASC' : 'DESC'}
+        LIMIT $3`,
+      [riderId, scope === 'active', limit],
+    );
+    return rows.map((r) => ({
+      id: r.id as string,
+      shortCode: r.short_code as string,
+      status: r.status as string,
+      paymentMethod: r.payment_method as string,
+      category: r.category as string,
+      createdAt: r.created_at as Date,
+      scheduledFor: r.scheduled_for as Date | null,
+      scheduleId: r.schedule_id as string | null,
+      pickupAddress: r.pickup_address as string | null,
+      dropoffAddress: r.dropoff_address as string | null,
+      fareKobo: r.total_kobo == null ? null : Number(r.total_kobo),
+      estimate: r.low_kobo == null ? null : { lowKobo: Number(r.low_kobo), highKobo: Number(r.high_kobo) },
+    }));
+  }
+
+  /** The ride the rider is in right now, so the app can pick it back up after being closed. SCHEDULED rides do not count. */
+  async activeForRider(riderId: string) {
+    const { rows } = await this.pool.query(
+      `SELECT id FROM rides WHERE rider_id = $1 AND status IN ('REQUESTED','SEARCHING_DRIVER','DRIVER_ASSIGNED','DRIVER_ARRIVED','TRIP_STARTED')
+        ORDER BY created_at DESC LIMIT 1`,
+      [riderId],
+    );
+    return rows[0] ? { rideId: rows[0].id as string } : { rideId: null };
+  }
+
+  /** One rating per completed ride, by its rider. */
+  async rate(riderId: string, rideId: string, stars: number, tags: string[]): Promise<{ saved: boolean }> {
+    const ride = await this.pool.query(`SELECT status FROM rides WHERE id = $1 AND rider_id = $2`, [rideId, riderId]);
+    if (!ride.rows[0]) throw new NotFoundException('ride not found');
+    if (ride.rows[0].status !== 'TRIP_COMPLETED') throw new ConflictException({ code: 'wrong_state', message: 'only a finished trip can be rated' });
+    const res = await this.pool.query(
+      `INSERT INTO ride_ratings (ride_id, rater_id, stars, tags) VALUES ($1, $2, $3, $4) ON CONFLICT (ride_id) DO NOTHING`,
+      [rideId, riderId, stars, tags],
+    );
+    return { saved: (res.rowCount ?? 0) > 0 };
   }
 
   async receipt(me: Principal, rideId: string) {

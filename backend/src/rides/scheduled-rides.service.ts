@@ -12,8 +12,8 @@ export const MIN_LEAD_MINUTES = Number(process.env.SCHEDULE_MIN_LEAD_MINUTES ?? 
 export const MAX_DAYS_AHEAD = Number(process.env.SCHEDULE_MAX_DAYS_AHEAD ?? 30);
 export const MAX_WEEKS = Number(process.env.SCHEDULE_MAX_WEEKS ?? 12);
 export const MAX_OPEN_SCHEDULED = Number(process.env.SCHEDULE_MAX_OPEN ?? 30); // per rider
-const SEARCH_LEAD_MINUTES = Number(process.env.SCHEDULE_SEARCH_LEAD_MINUTES ?? 15); // dispatch starts this long before pickup
-const SEARCH_WINDOW_SECONDS = Number(process.env.SCHEDULE_SEARCH_WINDOW_SECONDS ?? 600); // and may search this long
+const SEARCH_LEAD_MINUTES = Number(process.env.SCHEDULE_SEARCH_LEAD_MINUTES ?? 30); // dispatch starts this long before pickup (the design says 30)
+const SEARCH_WINDOW_SECONDS = Number(process.env.SCHEDULE_SEARCH_WINDOW_SECONDS ?? 900); // and may search this long
 const MISSED_GRACE_MINUTES = Number(process.env.SCHEDULE_MISSED_GRACE_MINUTES ?? 10); // too late to start after pickup + this
 const WEEK_MS = 7 * 24 * 3_600_000; // Lagos has no daylight saving, so "same time next week" is exactly 7 days
 
@@ -31,6 +31,8 @@ export interface ScheduleInput {
   distanceM: number;
   durationS: number;
   firstPickupAt: Date;
+  pickupAddress?: string;
+  dropoffAddress?: string;
   repeat: 'none' | 'weekly';
   weeks?: number;
 }
@@ -72,12 +74,12 @@ export class ScheduledRidesService {
     return this.ledger.withTransaction(async (client) => {
       const inserted = await client.query(
         `INSERT INTO ride_schedules (rider_id, category, payment_method, pickup, dropoff, est_distance_m, est_duration_s,
-                                     first_pickup_at, repeat, occurrences, idempotency_key)
+                                     first_pickup_at, repeat, occurrences, idempotency_key, pickup_address, dropoff_address)
          VALUES ($1, $2, $3, ST_SetSRID(ST_MakePoint($4, $5), 4326)::geography, ST_SetSRID(ST_MakePoint($6, $7), 4326)::geography,
-                 $8, $9, $10, $11, $12, $13)
+                 $8, $9, $10, $11, $12, $13, $14, $15)
          ON CONFLICT (rider_id, idempotency_key) DO NOTHING RETURNING id`,
         [riderId, input.category, input.paymentMethod, input.pickup.lng, input.pickup.lat, input.dropoff.lng, input.dropoff.lat,
-         input.distanceM, input.durationS, input.firstPickupAt, input.repeat, count, idempotencyKey],
+         input.distanceM, input.durationS, input.firstPickupAt, input.repeat, count, idempotencyKey, input.pickupAddress ?? null, input.dropoffAddress ?? null],
       );
       if (!inserted.rowCount) {
         const existing = await client.query(`SELECT id FROM ride_schedules WHERE rider_id = $1 AND idempotency_key = $2`, [riderId, idempotencyKey]);
@@ -95,8 +97,8 @@ export class ScheduledRidesService {
       for (let i = 0; i < count; i++) {
         const ride = await client.query(
           `INSERT INTO rides (short_code, rider_id, category, status, payment_method, pickup, dropoff, idempotency_key,
-                              scheduled_for, schedule_id, est_distance_m, est_duration_s)
-           SELECT $1, rider_id, category, 'SCHEDULED', payment_method, pickup, dropoff, $2, $3, id, est_distance_m, est_duration_s
+                              scheduled_for, schedule_id, est_distance_m, est_duration_s, pickup_address, dropoff_address)
+           SELECT $1, rider_id, category, 'SCHEDULED', payment_method, pickup, dropoff, $2, $3, id, est_distance_m, est_duration_s, pickup_address, dropoff_address
              FROM ride_schedules WHERE id = $4 RETURNING id`,
           [shortCode(), `${idempotencyKey}:${i}`, new Date(first + i * WEEK_MS), scheduleId],
         );
@@ -107,7 +109,7 @@ export class ScheduledRidesService {
   }
 
   private async describe(db: Pick<Pool, 'query'>, scheduleId: string) {
-    const s = (await db.query(`SELECT id, category, payment_method, repeat, occurrences, status, first_pickup_at FROM ride_schedules WHERE id = $1`, [scheduleId])).rows[0];
+    const s = (await db.query(`SELECT id, category, payment_method, repeat, occurrences, status, first_pickup_at, pickup_address, dropoff_address, est_distance_m, est_duration_s FROM ride_schedules WHERE id = $1`, [scheduleId])).rows[0];
     const rides = (await db.query(`SELECT id, status, scheduled_for FROM rides WHERE schedule_id = $1 ORDER BY scheduled_for`, [scheduleId])).rows;
     return {
       scheduleId: s.id as string,
@@ -115,6 +117,10 @@ export class ScheduledRidesService {
       paymentMethod: s.payment_method,
       repeat: s.repeat,
       status: s.status,
+      pickupAddress: s.pickup_address as string | null,
+      dropoffAddress: s.dropoff_address as string | null,
+      distanceM: s.est_distance_m as number,
+      durationS: s.est_duration_s as number,
       rides: rides.map((r) => ({ rideId: r.id as string, status: r.status as string, scheduledFor: r.scheduled_for as Date })),
     };
   }

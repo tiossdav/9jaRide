@@ -40,7 +40,7 @@ export const BATTERY_GUIDANCE = [
     steps: [
       'Open phone Settings, then Apps, then 9jaRide, then Battery.',
       'Choose "Unrestricted" or "No restrictions". Do not choose "Optimised".',
-      'Allow location "All the time" and turn on "Precise location".',
+      'Keep location on, and turn on "Precise location" for 9jaRide.',
       'Turn off battery saver while you are online.',
     ],
   },

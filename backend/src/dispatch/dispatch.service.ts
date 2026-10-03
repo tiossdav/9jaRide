@@ -76,12 +76,13 @@ export class DispatchService {
     try {
       await client.query('BEGIN');
       const inserted = await client.query(
-        `INSERT INTO rides (short_code, rider_id, category, payment_method, pickup, dropoff, idempotency_key)
-         VALUES ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography, ST_SetSRID(ST_MakePoint($7, $8), 4326)::geography, $9)
+        `INSERT INTO rides (short_code, rider_id, category, payment_method, pickup, dropoff, idempotency_key, pickup_address, dropoff_address)
+         VALUES ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography, ST_SetSRID(ST_MakePoint($7, $8), 4326)::geography, $9, $10, $11)
          ON CONFLICT (rider_id, idempotency_key) DO NOTHING RETURNING id`,
         [
           shortCode(), req.riderId, req.category, req.paymentMethod,
           req.pickup.lng, req.pickup.lat, req.dropoff.lng, req.dropoff.lat, req.idempotencyKey,
+          req.pickupAddress ?? null, req.dropoffAddress ?? null,
         ],
       );
       if (inserted.rowCount === 0) {

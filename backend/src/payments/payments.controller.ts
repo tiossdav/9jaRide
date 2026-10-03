@@ -39,6 +39,7 @@ export class WalletController {
     private readonly payments: PaymentsService,
     private readonly payouts: PayoutsService,
     private readonly ledger: LedgerService,
+    @Inject(PG_POOL) private readonly pool: Pool,
   ) {}
 
   @Roles('rider', 'driver') @Get('wallet')
@@ -48,6 +49,20 @@ export class WalletController {
       balanceKobo: await this.ledger.balanceKobo(c, code),
       availableKobo: await this.ledger.availableKobo(c, code),
     }));
+  }
+
+  /** Money in and out of the wallet, newest first. */
+  @Roles('rider', 'driver') @Get('wallet/transactions')
+  async transactions(@CurrentUser() me: Principal) {
+    const { rows } = await this.pool.query(
+      `SELECT t.kind, t.memo, t.created_at, e.amount_kobo
+         FROM ledger_entries e
+         JOIN ledger_accounts a ON a.id = e.account_id
+         JOIN ledger_transactions t ON t.id = e.transaction_id
+        WHERE a.code = $1 ORDER BY e.id DESC LIMIT 100`,
+      [walletCode(me.id)],
+    );
+    return rows.map((r) => ({ kind: r.kind as string, memo: r.memo as string | null, at: r.created_at as Date, amountKobo: Number(r.amount_kobo) }));
   }
 
   @Roles('rider', 'driver') @Post('wallet/topups') @HttpCode(200)

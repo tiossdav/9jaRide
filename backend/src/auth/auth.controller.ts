@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Post, Req } from '@nestjs/common';
 import { IsIn, IsOptional, IsString, Length, MaxLength, MinLength } from 'class-validator';
 import { Request } from 'express';
 import { AuthService } from './auth.service';
-import { CurrentUser, Principal, Public } from './auth.types';
+import { CurrentUser, Principal, Public, Roles } from './auth.types';
 
 class RequestOtpDto {
   @IsString() @MaxLength(20) phone!: string;
@@ -25,6 +25,11 @@ class RegisterDto extends RegistrationDto {
 
 class RefreshDto {
   @IsString() @MaxLength(200) refreshToken!: string;
+}
+
+class ChangePasswordDto {
+  @IsString() @MinLength(1) @MaxLength(200) currentPassword!: string;
+  @IsString() @MinLength(12) @MaxLength(200) newPassword!: string;
 }
 
 class StaffLoginDto {
@@ -72,11 +77,16 @@ export class AuthController {
   @Public() @Post('auth/staff/login') @HttpCode(200)
   async staffLogin(@Body() dto: StaffLoginDto) {
     const r = await this.auth.staffLogin(dto.email, dto.password);
-    return { ...r.tokens, role: r.role };
+    return { ...r.tokens, role: r.role, mustChangePassword: r.mustChangePassword };
+  }
+
+  @Roles('support', 'finance', 'admin') @Post('auth/staff/change-password') @HttpCode(204)
+  async changePassword(@CurrentUser() me: Principal, @Body() dto: ChangePasswordDto) {
+    await this.auth.changeStaffPassword(me.id, dto.currentPassword, dto.newPassword);
   }
 
   @Get('me')
   me(@CurrentUser() me: Principal) {
-    return { id: me.id, kind: me.kind, role: me.role };
+    return this.auth.profile(me);
   }
 }
