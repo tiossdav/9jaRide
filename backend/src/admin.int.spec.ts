@@ -315,19 +315,29 @@ suite('admin essentials', () => {
       expect(await h.wallet(rider.id)).toBe(200_000); // credited once, not twice
     });
 
+    // Only one reconciliation runs at a time across the whole system; if another holds the lock, wait for it.
+    async function reconcile(token: string) {
+      for (let i = 0; i < 40; i++) {
+        const r = await h.http().post('/admin/reconciliation/run').set(h.auth(token)).expect(200);
+        if (r.body.runId) return;
+        await new Promise((res) => setTimeout(res, 250));
+      }
+      throw new Error('reconciliation lock never freed');
+    }
+
     it('lists a reconciliation finding once, and stops listing it when resolved', async () => {
       const finance = await h.staff('finance');
       const reference = `topup_${randomUUID()}`;
       h.provider.txs.set(reference, { reference, status: 'success', amountKobo: 123_000, currency: 'NGN' }); // paid at Paystack, unknown to us
-      await h.http().post('/admin/reconciliation/run').set(h.auth(finance.token)).expect(200);
-      await h.http().post('/admin/reconciliation/run').set(h.auth(finance.token)).expect(200); // the next hourly run sees it again
+      await reconcile(finance.token);
+      await reconcile(finance.token); // the next hourly run sees it again
 
       const open = await h.http().get('/admin/payment-exceptions').set(h.auth(finance.token)).expect(200);
       const hits = open.body.filter((e: { sourceId: string }) => e.sourceId === `unknown_reference:${reference}`);
       expect(hits).toHaveLength(1);
       await h.http().post('/admin/payment-exceptions/resolve').set(h.auth(finance.token))
         .send({ sourceKind: 'finding', sourceId: `unknown_reference:${reference}`, resolution: 'dismissed', note: 'Test payment from the Paystack dashboard' }).expect(204);
-      await h.http().post('/admin/reconciliation/run').set(h.auth(finance.token)).expect(200);
+      await reconcile(finance.token);
       const later = await h.http().get('/admin/payment-exceptions').set(h.auth(finance.token)).expect(200);
       expect(later.body.map((e: { sourceId: string }) => e.sourceId)).not.toContain(`unknown_reference:${reference}`);
 
@@ -335,6 +345,6 @@ suite('admin essentials', () => {
         .send({ sourceKind: 'finding', sourceId: 'unknown_reference:typo', resolution: 'dismissed', note: 'no such thing' }).expect(404);
       await h.http().post('/admin/payment-exceptions/resolve').set(h.auth(finance.token))
         .send({ sourceKind: 'finding', sourceId: `unknown_reference:${reference}`, resolution: 'corrected', note: 'missing adjustment' }).expect(400);
-    });
+    }, 60_000);
   });
 });

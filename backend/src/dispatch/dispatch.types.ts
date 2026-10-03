@@ -9,6 +9,9 @@ export const keys = {
   geo: (category: Category) => `drivers:geo:${category}`,
   driverState: (driverId: string) => `driver:${driverId}:state`, // hash, expires 20 s after the last ping
   driverOffer: (driverId: string) => `driver:${driverId}:offer`, // one open offer per driver
+  // The ride a driver is on. Unlike driverState it does not expire after 20 s, so a driver who loses signal on a
+  // trip is not put back into matching when their pings resume. A long expiry is only a safety net.
+  driverRide: (driverId: string) => `driver:${driverId}:ride`,
   rideOffer: (rideId: string) => `ride:${rideId}:offer`, // driver the ride is currently offered to
   rideAcceptLock: (rideId: string) => `lock:ride:${rideId}:accept`,
   rideAdvanceLock: (rideId: string) => `lock:ride:${rideId}:advance`,

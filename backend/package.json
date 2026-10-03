@@ -7,6 +7,7 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "test": "jest",
+    "test:int": "jest --runInBand",
     "migrate": "ts-node scripts/migrate.ts",
     "staff:create": "ts-node scripts/create-staff.ts"
   },

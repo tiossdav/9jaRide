@@ -8,7 +8,7 @@ function setup(opts: { offeredTo?: string | null; lockFree?: boolean; assignRows
     get: jest.fn().mockResolvedValue(opts.offeredTo ?? null),
     set: jest.fn().mockResolvedValue(opts.lockFree === false ? null : 'OK'),
     del: jest.fn().mockResolvedValue(1),
-    multi: jest.fn(() => ({ hset: () => redis._m, del: () => redis._m, exec: jest.fn().mockResolvedValue([]) })),
+    multi: jest.fn(() => ({ hset: () => redis._m, set: () => redis._m, del: () => redis._m, exec: jest.fn().mockResolvedValue([]) })),
   };
   redis._m = redis.multi();
   const queries: string[] = [];

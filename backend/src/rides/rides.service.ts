@@ -1,16 +1,20 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import Redis from 'ioredis';
 import { Pool } from 'pg';
 import { PG_POOL, REDIS } from '../common/infra.module';
 import { DispatchService } from '../dispatch/dispatch.service';
 import { Category, keys } from '../dispatch/dispatch.types';
+
+// Placeholders: the trip distance a driver reports is flagged when it is this much longer than the recorded route.
+const TRAIL_MIN_POINTS = Number(process.env.TRAIL_MIN_POINTS ?? 10);
+const TRAIL_FLAG_RATIO = Number(process.env.TRAIL_FLAG_RATIO ?? 1.3);
+const TRAIL_FLAG_MIN_EXCESS_M = Number(process.env.TRAIL_FLAG_MIN_EXCESS_M ?? 1000);
 import { FareService } from '../fare/fare.service';
 import { Measured } from '../fare/fare.calc';
 import { SettlementService } from '../fare/settlement.service';
 import { LedgerService } from '../ledger/ledger.service';
 import { Principal } from '../auth/auth.types';
 
-const CATEGORY_CACHE_SECONDS = 300;
 
 export interface RideInput {
   quoteId: string;
@@ -24,6 +28,8 @@ const STAFF_ROLES = ['support', 'finance', 'admin'];
 
 @Injectable()
 export class RidesService {
+  private readonly log = new Logger(RidesService.name);
+
   constructor(
     @Inject(PG_POOL) private readonly pool: Pool,
     @Inject(REDIS) private readonly redis: Redis,
@@ -67,7 +73,7 @@ export class RidesService {
       `SELECT r.id, r.short_code, r.status, r.payment_status, r.category, r.payment_method, r.rider_id, r.driver_id,
               ST_Y(r.pickup::geometry) AS pickup_lat, ST_X(r.pickup::geometry) AS pickup_lng,
               ST_Y(r.dropoff::geometry) AS dropoff_lat, ST_X(r.dropoff::geometry) AS dropoff_lng,
-              r.created_at, d.full_name AS driver_name, v.make, v.colour, v.plate
+              r.created_at, r.scheduled_for, r.schedule_id, r.cancel_reason, d.full_name AS driver_name, v.make, v.colour, v.plate
          FROM rides r
          LEFT JOIN users d ON d.id = r.driver_id
          LEFT JOIN vehicles v ON v.driver_id = r.driver_id AND v.active
@@ -86,6 +92,9 @@ export class RidesService {
       pickup: { lat: r.pickup_lat, lng: r.pickup_lng },
       dropoff: { lat: r.dropoff_lat, lng: r.dropoff_lng },
       createdAt: r.created_at,
+      scheduledFor: r.scheduled_for,
+      scheduleId: r.schedule_id,
+      cancelReason: r.cancel_reason,
       driver: r.driver_id ? { name: r.driver_name, vehicle: { make: r.make, colour: r.colour, plate: r.plate } } : null,
     };
   }
@@ -98,22 +107,6 @@ export class RidesService {
   }
 
   // ------------------------------------------------------------------ driver side
-
-  /** Position ping. The category comes from the driver's active vehicle, never from the request. */
-  async ping(driverId: string, p: { lat: number; lng: number; accuracyM?: number; speedKmh?: number; mockLocation?: boolean }) {
-    const category = await this.driverCategory(driverId);
-    await this.dispatch.recordPing({ driverId, category, ...p });
-  }
-
-  private async driverCategory(driverId: string): Promise<Category> {
-    const cacheKey = `driver:${driverId}:category`;
-    const cached = await this.redis.get(cacheKey);
-    if (cached) return cached as Category;
-    const { rows } = await this.pool.query(`SELECT v.category FROM vehicles v JOIN users u ON u.id = v.driver_id WHERE v.driver_id = $1 AND v.active AND u.status = 'active'`, [driverId]);
-    if (!rows[0]) throw new ConflictException({ code: 'no_active_vehicle', message: 'you need an approved vehicle and an active account to go online' });
-    await this.redis.set(cacheKey, rows[0].category, 'EX', CATEGORY_CACHE_SECONDS);
-    return rows[0].category;
-  }
 
   accept(driverId: string, rideId: string) {
     return this.dispatch.acceptOffer(rideId, driverId);
@@ -152,7 +145,101 @@ export class RidesService {
     if (!rows[0]) throw new NotFoundException('ride not found');
     const fare = await this.settlement.settleCompletedTrip(rideId, measured);
     // Free the driver for matching again; their next ping puts them back on the map.
-    await this.redis.del(keys.driverState(driverId));
+    await this.redis.del(keys.driverState(driverId), keys.driverRide(driverId));
+    // The money is settled; a failure here must never undo or hide that, so it is logged, not thrown.
+    await this.checkTripDistance(rideId, driverId, measured.distanceM).catch((e) => this.log.error(`distance check failed for ${rideId}: ${e}`));
     return fare;
+  }
+
+  /**
+   * Phone clocks are not the server clock, so the window is padded by 30 s before the start and 60 s after the end
+   * (a driver waiting at the pickup adds almost no distance).
+   * Compare the distance the driver reported with the route their phone actually recorded since the trip started.
+   * Only a reported distance well ABOVE the route is suspicious (it raises the fare); GPS jitter makes the route a bit
+   * long, never short. A flag does not change the fare: it puts the ride in front of staff.
+   */
+  private async checkTripDistance(rideId: string, driverId: string, claimedM: number): Promise<void> {
+    const { rows } = await this.pool.query(
+      `WITH started AS (
+         SELECT created_at AS t0 FROM ride_status_history WHERE ride_id = $1 AND to_status = 'TRIP_STARTED' ORDER BY id DESC LIMIT 1
+       )
+       SELECT count(*)::int AS n,
+              ST_Length(ST_MakeLine(p.location::geometry ORDER BY p.recorded_at)::geography)::float8 AS len
+         FROM driver_location_points p, started
+        WHERE p.driver_id = $2 AND p.recorded_at >= started.t0 - interval '30 seconds' AND p.recorded_at <= now() + interval '60 seconds'
+          AND (p.accuracy_m IS NULL OR p.accuracy_m <= 50)`,
+      [rideId, driverId],
+    );
+    const points: number = rows[0].n;
+    const trailM: number | null = points >= 2 && rows[0].len != null ? Math.round(rows[0].len) : null;
+    const flagged =
+      points >= TRAIL_MIN_POINTS && trailM !== null && claimedM > trailM * TRAIL_FLAG_RATIO && claimedM - trailM >= TRAIL_FLAG_MIN_EXCESS_M;
+    await this.pool.query(
+      `INSERT INTO trip_distance_checks (ride_id, claimed_m, trail_m, trail_points, flagged) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (ride_id) DO NOTHING`,
+      [rideId, claimedM, trailM, points, flagged],
+    );
+    if (flagged) this.log.warn(`ride ${rideId}: driver reported ${claimedM} m but the recorded route is ${trailM} m`);
+  }
+
+  async flaggedTrips(onlyOpen = true) {
+    const { rows } = await this.pool.query(
+      `SELECT c.ride_id, c.claimed_m, c.trail_m, c.trail_points, c.flagged, c.reviewed_by, c.reviewed_at, c.created_at, f.total_kobo
+         FROM trip_distance_checks c JOIN ride_fares f ON f.ride_id = c.ride_id
+        WHERE c.flagged AND ($1::boolean = false OR c.reviewed_at IS NULL) ORDER BY c.created_at DESC LIMIT 200`,
+      [onlyOpen],
+    );
+    return rows.map((r) => ({
+      rideId: r.ride_id, claimedM: r.claimed_m, trailM: r.trail_m, trailPoints: r.trail_points, fareKobo: Number(r.total_kobo),
+      reviewedBy: r.reviewed_by, reviewedAt: r.reviewed_at, createdAt: r.created_at,
+    }));
+  }
+
+  async reviewTrip(rideId: string, staffId: string): Promise<boolean> {
+    const res = await this.pool.query(
+      `UPDATE trip_distance_checks SET reviewed_by = $2, reviewed_at = now() WHERE ride_id = $1 AND flagged AND reviewed_at IS NULL`,
+      [rideId, staffId],
+    );
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  // ------------------------------------------------------------------ cancellation
+
+  /**
+   * Rider cancels before the trip starts: a scheduled, searching, assigned or arrived ride. Releases the wallet hold,
+   * withdraws any open offer and frees the driver. Repeating the call is harmless. No cancellation fee yet (a policy
+   * decision), so a rider can cancel freely until the trip starts.
+   */
+  async cancelByRider(riderId: string, rideId: string, reason?: string): Promise<{ cancelled: boolean }> {
+    const outcome = await this.ledger.withTransaction(async (client) => {
+      const { rows } = await client.query(`SELECT status, driver_id FROM rides WHERE id = $1 AND rider_id = $2 FOR UPDATE`, [rideId, riderId]);
+      const ride = rows[0];
+      if (!ride) throw new NotFoundException('ride not found');
+      if (ride.status === 'CANCELLED_BY_RIDER') return null; // a retried tap
+      if (!['SCHEDULED', 'REQUESTED', 'SEARCHING_DRIVER', 'DRIVER_ASSIGNED', 'DRIVER_ARRIVED'].includes(ride.status)) {
+        throw new ConflictException({ code: 'wrong_state', message: `a ride that is ${ride.status} cannot be cancelled` });
+      }
+      await client.query(
+        `UPDATE rides SET status = 'CANCELLED_BY_RIDER', cancel_reason = $2, updated_at = now(),
+                payment_status = CASE WHEN payment_status = 'HELD' THEN 'UNPAID' ELSE payment_status END
+          WHERE id = $1`,
+        [rideId, reason ?? null],
+      );
+      await client.query(
+        `INSERT INTO ride_status_history (ride_id, from_status, to_status, actor_id, reason) VALUES ($1, $2, 'CANCELLED_BY_RIDER', $3, $4)`,
+        [rideId, ride.status, riderId, reason ?? null],
+      );
+      await this.ledger.releaseHold(client, rideId);
+      const offers = await client.query(
+        `UPDATE ride_offers SET status = 'EXPIRED', responded_at = now() WHERE ride_id = $1 AND status = 'OFFERED' RETURNING driver_id`,
+        [rideId],
+      );
+      return { driverId: ride.driver_id as string | null, offeredTo: offers.rows.map((o) => o.driver_id as string) };
+    });
+    if (!outcome) return { cancelled: false };
+
+    // Redis is cleaned up after the commit: a leftover key only costs a driver a few seconds of not seeing offers.
+    await this.redis.del(keys.rideOffer(rideId), ...outcome.offeredTo.map((d) => keys.driverOffer(d)));
+    if (outcome.driverId) await this.redis.del(keys.driverState(outcome.driverId), keys.driverRide(outcome.driverId));
+    return { cancelled: true };
   }
 }

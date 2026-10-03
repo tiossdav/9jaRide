@@ -82,6 +82,12 @@ export class FareService {
     return { quoteId: rows[0].id, ...est, expiresAt: rows[0].expires_at };
   }
 
+  /** An indicative price for a trip that is not being booked right now (a scheduled ride). Stores nothing. */
+  async preview(category: string, trip: { distanceM: number; durationS: number }, at = new Date()) {
+    const version = await this.activeVersion(this.pool, category, at);
+    return estimateFare(ratesFromRow(version), trip);
+  }
+
   /**
    * Tie a still-live quote to a new ride, so the ride is priced by the version it was quoted under.
    * Call inside the ride-request transaction. Later fee changes never touch it (new rides only).

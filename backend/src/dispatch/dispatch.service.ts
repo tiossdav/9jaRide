@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { randomBytes } from 'crypto';
+import { shortCode } from '../common/short-code';
 import Redis from 'ioredis';
 import { Pool, PoolClient } from 'pg';
 import { PG_POOL, REDIS } from '../common/infra.module';
@@ -40,8 +40,8 @@ export class DispatchService {
   async recordPing(ping: DriverPing): Promise<void> {
     if (ping.mockLocation) return; // spoofed positions never enter matching
     const stateKey = keys.driverState(ping.driverId);
-    // A driver on a trip keeps pinging; that must not put them back into matching.
-    const status = (await this.redis.hget(stateKey, 'status')) === 'on_trip' ? 'on_trip' : 'available';
+    // A driver on a trip keeps pinging; that must not put them back into matching, even after a gap in signal.
+    const status = (await this.redis.exists(keys.driverRide(ping.driverId))) ? 'on_trip' : 'available';
     await this.redis
       .multi()
       .geoadd(keys.geo(ping.category), ping.lng, ping.lat, ping.driverId)
@@ -80,7 +80,7 @@ export class DispatchService {
          VALUES ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography, ST_SetSRID(ST_MakePoint($7, $8), 4326)::geography, $9)
          ON CONFLICT (rider_id, idempotency_key) DO NOTHING RETURNING id`,
         [
-          this.shortCode(), req.riderId, req.category, req.paymentMethod,
+          shortCode(), req.riderId, req.category, req.paymentMethod,
           req.pickup.lng, req.pickup.lat, req.dropoff.lng, req.dropoff.lat, req.idempotencyKey,
         ],
       );
@@ -125,7 +125,7 @@ export class DispatchService {
     if (!lock) return;
     try {
       const { rows } = await this.pool.query(
-        `SELECT id, rider_id, category, status, search_started_at,
+        `SELECT id, rider_id, category, status, search_started_at, search_window_seconds,
                 ST_Y(pickup::geometry) AS lat, ST_X(pickup::geometry) AS lng,
                 EXTRACT(EPOCH FROM (now() - search_started_at)) AS searched_s
            FROM rides WHERE id = $1`,
@@ -134,7 +134,7 @@ export class DispatchService {
       const ride = rows[0];
       if (!ride || ride.status !== 'SEARCHING_DRIVER') return;
 
-      if (Number(ride.searched_s) >= SEARCH_WINDOW_SECONDS) {
+      if (Number(ride.searched_s) >= (ride.search_window_seconds ?? SEARCH_WINDOW_SECONDS)) {
         await this.endSearch(ride.id, ride.rider_id);
         return;
       }
@@ -269,7 +269,7 @@ export class DispatchService {
       await client.query('COMMIT');
 
       // Driver is now on a ride: out of matching until they finish.
-      await this.redis.multi().hset(keys.driverState(driverId), 'status', 'on_trip').del(keys.rideOffer(rideId)).del(keys.driverOffer(driverId)).exec();
+      await this.redis.multi().hset(keys.driverState(driverId), 'status', 'on_trip').set(keys.driverRide(driverId), rideId, 'EX', 4 * 3600).del(keys.rideOffer(rideId)).del(keys.driverOffer(driverId)).exec();
       await this.notifier.rideAssigned(assigned.rows[0].rider_id, driverId, rideId);
       return { ok: true, rideId };
     } catch (e: any) {
@@ -330,12 +330,5 @@ export class DispatchService {
     // No ride, so the reserved wallet money goes back to the rider.
     await this.pool.query(`UPDATE wallet_holds SET status = 'RELEASED' WHERE ride_id = $1 AND status = 'ACTIVE'`, [rideId]);
     await this.notifier.noDriverFound(riderId, rideId);
-  }
-
-  private shortCode(): string {
-    // Public, unguessable and not derived from a timestamp (spec defect: trip IDs that look like timestamps).
-    const alphabet = 'ABCDEFGHJKMNPQRSTVWXYZ23456789';
-    const bytes = randomBytes(8);
-    return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
   }
 }
