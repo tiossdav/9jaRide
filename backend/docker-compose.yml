@@ -1,0 +1,12 @@
+# Local dev only. Production uses Supabase Postgres and DigitalOcean Managed Valkey (spec: Technology stack).
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: jaride
+      POSTGRES_PASSWORD: jaride
+      POSTGRES_DB: jaride
+    ports: ["5432:5432"]
+  valkey:
+    image: valkey/valkey:7.2
+    ports: ["6379:6379"]
