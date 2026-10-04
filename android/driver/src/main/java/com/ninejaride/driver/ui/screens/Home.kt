@@ -76,11 +76,11 @@ fun HomeScreen(vm: DriverViewModel) {
     // Tall phones get the design's 150dp map; shorter ones a smaller map so the SOS card stays above the tab bar.
     val mapHeight = (maxHeight - 530.dp).coerceIn(96.dp, 170.dp)
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 12.dp, bottom = 16.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 12.dp, bottom = 36.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Avatar(vm.profile.name.take(1))
+            Avatar(vm.profile.name.take(1), photo = vm.photo)
             Column(Modifier.weight(1f)) {
                 Txt("Hello", 12f, 500, C.Muted)
                 Txt(vm.profile.name.substringBefore(' '), 17f, 800)
@@ -123,7 +123,7 @@ private fun EarningsCard(vm: DriverViewModel) {
             Txt("Earnings", 13f, 500, C.OnGreenMuted, Modifier.weight(1f))
             Chip("Today ▾", Color.White, Color.White.copy(alpha = 0.16f))
         }
-        Txt(naira(vm.earningsKobo), 32f, 800, Color.White)
+        Txt(naira(vm.earningsKobo), 26f, 800, Color.White)
         Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Stat("${vm.tripsToday}", "Trips", Modifier.weight(1f))
             Stat("%.1f".format(vm.hoursToday), "Hours", Modifier.weight(1f))
@@ -244,7 +244,7 @@ fun GoOnlineChecksScreen(vm: DriverViewModel) {
     val checks = vm.goOnlineChecks
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         ScreenHeader("Before you go online", "Complete these to start receiving trips", vm::pop)
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             checks.forEach { c ->
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(14.dp),
@@ -266,7 +266,7 @@ fun GoOnlineChecksScreen(vm: DriverViewModel) {
         }
         Column(Modifier.padding(horizontal = 20.dp).navigationBarsPadding().padding(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Btn("Go online", { vm.pop(); vm.dialog = Dialog.GoOnline }, Modifier.fillMaxWidth(), enabled = checks.all { it.ok })
-            Txt("Your wallet goes below zero when 9jaRide service charges on cash trips are taken.", 12.5f, 500, C.Muted, align = TextAlign.Center)
+            Txt("Your wallet goes below zero when 9jaRide Pro service charges on cash trips are taken.", 12.5f, 500, C.Muted, align = TextAlign.Center)
         }
     }
 }
@@ -317,7 +317,7 @@ private fun LocationDeniedSheet(vm: DriverViewModel) {
             RoundIconTile(Ic.Pin, C.OrangeIcon, C.OrangeTint, 46.dp)
             Txt("Location is needed", 18f, 800, modifier = Modifier.weight(1f))
         }
-        Txt("9jaRide can only send you trips near you if it can see where you are. Allow location for the app, then go online again.", 13.5f, 500, C.Muted)
+        Txt("9jaRide Pro can only send you trips near you if it can see where you are. Allow location for the app, then go online again.", 13.5f, 500, C.Muted)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Btn("Not now", { vm.dialog = null }, Modifier.weight(1f), kind = BtnKind.Outline)
             Btn("Open settings", {
@@ -336,7 +336,7 @@ private fun BatterySheet(vm: DriverViewModel) {
     SheetOverlay(onDismiss = { vm.dialog = null }) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             RoundIconTile(Ic.Warning, C.OrangeIcon, C.OrangeTint, 46.dp)
-            Txt("Keep 9jaRide running", 18f, 800, modifier = Modifier.weight(1f))
+            Txt("Keep 9jaRide Pro running", 18f, 800, modifier = Modifier.weight(1f))
         }
         Txt("Some phones close apps to save battery, and you would stop getting trips. Do this once:", 13.5f, 500, C.Muted)
         Column(Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {

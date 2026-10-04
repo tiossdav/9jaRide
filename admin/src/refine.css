@@ -123,3 +123,32 @@ td a { color: var(--accent); font-weight: 600; }
 .menu-pop button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; text-align: left; }
 .menu-pop button:hover { background: var(--raised); }
 .menu-pop svg { stroke: var(--muted); }
+
+/* Smaller type across the portal (was too large on a normal laptop screen) */
+body { font-size: 12.5px; }
+.brand .logo { font-size: 20px; }
+.brand .role { font-size: 11px; }
+.nav-group { font-size: 9.5px; }
+.nav { font-size: 13px; padding: 8px 11px; gap: 10px; }
+.sub-nav .nav { font-size: 12.5px; padding: 7px 10px; }
+.collapse { font-size: 12.5px; padding: 12px 20px; }
+.crumbs { font-size: 12.5px; }
+.user .who { font-size: 12px; }
+.user .who span { font-size: 10.5px; }
+.head h1 { font-size: 20px; }
+.head .sub { font-size: 12px; }
+.card h3, .alert h3 { font-size: 13px; }
+.total { font-size: 22px; }
+.big { font-size: 19px; }
+.btn { font-size: 12.5px; height: 34px; }
+th { font-size: 10px; }
+td { font-size: 12.5px; }
+.note, .hint, .chip, .pill { font-size: 11px; }
+
+/* Softer sidebar type: lighter weight and a little less contrast, so the menu does not shout */
+.side { -webkit-font-smoothing: antialiased; }
+.nav { font-weight: 400; color: color-mix(in srgb, var(--text) 72%, var(--bg)); letter-spacing: 0.1px; }
+.nav svg { opacity: 0.8; }
+.nav.on { font-weight: 500; color: var(--accent); }
+.nav-group { opacity: 0.75; font-weight: 600; }
+.brand .role { opacity: 0.85; }

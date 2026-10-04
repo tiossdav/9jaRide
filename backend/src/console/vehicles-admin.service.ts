@@ -2,6 +2,7 @@ import { ConflictException, Inject, Injectable, NotFoundException } from '@nestj
 import Redis from 'ioredis';
 import { Pool } from 'pg';
 import { PG_POOL, REDIS } from '../common/infra.module';
+import { VehiclePlansService } from '../vehicle-plans/vehicle-plans.service';
 
 /**
  * Vehicle actions for staff. A suspended vehicle stops its driver going online (the driver operates the vehicle):
@@ -10,7 +11,7 @@ import { PG_POOL, REDIS } from '../common/infra.module';
  */
 @Injectable()
 export class VehiclesAdminService {
-  constructor(@Inject(PG_POOL) private readonly pool: Pool, @Inject(REDIS) private readonly redis: Redis) {}
+  constructor(@Inject(PG_POOL) private readonly pool: Pool, @Inject(REDIS) private readonly redis: Redis, private readonly plans: VehiclePlansService) {}
 
   async get(id: string) {
     const { rows } = await this.pool.query(
@@ -23,7 +24,8 @@ export class VehiclesAdminService {
       `SELECT e.status, e.reason, e.created_at, s.full_name AS actor FROM vehicle_status_events e LEFT JOIN staff_users s ON s.id = e.actor_id WHERE e.vehicle_id = $1 ORDER BY e.id DESC LIMIT 20`, [id],
     );
     return {
-      id: v.id, plate: v.plate, make: v.make, colour: v.colour, category: v.category, inUse: v.active, suspendedAt: v.suspended_at, suspendedReason: v.suspended_reason,
+      id: v.id, plate: v.plate, make: v.make, colour: v.colour, category: v.category, inUse: v.active,
+      arrangement: v.arrangement, owner: v.owner_name ? { name: v.owner_name, phone: v.owner_phone } : null, plan: await this.plans.forVehicle(id), suspendedAt: v.suspended_at, suspendedReason: v.suspended_reason,
       driver: { id: v.driver_id, name: v.full_name, phone: v.phone, status: v.driver_status }, driverTrips: t.n,
       history: history.rows.map((h) => ({ status: h.status, reason: h.reason, at: h.created_at, by: h.actor })),
     };

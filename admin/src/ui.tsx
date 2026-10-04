@@ -13,6 +13,19 @@ const LAGOS = 'Africa/Lagos';
 export const dateTime = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('en-GB', { timeZone: LAGOS, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-');
 export const timeOnly = (iso?: string | null) => (iso ? new Date(iso).toLocaleTimeString('en-GB', { timeZone: LAGOS, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-');
 export const duration = (s?: number | null) => (s == null ? '-' : `${Math.floor(s / 60)}m ${s % 60}s`);
+/** Tidies an amount while it is typed: digits and one dot, with commas every three digits (1250000.5 shows as 1,250,000.5). */
+export const moneyInput = (typed: string): string => {
+  const clean = typed.replace(/[^0-9.]/g, '');
+  const [whole, ...rest] = clean.split('.');
+  const grouped = whole.replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return rest.length ? `${grouped}.${rest.join('').slice(0, 2)}` : grouped;
+};
+/** Naira typed into a money box, as kobo. */
+export const toKobo = (typed: string): number => Math.round(Number(typed.replace(/,/g, '')) * 100);
+
+/** How a driver comes by their car, in words staff use. */
+export const ARRANGEMENT: Record<string, string> = { own: 'Owns the vehicle', platform_plan: 'Platform vehicle (payment plan)', third_party: "Someone else's vehicle" };
+export const arrangementLabel = (code?: string | null) => (code ? ARRANGEMENT[code] ?? title(code) : '-');
 export const title = (s: string) => s.toLowerCase().replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 export const initials = (name?: string | null) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
 

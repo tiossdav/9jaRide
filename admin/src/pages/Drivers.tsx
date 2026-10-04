@@ -2,14 +2,14 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Pager, SearchBox, Segmented } from '../bits';
 import { RatingsTab } from './Insights';
-import { Loading, Pill, Stat, dateTime, initials, title, useLoad } from '../ui';
+import { Loading, Pill, Stat, arrangementLabel, dateTime, initials, title, useLoad } from '../ui';
 
 interface DriverList {
   counts: { total: number; active: number; suspended: number; pendingApplications: number };
   total: number; page: number; pageSize: number;
-  items: { id: string; name: string; phone: string; status: string; joinedAt: string; trips: number; rating: number | null; vehicle: { plate: string; make: string; colour: string; category: string } | null }[];
+  items: { id: string; name: string; phone: string; status: string; joinedAt: string; trips: number; rating: number | null; arrangement: string | null; vehicle: { plate: string; make: string; colour: string; category: string } | null }[];
 }
-interface Application { id: string; driverId: string; driverName: string; phone: string; status: string; vehicle: { category: string; make: string; colour: string; plate: string }; submittedAt: string; reviewNote: string | null }
+interface Application { id: string; driverId: string; driverName: string; phone: string; status: string; arrangement: string; vehicle: { category: string; make: string | null; colour: string | null; plate: string | null }; submittedAt: string; reviewNote: string | null }
 
 const STATUS = [['', 'All'], ['active', 'Active'], ['suspended', 'Suspended']] as const;
 const APP_STATUS = [['SUBMITTED', 'Waiting for review'], ['CHANGES_REQUESTED', 'Changes requested'], ['APPROVED', 'Approved'], ['REJECTED', 'Rejected']] as const;
@@ -36,12 +36,13 @@ function Overview() {
       </div>
       <div className="card" style={{ padding: 0 }}>
         {d.items.length === 0 ? <div className="empty">No drivers match.</div> : (
-          <table><thead><tr><th>Driver</th><th>Phone</th><th>Vehicle</th><th className="num">Trips</th><th className="num">Rating</th><th>Joined</th><th>Status</th></tr></thead><tbody>
+          <table><thead><tr><th>Driver</th><th>Phone</th><th>Vehicle</th><th>Arrangement</th><th className="num">Trips</th><th className="num">Rating</th><th>Joined</th><th>Status</th></tr></thead><tbody>
             {d.items.map((r) => (
               <tr key={r.id} className="link" onClick={() => nav(`/people/${r.id}`)}>
                 <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><div className="avatar">{initials(r.name)}</div>{r.name}</div></td>
                 <td>{r.phone}</td>
                 <td>{r.vehicle ? <>{r.vehicle.plate}<div className="note">{r.vehicle.colour} {r.vehicle.make} · {title(r.vehicle.category)}</div></> : <span className="note">No vehicle</span>}</td>
+                <td>{arrangementLabel(r.arrangement)}</td>
                 <td className="num">{r.trips}</td><td className="num">{r.rating ?? '-'}</td><td>{dateTime(r.joinedAt)}</td>
                 <td>{r.status === 'suspended' ? <span className="chip red">Suspended</span> : <span className="chip">Active</span>}</td>
               </tr>

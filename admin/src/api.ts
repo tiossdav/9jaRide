@@ -78,6 +78,22 @@ export async function download(path: string, filename: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+/** Opens a private uploaded file (a photo or PDF) in a new tab, sending the sign-in token that a plain link could not. */
+export async function openFile(path: string): Promise<void> {
+  const tab = window.open('', '_blank'); // opened first so the browser does not treat it as a blocked pop-up
+  try {
+    const send = (t?: string) => fetch(BASE + path, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
+    let res = await send(read()?.accessToken);
+    if (res.status === 401 && (await refresh())) res = await send(read()?.accessToken);
+    if (!res.ok) throw new ApiError(res.status, res.status === 403 ? 'You are not allowed to open this file.' : 'The file could not be opened.');
+    const url = URL.createObjectURL(await res.blob());
+    if (tab) tab.location.href = url; else window.location.href = url;
+  } catch (e) {
+    tab?.close();
+    throw e;
+  }
+}
+
 export const newKey = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
 
 export async function login(email: string, password: string): Promise<string> {

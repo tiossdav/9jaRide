@@ -128,7 +128,7 @@ class RiderApi(private val client: ApiClient) {
 
     suspend fun profile(): Profile {
         val o = client.call("GET", "/me", auth = true)
-        return Profile(o.str("id")!!, o.str("name") ?: "", o.str("phone") ?: "")
+        return Profile(o.str("id")!!, com.ninejaride.core.format.properName(o.str("name") ?: ""), o.str("phone") ?: "")
     }
 
     suspend fun quote(category: String, distanceM: Int, durationS: Int): Quote {

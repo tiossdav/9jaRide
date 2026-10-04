@@ -12,7 +12,8 @@ Four kinds of test, from fastest to most realistic. Run the fast ones all the ti
 ## Before you run anything
 
 1. Postgres and Valkey/Redis are running (`docker compose up -d` in `backend/`), and `npm run migrate` has been run.
-2. `npm run test:int` writes to the database named by `DATABASE_URL` (default `postgres://jaride:jaride@localhost:5432/jaride`). **Stop any running backend that uses the same database first**: the suites share one database and a live server can disturb them.
+2. `npm run test:int` uses its **own** database, `jaride_test` (and Redis database 1), created and migrated automatically the first time. Test people and test money therefore never reach the database you use by hand. Override with `TEST_DATABASE_URL` / `TEST_REDIS_URL`.
+3. The browser tests (below) create staff accounts in whichever database their backend uses. To keep your own database clean, start that backend with `DATABASE_URL=postgres://jaride:jaride@localhost:5432/jaride_test` and run `npm run e2e` with the same value.
 
 ## Everyday commands
 
@@ -78,3 +79,32 @@ Android: in Android Studio, open the `android/` folder, choose the `rider` or `d
 - Android component tests are written but only run when a phone is connected; there is no automated end-to-end test of the apps themselves.
 - Load and failure-injection tests (many drivers pinging at once, Paystack down, Redis down) are not written.
 - Payment provider calls are tested against a fake provider, never the live Paystack.
+
+## Starting from a clean slate
+
+```
+cd backend
+npm run reset:test-data -- --yes
+```
+
+Removes every rider, driver, ride, payment, application, vehicle plan, promo code, support report, sign-in session and test staff account, and clears the live cache. It keeps the database structure, the car categories (Regular, Comfort, Send Package), the starting fares, the revenue and cancellation rules, the platform's own ledger accounts, the vehicle arrangements, and the staff accounts listed in `KEEP_STAFF` (default `admin@9jaridepro.test`). It refuses to run when `NODE_ENV=production`. Stop the backend first, then start it again afterwards.
+
+The starting fares are placeholders so a ride can be booked on day one. Change them under Trip Fees (a second admin approves the change).
+
+## The temporary sign-in code (0000)
+
+Until an SMS provider is connected, `OTP_MODE=test` (the default): every sign-in code is **0000**, nothing is sent, and the apps show "Testing mode: enter 0000". Testers can ask for codes as often as they like; wrong guesses are still limited to five per code.
+
+When the provider is ready: plug it into `OTP_SENDER` in `backend/src/auth/auth.module.ts` and set `OTP_MODE=live`. Codes become random six digits again, request limits return, and the apps adjust by themselves because the server tells them the code length. The sign-in and sign-up flow does not change. A production start refuses `OTP_MODE=test` unless `OTP_ALLOW_TEST_IN_PRODUCTION=true` is set on purpose.
+
+## Driver sign-up and vehicle arrangements
+
+A driver chooses how they will drive when they apply:
+
+| Arrangement | Driver gives | Staff do on approval |
+| --- | --- | --- |
+| I own my vehicle (`own`) | plate, make, colour, licence, insurance | approve |
+| Get a vehicle through 9jaRide (`platform_plan`) | the kind of car wanted, licence | admin picks the car and sets the payment plan (price, deposit, instalment, how often, first due date) |
+| I drive someone else's car (`third_party`) | plate, make, colour, owner name and phone, licence, insurance, the owner's agreement | approve |
+
+Payment plans appear under **Finances, Vehicle plans** (and on the driver's and the vehicle's page). Finance or an admin records each payment; the paid, owed and behind figures are always worked out from that history, which cannot be edited (a mistake is taken back with a reversal). Documents are uploaded as photos in the app (stored in `backend/uploads`, private: only the owner and support/admin staff can open them; set `UPLOAD_DIR` to move them). The application collects personal details, next of kin and the vehicle; the driver asks for Regular or Comfort and the reviewer confirms the category after inspecting the vehicle. A database trigger refuses to approve an application without that confirmation. After submitting, the driver sees a thank-you page saying agents will review it and that they will be notified on WhatsApp or by email (their choice); sending those notifications is not built yet.

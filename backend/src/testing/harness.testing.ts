@@ -13,8 +13,9 @@ import { PaystackClient } from '../payments/paystack.client';
 import { FakeProvider } from '../payments/testing/fake-provider.testing';
 
 /** The real app on a real port, with only SMS and Paystack faked. Shared by the HTTP integration specs. */
-export async function bootApp() {
+export async function bootApp(opts: { otpMode?: 'test' | 'live' } = {}) {
   process.env.JWT_SECRET = 'test-secret-' + 'x'.repeat(40);
+  process.env.OTP_MODE = opts.otpMode ?? 'live'; // real random codes and limits, unless a spec asks for the fixed test code
   const provider = new FakeProvider();
   const codes = new Map<string, string>();
   const mod = await Test.createTestingModule({ imports: [AppModule] })
@@ -92,5 +93,27 @@ export async function bootApp() {
     }
   }
 
-  return { app, pool, ledger, provider, codes, http, auth, key, freshIp, newPhone, login, staff, wallet, platform, fund, completedRide, close: () => app.close() };
+  /** A real (tiny) PNG, uploaded as this person. Returns the file id to attach to an application. */
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  async function upload(token: string): Promise<string> {
+    const res = await http().post('/files').set(auth(token)).attach('file', PNG, 'proof.png').expect(201);
+    return res.body.id as string;
+  }
+
+  /** Every document an owner-driver must show, each with its own uploaded proof. */
+  async function ownerDocs(token: string, soon = 400) {
+    const future = new Date(Date.now() + soon * 86_400_000).toISOString().slice(0, 10);
+    const doc = async (kind: string, extra: object = {}) => ({ kind, fileId: await upload(token), ...extra });
+    return [
+      await doc('drivers_licence', { number: 'LIC12345', expiresOn: future }), await doc('nin'), await doc('lassdri'),
+      await doc('vehicle_photo'), await doc('insurance', { number: 'POL-1', expiresOn: future }), await doc('inspection_certificate', { expiresOn: future }),
+    ];
+  }
+
+  const personal = () => ({
+    email: 'driver@example.com', contactPreference: 'whatsapp', nin: '12345678901', lassdri: 'LAS-778899', address: '12 Marina Road, Lagos',
+    nextOfKin: { name: 'Ngozi Test', phone: '08031230000', relationship: 'Sister', address: '4 Allen Avenue, Ikeja' },
+  });
+
+  return { upload, ownerDocs, personal, app, pool, ledger, provider, codes, http, auth, key, freshIp, newPhone, login, staff, wallet, platform, fund, completedRide, close: () => app.close() };
 }

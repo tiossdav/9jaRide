@@ -2,7 +2,7 @@ import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, Log
 import { createHmac, randomInt, timingSafeEqual } from 'crypto';
 import { Pool } from 'pg';
 import { PG_POOL } from '../common/infra.module';
-import { OTP_MAX_ATTEMPTS, OTP_SENDER, OTP_TTL_SECONDS, OtpSender } from './auth.types';
+import { OTP_MAX_ATTEMPTS, OTP_SENDER, OTP_TTL_SECONDS, OtpSender, TEST_OTP_CODE, otpCodeLength, otpTestMode } from './auth.types';
 import { normalisePhone } from './phone';
 
 // Limits (placeholders until agreed): per phone 3 codes / 10 min and 10 / day; per IP 20 / hour.
@@ -14,7 +14,15 @@ const IP_HOURLY = { max: 20, seconds: 3600 };
 export class OtpService {
   private readonly log = new Logger(OtpService.name);
 
-  constructor(@Inject(PG_POOL) private readonly pool: Pool, @Inject(OTP_SENDER) private readonly sender: OtpSender) {}
+  constructor(@Inject(PG_POOL) private readonly pool: Pool, @Inject(OTP_SENDER) private readonly sender: OtpSender) {
+    if (otpTestMode()) {
+      // A fixed code lets anyone in. Fine on a test machine; never on a live service unless someone chose it on purpose.
+      if (process.env.NODE_ENV === 'production' && process.env.OTP_ALLOW_TEST_IN_PRODUCTION !== 'true') {
+        throw new Error('OTP_MODE is "test" (fixed code 0000) in production. Connect an SMS provider and set OTP_MODE=live.');
+      }
+      this.log.warn(`OTP test mode is ON: every sign-in code is ${TEST_OTP_CODE}. Set OTP_MODE=live once an SMS provider is connected.`);
+    }
+  }
 
   private hash(phone: string, code: string): string {
     return createHmac('sha256', process.env.JWT_SECRET ?? '').update(`${phone}:${code}`).digest('hex');
@@ -32,17 +40,18 @@ export class OtpService {
    * Send a code. The answer is identical whether or not the number has an account, so this cannot be used to
    * discover who is registered. Returns the normalised phone for the follow-up verify call.
    */
-  async request(rawPhone: string, channel: 'sms' | 'voice', ip: string | null): Promise<{ phone: string; expiresInSeconds: number }> {
+  async request(rawPhone: string, channel: 'sms' | 'voice', ip: string | null): Promise<{ phone: string; expiresInSeconds: number; codeLength: number; testMode: boolean }> {
     const phone = normalisePhone(rawPhone);
     if (!phone) throw new BadRequestException('enter a valid Nigerian mobile number');
 
-    const tooMany =
+    // Testers ask for codes constantly, so the request limits only apply to real codes. Wrong guesses stay limited.
+    const tooMany = !otpTestMode() && (
       (await this.count('phone', phone, PHONE_BURST.seconds)) >= PHONE_BURST.max ||
       (await this.count('phone', phone, PHONE_DAILY.seconds)) >= PHONE_DAILY.max ||
-      (ip !== null && (await this.count('ip', ip, IP_HOURLY.seconds)) >= IP_HOURLY.max);
+      (ip !== null && (await this.count('ip', ip, IP_HOURLY.seconds)) >= IP_HOURLY.max));
     if (tooMany) throw new HttpException('too many code requests, try again later', HttpStatus.TOO_MANY_REQUESTS);
 
-    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const code = otpTestMode() ? TEST_OTP_CODE : String(randomInt(0, 1_000_000)).padStart(6, '0');
     // Only the newest code is valid.
     await this.pool.query(`UPDATE otp_challenges SET consumed_at = now() WHERE phone = $1 AND consumed_at IS NULL`, [phone]);
     const { rows } = await this.pool.query(
@@ -57,7 +66,7 @@ export class OtpService {
       this.log.error(`sending code failed: ${e}`);
       throw new ServiceUnavailableException('could not send the code, try again');
     }
-    return { phone, expiresInSeconds: OTP_TTL_SECONDS };
+    return { phone, expiresInSeconds: OTP_TTL_SECONDS, codeLength: otpCodeLength(), testMode: otpTestMode() };
   }
 
   /** Check a code. A code works once, and only OTP_MAX_ATTEMPTS wrong guesses are allowed per code. Returns the phone. */

@@ -7,9 +7,9 @@ object BatteryGuidance {
     /** Used when the server's list has not been fetched. Same wording as the server's default. Not verified on real devices. */
     val DEFAULTS = listOf(
         BatteryTip(
-            listOf("all"), "Keep 9jaRide running",
+            listOf("all"), "Keep 9jaRide Pro running",
             listOf(
-                "Open Settings, then Apps, then 9jaRide, then Battery.",
+                "Open Settings, then Apps, then 9jaRide Pro, then Battery.",
                 "Choose \"Unrestricted\" or \"No restrictions\". Do not choose \"Optimised\".",
                 "Turn off battery saver while you are online.",
             ),
@@ -17,16 +17,16 @@ object BatteryGuidance {
         BatteryTip(
             listOf("tecno", "infinix", "itel"), "Tecno, Infinix and itel phones",
             listOf(
-                "Open Phone Master or Phone Manager, then App management, then Auto-start. Turn 9jaRide on.",
-                "Open the recent apps screen and lock 9jaRide so cleaning does not close it.",
+                "Open Phone Master or Phone Manager, then App management, then Auto-start. Turn 9jaRide Pro on.",
+                "Open the recent apps screen and lock 9jaRide Pro so cleaning does not close it.",
             ),
         ),
-        BatteryTip(listOf("samsung"), "Samsung phones", listOf("Settings, then Battery, then Background usage limits. Remove 9jaRide from \"Sleeping apps\" and \"Deep sleeping apps\".")),
+        BatteryTip(listOf("samsung"), "Samsung phones", listOf("Settings, then Battery, then Background usage limits. Remove 9jaRide Pro from \"Sleeping apps\" and \"Deep sleeping apps\".")),
         BatteryTip(
             listOf("xiaomi", "redmi", "poco"), "Xiaomi, Redmi and Poco phones",
-            listOf("Settings, then Apps, then Manage apps, then 9jaRide. Turn on Autostart.", "In the same screen choose Battery saver, then \"No restrictions\"."),
+            listOf("Settings, then Apps, then Manage apps, then 9jaRide Pro. Turn on Autostart.", "In the same screen choose Battery saver, then \"No restrictions\"."),
         ),
-        BatteryTip(listOf("oppo", "realme", "oneplus"), "Oppo, Realme and OnePlus phones", listOf("Settings, then Battery, then 9jaRide. Allow background activity and auto-launch.")),
+        BatteryTip(listOf("oppo", "realme", "oneplus"), "Oppo, Realme and OnePlus phones", listOf("Settings, then Battery, then 9jaRide Pro. Allow background activity and auto-launch.")),
     )
 
     /** The general tip first, then the one for this phone's maker if there is one. */

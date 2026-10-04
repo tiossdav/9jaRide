@@ -29,6 +29,7 @@ suite('HTTP API (auth, rides, wallet, payouts, SOS)', () => {
 
   beforeAll(async () => {
     process.env.JWT_SECRET = SECRET;
+    process.env.OTP_MODE = 'live'; // real random codes and request limits
     const mod = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(OTP_SENDER)
       .useValue({ send: async (phone: string, code: string) => void codes.set(phone, code) })

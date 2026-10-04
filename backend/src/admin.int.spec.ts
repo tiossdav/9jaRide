@@ -16,14 +16,10 @@ suite('admin essentials', () => {
   }, 60_000);
   afterAll(() => h.close());
 
-  const goodDocs = () => [
-    { kind: 'drivers_licence', fileRef: 'uploads/licence.jpg', expiresOn: inFuture(400) },
-    { kind: 'vehicle_papers', fileRef: 'uploads/papers.jpg' },
-    { kind: 'insurance', fileRef: 'uploads/insurance.jpg', expiresOn: inFuture(200) },
-  ];
-  const application = (over: object = {}) => ({
+  const application = async (token: string, over: object = {}) => ({
     vehicle: { category: 'comfort', make: 'Toyota', colour: 'Black', plate: plate() },
-    documents: goodDocs(),
+    personal: h.personal(),
+    documents: await h.ownerDocs(token),
     ...over,
   });
 
@@ -33,8 +29,8 @@ suite('admin essentials', () => {
       const ping = () => h.http().post('/driver/location').set(h.auth(driver.token)).send({ lat: 6.5, lng: 3.3 });
       await ping().expect(409); // no approved vehicle yet
 
-      const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send(application()).expect(200);
-      await h.http().post('/driver/application').set(h.auth(driver.token)).send(application()).expect(409); // already pending
+      const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send(await application(driver.token, )).expect(200);
+      await h.http().post('/driver/application').set(h.auth(driver.token)).send(await application(driver.token, )).expect(409); // already pending
       expect((await h.http().get('/driver/application').set(h.auth(driver.token)).expect(200)).body.status).toBe('SUBMITTED');
       await ping().expect(409); // submitting is not approval
 
@@ -43,7 +39,7 @@ suite('admin essentials', () => {
       expect(queue.body.map((a: { id: string }) => a.id)).toContain(sub.body.id);
       const detail = await h.http().get(`/admin/driver-applications/${sub.body.id}`).set(h.auth(support.token)).expect(200);
       expect(detail.body).toMatchObject({ status: 'SUBMITTED', missingDocuments: [] });
-      expect(detail.body.documents).toHaveLength(3);
+      expect(detail.body.documents).toHaveLength(6);
 
       await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(support.token)).expect(204);
       await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(support.token)).expect(409); // decided
@@ -55,11 +51,10 @@ suite('admin essentials', () => {
     it('will not approve with a missing or expired document, and says which', async () => {
       const driver = await h.login('driver');
       const support = await h.staff('support');
-      const docs = [
-        { kind: 'drivers_licence', fileRef: 'uploads/licence.jpg', expiresOn: inFuture(-5) }, // expired
-        { kind: 'vehicle_papers', fileRef: 'uploads/papers.jpg' },
-      ]; // insurance missing
-      const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send(application({ documents: docs })).expect(200);
+      const docs = (await h.ownerDocs(driver.token))
+        .filter((d) => d.kind !== 'insurance') // insurance missing
+        .map((d) => (d.kind === 'drivers_licence' ? { ...d, expiresOn: inFuture(-5) } : d)); // licence expired
+      const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send(await application(driver.token, { documents: docs })).expect(200);
       const res = await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(support.token)).expect(409);
       expect(res.body.code).toBe('documents_not_ready');
       expect(res.body.message).toContain('insurance is missing');
@@ -71,19 +66,19 @@ suite('admin essentials', () => {
     it('lets staff ask for changes, takes the resubmission, and keeps rejections final', async () => {
       const driver = await h.login('driver');
       const support = await h.staff('support');
-      const first = await h.http().post('/driver/application').set(h.auth(driver.token)).send(application()).expect(200);
+      const first = await h.http().post('/driver/application').set(h.auth(driver.token)).send(await application(driver.token, )).expect(200);
       await h.http().post(`/admin/driver-applications/${first.body.id}/request-changes`).set(h.auth(support.token)).send({ note: 'Licence photo is blurry' }).expect(204);
       const seen = await h.http().get('/driver/application').set(h.auth(driver.token)).expect(200);
       expect(seen.body).toMatchObject({ status: 'CHANGES_REQUESTED', reviewNote: 'Licence photo is blurry' });
 
-      const again = await h.http().post('/driver/application').set(h.auth(driver.token)).send(application()).expect(200);
+      const again = await h.http().post('/driver/application').set(h.auth(driver.token)).send(await application(driver.token, )).expect(200);
       expect(again.body.id).toBe(first.body.id); // same application, back in the queue
       await h.http().post(`/admin/driver-applications/${first.body.id}/reject`).set(h.auth(support.token)).send({ reason: 'Licence is forged' }).expect(204);
       await h.http().post(`/admin/driver-applications/${first.body.id}/approve`).set(h.auth(support.token)).expect(409);
       await expect(h.pool.query(`UPDATE driver_applications SET status = 'APPROVED' WHERE id = $1`, [first.body.id])).rejects.toThrow(/cannot change/);
 
       // A rejected driver may apply again, as a new application.
-      const fresh = await h.http().post('/driver/application').set(h.auth(driver.token)).send(application()).expect(200);
+      const fresh = await h.http().post('/driver/application').set(h.auth(driver.token)).send(await application(driver.token, )).expect(200);
       expect(fresh.body.id).not.toBe(first.body.id);
     });
 
@@ -92,22 +87,23 @@ suite('admin essentials', () => {
       const shared = plate();
       const a = await h.login('driver');
       const b = await h.login('driver');
-      const subA = await h.http().post('/driver/application').set(h.auth(a.token)).send(application({ vehicle: { category: 'regular', make: 'Kia', colour: 'Red', plate: shared } })).expect(200);
-      const subB = await h.http().post('/driver/application').set(h.auth(b.token)).send(application({ vehicle: { category: 'regular', make: 'Kia', colour: 'Red', plate: shared.toLowerCase() } })).expect(200);
+      const subA = await h.http().post('/driver/application').set(h.auth(a.token)).send(await application(a.token, { vehicle: { category: 'regular', make: 'Kia', colour: 'Red', plate: shared } })).expect(200);
+      const subB = await h.http().post('/driver/application').set(h.auth(b.token)).send(await application(b.token, { vehicle: { category: 'regular', make: 'Kia', colour: 'Red', plate: shared.toLowerCase() } })).expect(200);
       await h.http().post(`/admin/driver-applications/${subA.body.id}/approve`).set(h.auth(support.token)).expect(204);
       const clash = await h.http().post(`/admin/driver-applications/${subB.body.id}/approve`).set(h.auth(support.token)).expect(409);
       expect(clash.body.code).toBe('plate_in_use');
 
       const c = await h.login('driver');
-      await h.http().post('/driver/application').set(h.auth(c.token)).send(application({ vehicle: { category: 'regular', make: 'Kia', colour: 'Red', plate: '!!' } })).expect(400);
-      await h.http().post('/driver/application').set(h.auth(c.token)).send(application({ documents: [{ kind: 'drivers_licence', fileRef: 'x/y.jpg' }] })).expect(400); // licence needs an expiry
-      await h.http().post('/driver/application').set(h.auth(c.token)).send(application({ documents: [{ kind: 'passport', fileRef: 'x/y.jpg' }] })).expect(400);
+      await h.http().post('/driver/application').set(h.auth(c.token)).send(await application(c.token, { vehicle: { category: 'regular', make: 'Kia', colour: 'Red', plate: '!!' } })).expect(400);
+      await h.http().post('/driver/application').set(h.auth(c.token)).send(await application(c.token, { documents: [{ kind: 'drivers_licence', number: 'L1', fileId: randomUUID() }] })).expect(400); // licence needs an expiry
+      await h.http().post('/driver/application').set(h.auth(c.token)).send(await application(c.token, { documents: [{ kind: 'passport', fileId: randomUUID() }] })).expect(400);
     });
 
     it('keeps riders and finance out of driver review', async () => {
       const rider = await h.login('rider');
       const finance = await h.staff('finance');
-      await h.http().post('/driver/application').set(h.auth(rider.token)).send(application()).expect(403);
+      const someDriver = await h.login('driver');
+      await h.http().post('/driver/application').set(h.auth(rider.token)).send(await application(someDriver.token)).expect(403);
       await h.http().get('/admin/driver-applications').set(h.auth(finance.token)).expect(403);
       await h.http().get('/admin/driver-applications').set(h.auth(rider.token)).expect(403);
     });

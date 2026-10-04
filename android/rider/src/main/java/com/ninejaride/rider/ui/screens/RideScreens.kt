@@ -211,7 +211,7 @@ fun NoDriverSheet(vm: RiderViewModel) {
 @Composable
 private fun TripCompleteScreen(vm: RiderViewModel, r: RideView) {
     Column(Modifier.fillMaxSize().background(C.Bg).statusBarsPadding().navigationBarsPadding()) {
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Gap(16.dp)
             Box(Modifier.size(72.dp).clip(CircleShape).background(C.GreenAccent), contentAlignment = Alignment.Center) { Icon24(Ic.Check, Color.White, 36.dp, 2.8f) }
             Txt("You have arrived", 24f, 800, align = TextAlign.Center)

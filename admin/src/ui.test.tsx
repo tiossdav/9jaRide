@@ -71,3 +71,13 @@ describe('LineChart', () => {
     expect(container.querySelectorAll('text').length).toBeLessThan(10);
   });
 });
+
+describe('money boxes', () => {
+  it('group thousands as you type and turn into kobo', async () => {
+    const { moneyInput, toKobo } = await import('./ui');
+    expect(moneyInput('1250000')).toBe('1,250,000');
+    expect(moneyInput('1,250,000.555')).toBe('1,250,000.55');
+    expect(moneyInput('abc12')).toBe('12');
+    expect(toKobo('1,250,000.5')).toBe(125_000_050);
+  });
+});

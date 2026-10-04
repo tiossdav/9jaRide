@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { post } from '../api';
 import { ReasonModal, Toast, go, useConfirm } from '../bits';
-import { Loading, Modal, Pill, dateTime, title, useLoad } from '../ui';
+import { Loading, Modal, Pill, arrangementLabel, dateTime, naira, title, useLoad } from '../ui';
+import { Plan, statusPill } from './VehiclePlans';
 
 interface Vehicle {
   id: string; plate: string; make: string; colour: string; category: string; inUse: boolean; suspendedAt: string | null; suspendedReason: string | null;
+  arrangement: string; owner: { name: string; phone: string } | null; plan: Plan | null;
   driver: { id: string; name: string; phone: string; status: string }; driverTrips: number;
   history: { status: string; reason: string; at: string; by: string | null }[];
 }
@@ -31,13 +33,19 @@ export default function VehicleDetail() {
       <div className="grid g2">
         <div className="card"><h3>Vehicle</h3>
           <div className="line"><span className="note">Plate</span><span>{v.plate}</span></div><div className="line"><span className="note">Make</span><span>{v.make}</span></div>
-          <div className="line"><span className="note">Colour</span><span>{v.colour}</span></div><div className="line"><span className="note">Category</span><span>{title(v.category)}</span></div></div>
+          <div className="line"><span className="note">Colour</span><span>{v.colour}</span></div><div className="line"><span className="note">Category</span><span>{title(v.category)}</span></div>
+          <div className="line"><span className="note">Arrangement</span><span>{arrangementLabel(v.arrangement)}</span></div>
+          {v.owner && <div className="line"><span className="note">Owner</span><span>{v.owner.name} · {v.owner.phone}</span></div>}</div>
         <div className="card"><h3>Driver</h3>
           <div className="line"><span className="note">Name</span><span><Link to={`/people/${v.driver.id}`} style={{ color: 'var(--accent)' }}>{v.driver.name}</Link></span></div>
           <div className="line"><span className="note">Phone</span><span>{v.driver.phone}</span></div>
           <div className="line"><span className="note">Account</span><span>{v.driver.status === 'suspended' ? <Pill tone="red">Suspended</Pill> : <Pill tone="green">Active</Pill>}</span></div>
           <div className="line"><span className="note">Completed trips</span><span>{v.driverTrips}</span></div></div>
       </div>
+      {v.plan && <div className="card" style={{ marginTop: 14 }}><div className="cardhead"><div><h3>Payment plan</h3></div>{statusPill(v.plan.status)}</div>
+        <div className="line"><span className="note">Paid so far</span><span>{naira(v.plan.paidKobo)} of {naira(v.plan.terms.totalKobo)}</span></div>
+        <div className="line"><span className="note">Still owed</span><span>{naira(v.plan.outstandingKobo)}</span></div>
+        <div className="note" style={{ marginTop: 8 }}><Link to={`/finances/vehicle-plans/${v.plan.id}`} style={{ color: 'var(--accent)' }}>Open the plan and payments</Link></div></div>}
       <div className="card" style={{ marginTop: 14 }}><h3>History</h3>
         {v.history.length === 0 ? <div className="note" style={{ marginTop: 8 }}>No changes recorded.</div> : (
           <div className="timeline" style={{ marginTop: 8 }}>{v.history.map((h, i) => (

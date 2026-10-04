@@ -4,13 +4,15 @@ import { post } from '../api';
 import { AdjustModal } from '../adjust';
 import { AddVehicleModal } from './VehicleDetail';
 import { ReasonModal, Toast } from '../bits';
-import { Loading, Stat, dateTime, initials, naira, statusChip, title, useLoad } from '../ui';
+import { Loading, Stat, arrangementLabel, dateTime, initials, naira, statusChip, title, useLoad } from '../ui';
+import { Plan, statusPill } from './VehiclePlans';
 
 interface Person {
   id: string; name: string; phone: string; role: 'rider' | 'driver'; status: 'active' | 'suspended'; joinedAt: string;
   completedTrips: number; cancelledTrips: number; totalKobo: number; rating: number | null; ratings: number; walletKobo: number;
-  vehicles: { id: string; category: string; make: string; colour: string; plate: string; active: boolean }[];
-  application: { id: string; status: string } | null;
+  vehicles: { id: string; category: string; make: string; colour: string; plate: string; active: boolean; arrangement: string; owner_name: string | null; owner_phone: string | null }[];
+  application: { id: string; status: string; arrangement: string } | null;
+  vehiclePlan: Plan | null;
   recentTrips: { id: string; code: string; status: string; at: string; totalKobo: number | null }[];
   statusHistory: { status: string; reason: string; at: string; by: string | null }[];
 }
@@ -56,9 +58,16 @@ export default function PersonPage() {
           {driver && (
             <div className="card"><div className="cardhead"><div><h3>Vehicles</h3></div><button className="btn ghost" style={{ height: 30 }} onClick={() => setAddingVehicle(true)}>Add vehicle</button></div>
               {p.vehicles.length === 0 ? <div className="note" style={{ marginTop: 8 }}>No vehicle on file{p.application ? <>. Application: <Link to={`/onboarding/${p.application.id}`} style={{ color: 'var(--accent)' }}>{title(p.application.status)}</Link></> : ''}.</div> :
-                p.vehicles.map((v) => <div className="line" key={v.id}><span><Link to={`/vehicles/${v.id}`} style={{ color: 'var(--accent)' }}>{v.plate}</Link> <span className="note">{v.colour} {v.make} · {title(v.category)}</span></span>{v.active ? <span className="chip">In use</span> : <span className="chip grey">Retired</span>}</div>)}
+                p.vehicles.map((v) => <div className="line" key={v.id}><span><Link to={`/vehicles/${v.id}`} style={{ color: 'var(--accent)' }}>{v.plate}</Link> <span className="note">{v.colour} {v.make} · {title(v.category)} · {arrangementLabel(v.arrangement)}{v.owner_name ? ` (${v.owner_name}, ${v.owner_phone})` : ''}</span></span>{v.active ? <span className="chip">In use</span> : <span className="chip grey">Retired</span>}</div>)}
               {p.application && p.vehicles.length > 0 && <div className="note" style={{ marginTop: 8 }}>Onboarding: <Link to={`/onboarding/${p.application.id}`} style={{ color: 'var(--accent)' }}>{title(p.application.status)}</Link></div>}
             </div>
+          )}
+          {driver && p.vehiclePlan && (
+            <div className="card"><div className="cardhead"><div><h3>Vehicle payment plan</h3></div>{statusPill(p.vehiclePlan.status)}</div>
+              <div className="line"><span className="note">Paid so far</span><span>{naira(p.vehiclePlan.paidKobo)} of {naira(p.vehiclePlan.terms.totalKobo)}</span></div>
+              <div className="line"><span className="note">Still owed</span><span>{naira(p.vehiclePlan.outstandingKobo)}</span></div>
+              {p.vehiclePlan.overdueKobo > 0 && ['active', 'defaulted'].includes(p.vehiclePlan.status) && <div className="line"><span className="note">Behind by</span><span>{naira(p.vehiclePlan.overdueKobo)}</span></div>}
+              <div className="note" style={{ marginTop: 8 }}><Link to={`/finances/vehicle-plans/${p.vehiclePlan.id}`} style={{ color: 'var(--accent)' }}>Open the plan and payments</Link></div></div>
           )}
           <div className="card" style={{ padding: 0 }}>
             <div style={{ padding: '16px 18px 4px' }}><h3>Recent trips</h3></div>

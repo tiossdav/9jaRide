@@ -61,13 +61,16 @@ import com.ninejaride.core.ui.theme.type
 fun SplashScreen() {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            BasicText(
-                buildAnnotatedString {
-                    append("9jaRide ")
-                    withStyle(SpanStyle(color = C.OrangeIcon)) { append("Pro") }
-                },
-                style = type(46f, 800, Color.White).copy(textAlign = TextAlign.Center),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                LogoTile()
+                BasicText(
+                    buildAnnotatedString {
+                        append("9jaRide ")
+                        withStyle(SpanStyle(color = C.OrangeIcon)) { append("Pro") }
+                    },
+                    style = type(34f, 800, Color.White),
+                )
+            }
         }
         Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 28.dp)) {
             Txt("Powered by Nexenno", 12.5f, 500, C.Faint)
@@ -141,9 +144,9 @@ fun SignInScreen(vm: DriverViewModel) {
             Txt(vm.message ?: "We'll send a one-time code to confirm it's you.", 12.5f, 500, if (vm.message != null) C.Red else C.Muted)
             Btn("Continue", vm::startSignIn, Modifier.fillMaxWidth(), enabled = vm.phoneValid && !vm.busy)
             Gap(18.dp)
-            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Txt("Want to drive with 9jaRide? Register and onboard on our website.", 13f, 500, C.Muted, align = TextAlign.Center)
-                Txt("9jaridepro.com →", 13f, 700, C.Green, align = TextAlign.Center)
+            if (!vm.demo) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                Txt("New to 9jaRide Pro?  ", 13f, 500, C.Muted)
+                Txt("Create account", 13f, 700, C.GreenAccent, Modifier.tap({ vm.message = null; vm.push(com.ninejaride.driver.state.Dest.SignUp) }, "Create account"))
             }
         }
     }
@@ -187,7 +190,7 @@ fun OtpScreen(vm: DriverViewModel) {
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) { focus.requestFocus(); keyboard?.show() }
-    val n = DriverViewModel.OTP_LENGTH
+    val n = vm.otpLength
 
     Column(Modifier.fillMaxSize().background(C.Bg).imePadding()) {
         Row(Modifier.statusBarsPadding().padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 8.dp)) {
@@ -232,6 +235,7 @@ fun OtpScreen(vm: DriverViewModel) {
             }
             if (vm.resendSeconds > 0) Txt("Resend code in ${clock(vm.resendSeconds)}", 13f, 500, C.Muted)
             else Txt("Resend code", 13f, 700, C.Green, Modifier.tap(vm::resend, "Resend code"))
+            if (vm.otpTestMode) Txt("Testing mode: enter 0000", 13f, 700, C.GreenAccent, align = TextAlign.Center)
             if (vm.message != null) Txt(vm.message!!, 13f, 600, C.Red, align = TextAlign.Center)
             Btn("Verify", vm::verify, Modifier.fillMaxWidth(), enabled = vm.otp.length == n && !vm.busy)
             Txt("Never share this code with anyone, including our staff.", 12.5f, 500, C.Muted, align = TextAlign.Center)
@@ -268,10 +272,9 @@ private fun NotRegisteredSheet(vm: DriverViewModel) {
             Box(Modifier.size(46.dp).clip(CircleShape).background(C.OrangeTint), contentAlignment = Alignment.Center) {
                 Icon24(Ic.Warning, C.OrangeIcon, 24.dp)
             }
-            Txt("No driver account for this number", 17f, 800, modifier = Modifier.weight(1f))
+            Txt("This number is a rider account", 17f, 800, modifier = Modifier.weight(1f))
         }
-        Txt("Drivers register and onboard on our website. Once you are approved, sign in here with the same number.", 13.5f, 500, C.Muted)
-        Txt("9jaridepro.com →", 14f, 700, C.Green)
+        Txt("Use the 9jaRide rider app with this number, or create a driver account here with a different number.", 13.5f, 500, C.Muted)
         Btn("OK", { vm.dialog = null; vm.pop() }, Modifier.fillMaxWidth())
     }
 }

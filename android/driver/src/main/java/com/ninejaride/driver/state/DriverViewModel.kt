@@ -22,7 +22,12 @@ import androidx.lifecycle.viewModelScope
 import com.ninejaride.driver.BuildConfig
 import com.ninejaride.driver.data.Api
 import com.ninejaride.core.data.ApiException
+import androidx.compose.ui.graphics.asImageBitmap
+import com.ninejaride.driver.data.ApplicationForm
+import com.ninejaride.driver.data.Arrangement
+import com.ninejaride.driver.data.ServerDoc
 import com.ninejaride.driver.data.BatteryGuidance
+import com.ninejaride.driver.data.ServerApplication
 import com.ninejaride.driver.data.BatteryTip
 import com.ninejaride.driver.location.LocationService
 import android.os.PowerManager
@@ -36,6 +41,9 @@ import kotlinx.coroutines.launch
 sealed interface Dest {
     data object Splash : Dest
     data object SignIn : Dest
+    data object SignUp : Dest
+    data object Apply : Dest
+    data object ApplicationStatus : Dest
     data object Otp : Dest
     data object LocationPermission : Dest
     data object Main : Dest
@@ -87,6 +95,11 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     var phoneDigits by mutableStateOf("")
     var voiceCode by mutableStateOf(false)
     var otp by mutableStateOf("")
+    /** How many digits the code has, and whether the server is using its fixed test code. Both come from the server with each request. */
+    var otpLength by mutableIntStateOf(6)
+    var otpTestMode by mutableStateOf(false)
+    var fullName by mutableStateOf("")
+    private var ticket: String? = null
     var resendSeconds by mutableIntStateOf(170)
     var busy by mutableStateOf(false)
     var message by mutableStateOf<String?>(null)
@@ -104,6 +117,12 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         dialog = Dialog.OtpMethod
     }
 
+    /** Sign-up asks for a name first; the code and the rest follow the same path as signing in. */
+    fun startSignUp() {
+        if (fullName.trim().length < 2) { message = "Enter your full name."; return }
+        startSignIn()
+    }
+
     private var resendJob: Job? = null
 
     fun sendCode() {
@@ -112,7 +131,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             busy = true
             try {
-                if (!demo) api.requestOtp(intlPhone(), voiceCode)
+                if (!demo) api.requestOtp(intlPhone(), voiceCode).let { otpLength = it.codeLength; otpTestMode = it.testMode }
                 otp = ""
                 resendSeconds = 170
                 push(Dest.Otp)
@@ -126,10 +145,13 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
 
     fun resend() { if (resendSeconds == 0) sendCode() }
 
-    fun onOtpChange(v: String) { otp = v.filter { it.isDigit() }.take(OTP_LENGTH); message = null }
+    fun onOtpChange(v: String) {
+        otp = v.filter { it.isDigit() }.take(otpLength); message = null
+        if (otp.length == otpLength && !busy) verify() // no button to press once the code is complete
+    }
 
     fun verify() {
-        if (otp.length != OTP_LENGTH) return
+        if (otp.length != otpLength) return
         viewModelScope.launch {
             busy = true
             message = null
@@ -137,9 +159,27 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                 if (!demo) api.verifyOtp(intlPhone(), otp)
                 signedIn()
             } catch (e: ApiException) {
-                if (e.code == "registration_required" || e.code == "not_a_driver") dialog = Dialog.NotRegistered
+                val t = e.ticket
+                if (e.code == "registration_required" && t != null) {
+                    // right code, new number: make the account, using the name given at sign-up
+                    ticket = t
+                    if (fullName.trim().length >= 2) completeRegistration() else { message = "Welcome! Tell us your name to finish."; reset(Dest.SignUp) }
+                } else if (e.code == "not_a_driver") dialog = Dialog.NotRegistered
                 else message = e.message
             } finally { busy = false }
+        }
+    }
+
+    fun completeRegistration() {
+        val t = ticket ?: return
+        if (fullName.trim().length < 2) { message = "Enter your full name."; return }
+        viewModelScope.launch {
+            busy = true
+            try {
+                api.register(t, fullName.trim())
+                ticket = null
+                signedIn()
+            } catch (e: ApiException) { message = e.message } finally { busy = false }
         }
     }
 
@@ -151,9 +191,11 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         finishSignIn()
     }
 
+    /** A driver goes on to the app once approved; a new or unfinished one goes to onboarding first. */
     fun finishSignIn() {
         dialog = null
-        reset(Dest.LocationPermission)
+        if (demo) { reset(Dest.LocationPermission); return }
+        viewModelScope.launch { routeByApplication(reset = Dest.LocationPermission) }
     }
 
     fun locationDone() {
@@ -162,6 +204,210 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun intlPhone() = "+234" + phoneDigits.drop(1)
+
+    // ------------------------------------------------------------------ onboarding
+    var application by mutableStateOf<ServerApplication?>(null)
+    val arrangements = mutableStateListOf<Arrangement>()
+    var applyStep by mutableIntStateOf(0)
+    var applying by mutableStateOf(false)
+    var applyError by mutableStateOf<String?>(null)
+    var arrangementCode by mutableStateOf("")
+
+    // personal information
+    var email by mutableStateOf("")
+    var contactPreference by mutableStateOf("whatsapp")
+    var dateOfBirth by mutableStateOf("")
+    var nin by mutableStateOf("")
+    var lassdri by mutableStateOf("")
+    var address by mutableStateOf("")
+    var kinName by mutableStateOf("")
+    var kinPhone by mutableStateOf("")
+    var kinRelationship by mutableStateOf("")
+    var kinAddress by mutableStateOf("")
+
+    // vehicle
+    var vehicleCategory by mutableStateOf("regular")
+    var plate by mutableStateOf("")
+    var make by mutableStateOf("")
+    var colour by mutableStateOf("")
+    var ownerName by mutableStateOf("")
+    var ownerPhone by mutableStateOf("")
+
+    // documents: the numbers and dates typed in, and the id of the photo uploaded for each
+    var licenceNumber by mutableStateOf("")
+    var licenceExpiry by mutableStateOf("")
+    var insuranceNumber by mutableStateOf("")
+    var insuranceExpiry by mutableStateOf("")
+    var inspectionExpiry by mutableStateOf("")
+    val uploads = androidx.compose.runtime.mutableStateMapOf<String, String>() // document kind -> uploaded file id
+    var uploading by mutableStateOf<String?>(null)
+
+    val chosen: Arrangement? get() = arrangements.firstOrNull { it.code == arrangementCode }
+
+    /** The documents asked for, in order. Mirrors what the server requires for this way of driving. */
+    fun neededDocuments(): List<String> {
+        val a = chosen ?: return emptyList()
+        return buildList {
+            add("drivers_licence"); add("nin"); add("lassdri")
+            if (a.asksForVehicle) { add("vehicle_photo"); add("insurance"); add("inspection_certificate") }
+            if (a.asksForOwner) add("owner_consent")
+        }
+    }
+
+    /** Decides where a signed-in driver goes: straight in once approved, otherwise to the application. Returns false if the server could not be asked. */
+    private suspend fun routeByApplication(reset: Dest): Boolean {
+        val app = try { api.application() } catch (e: ApiException) { if (e.isNetwork) return false else null }
+        application = app
+        when {
+            app == null -> openApplication()
+            app.status == "APPROVED" -> { loadAccount(); reset(reset) }
+            else -> reset(Dest.ApplicationStatus)
+        }
+        return true
+    }
+
+    /** Opens the form from the first step, filled in with what was sent before when staff asked for changes. */
+    fun openApplication() {
+        applyStep = 0; applyError = null
+        application?.let { prefill(it) }
+        viewModelScope.launch {
+            if (arrangements.isEmpty()) runCatching { api.arrangements() }.getOrNull()?.let { arrangements.addAll(it) }
+            if (arrangementCode.isEmpty()) arrangementCode = arrangements.firstOrNull()?.code ?: "own"
+            reset(Dest.Apply)
+        }
+    }
+
+    private fun prefill(a: ServerApplication) {
+        arrangementCode = a.arrangement; vehicleCategory = a.category.takeIf { it == "regular" || it == "comfort" } ?: "regular"
+        email = a.email; contactPreference = a.contactPreference; nin = a.nin; lassdri = a.lassdri; address = a.address
+        dateOfBirth = a.dateOfBirth.takeIf { it.length == 10 }?.let { "${it.substring(8, 10)}/${it.substring(5, 7)}/${it.substring(0, 4)}" } ?: ""
+        kinName = a.kinName; kinPhone = a.kinPhone.replace("+234", "0"); kinRelationship = a.kinRelationship; kinAddress = a.kinAddress
+        plate = a.plate; make = a.make; colour = a.colour; ownerName = a.ownerName; ownerPhone = a.ownerPhone.replace("+234", "0")
+        uploads.clear()
+        a.documents.forEach { d ->
+            d.fileId?.let { uploads[d.kind] = it }
+            fun show(iso: String?) = iso?.takeIf { it.length == 10 }?.let { "${it.substring(8, 10)}/${it.substring(5, 7)}/${it.substring(0, 4)}" } ?: ""
+            when (d.kind) {
+                "drivers_licence" -> { licenceNumber = d.number ?: ""; licenceExpiry = show(d.expiresOn) }
+                "insurance" -> { insuranceNumber = d.number ?: ""; insuranceExpiry = show(d.expiresOn) }
+                "inspection_certificate" -> inspectionExpiry = show(d.expiresOn)
+            }
+        }
+    }
+
+    fun refreshApplication() {
+        viewModelScope.launch {
+            val app = runCatching { api.application() }.getOrNull() ?: return@launch
+            application = app
+            if (app.status == "APPROVED") { toast = "You are approved" to "Welcome aboard. Turn on location to start."; reset(Dest.LocationPermission) }
+        }
+    }
+
+    private fun dateOrNull(text: String, future: Boolean = true): String? {
+        val m = Regex("^([0-9]{1,2})[/.-]([0-9]{1,2})[/.-]([0-9]{4})$").matchEntire(text.trim()) ?: return null
+        val d = runCatching { java.time.LocalDate.of(m.groupValues[3].toInt(), m.groupValues[2].toInt(), m.groupValues[1].toInt()) }.getOrNull() ?: return null
+        return d.takeIf { if (future) it.isAfter(java.time.LocalDate.now()) else it.isBefore(java.time.LocalDate.now().minusYears(18).plusDays(1)) }?.toString()
+    }
+
+    private val emailOk get() = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$").matches(email.trim())
+    private fun phoneOk(v: String) = v.filter { it.isDigit() }.length == 11
+
+    /** What is wrong with the current step, in words, or null when it can go on. Steps: 0 how, 1 you, 2 next of kin, 3 vehicle, 4 documents. */
+    fun applyProblem(): String? {
+        val a = chosen ?: return "Choose how you will drive with us."
+        return when (applyStep) {
+            0 -> null
+            1 -> when {
+                !emailOk -> "Enter a valid email address."
+                dateOrNull(dateOfBirth, future = false) == null -> "Enter your date of birth as DD/MM/YYYY. You must be at least 18."
+                nin.filter { it.isDigit() }.length != 11 -> "Your NIN is 11 digits."
+                lassdri.trim().length < 4 -> "Enter your LASSDRI number."
+                address.trim().length < 5 -> "Enter your home address."
+                else -> null
+            }
+            2 -> when {
+                kinName.trim().length < 2 -> "Enter your next of kin's full name."
+                !phoneOk(kinPhone) -> "Enter your next of kin's 11-digit phone number."
+                kinAddress.trim().length < 5 -> "Enter your next of kin's address."
+                else -> null
+            }
+            3 -> when {
+                a.asksForVehicle && plate.trim().length < 5 -> "Enter the number plate."
+                a.asksForVehicle && (make.trim().length < 2 || colour.trim().length < 2) -> "Enter the model and colour of the vehicle."
+                a.asksForOwner && ownerName.trim().length < 2 -> "Enter the name of the person who owns the car."
+                a.asksForOwner && !phoneOk(ownerPhone) -> "Enter the owner's 11-digit phone number."
+                else -> null
+            }
+            else -> when {
+                licenceNumber.trim().length < 4 -> "Enter your driver's licence number."
+                dateOrNull(licenceExpiry) == null -> "Enter the licence expiry date as DD/MM/YYYY. It must be in the future."
+                a.asksForVehicle && insuranceNumber.trim().length < 3 -> "Enter the insurance policy number."
+                a.asksForVehicle && dateOrNull(insuranceExpiry) == null -> "Enter the insurance expiry date as DD/MM/YYYY. It must be in the future."
+                a.asksForVehicle && dateOrNull(inspectionExpiry) == null -> "Enter the date the inspection certificate expires, as DD/MM/YYYY."
+                neededDocuments().any { uploads[it] == null } -> "Upload a photo for: " + neededDocuments().filter { uploads[it] == null }.joinToString(", ") { documentLabel(it) } + "."
+                else -> null
+            }
+        }
+    }
+
+    fun applyNext() {
+        applyProblem()?.let { applyError = it; return }
+        applyError = null
+        if (applyStep < 4) applyStep++ else submitApplication()
+    }
+
+    fun applyBack() { applyError = null; if (applyStep > 0) applyStep-- else if (application != null) reset(Dest.ApplicationStatus) else pop() }
+
+    /** Reads the picked photo, shrinks it so it uploads quickly on mobile data, and sends it. */
+    fun uploadDocument(kind: String, uri: android.net.Uri) {
+        viewModelScope.launch {
+            uploading = kind; applyError = null
+            try {
+                val bytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { shrinkedJpeg(uri) } ?: throw ApiException(0, null, "That photo could not be read. Try another.")
+                uploads[kind] = api.uploadFile(bytes, "$kind.jpg", "image/jpeg")
+            } catch (e: ApiException) { applyError = if (e.status >= 500) "The upload did not work. Please try again." else e.message } finally { uploading = null }
+        }
+    }
+
+    private fun shrinkedJpeg(uri: android.net.Uri): ByteArray? {
+        val cr = getApplication<Application>().contentResolver
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        cr.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0) return null
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2000) sample *= 2
+        val bmp = cr.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }) } ?: return null
+        val out = java.io.ByteArrayOutputStream()
+        bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, out)
+        return out.toByteArray()
+    }
+
+    private fun submitApplication() {
+        val a = chosen ?: return
+        fun doc(kind: String, number: String? = null, expires: String? = null) = ServerDoc(kind, number?.trim()?.takeIf { it.isNotEmpty() }, uploads[kind], expires?.let { dateOrNull(it) })
+        val docs = neededDocuments().map {
+            when (it) {
+                "drivers_licence" -> doc(it, licenceNumber, licenceExpiry)
+                "insurance" -> doc(it, insuranceNumber, insuranceExpiry)
+                "inspection_certificate" -> doc(it, null, inspectionExpiry)
+                else -> doc(it)
+            }
+        }
+        val form = ApplicationForm(
+            a.code, vehicleCategory, if (a.asksForVehicle) plate.trim().uppercase() else "", make.trim(), colour.trim(),
+            if (a.asksForOwner) ownerName.trim() else "", "+234" + ownerPhone.filter { it.isDigit() }.drop(1),
+            email.trim(), contactPreference, dateOrNull(dateOfBirth, future = false) ?: "", nin.filter { it.isDigit() }, lassdri.trim().uppercase(), address.trim(),
+            kinName.trim(), "+234" + kinPhone.filter { it.isDigit() }.drop(1), kinRelationship.trim(), kinAddress.trim(), docs,
+        )
+        viewModelScope.launch {
+            applying = true; applyError = null
+            try {
+                api.submitApplication(form)
+                application = api.application()
+                reset(Dest.ApplicationStatus)
+            } catch (e: ApiException) { applyError = if (e.status >= 500) "We could not send that. Please try again." else e.message } finally { applying = false }
+        }
+    }
 
     // ------------------------------------------------------------------ start-up
     fun boot() {
@@ -176,6 +422,10 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                     online = LocationService.isOnline(getApplication())
                     // If the app was closed or the phone restarted, sharing stopped with it: pick it up again, or show offline.
                     if (online && !LocationService.start(getApplication())) online = false
+                    val app = runCatching { api.application() }
+                    val approved = app.getOrNull()?.status == "APPROVED"
+                    if (app.isSuccess && !approved) { routeByApplication(Dest.Main); return@launch }
+                    loadAccount()
                     reset(Dest.Main)
                     startRealRideLoop() // pick up a ride that was already in progress, and watch for new offers
                     return@launch
@@ -210,7 +460,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             if (!demo) LocationService.stop(getApplication())
             api.logout()
             wentOnline(false)
-            phoneDigits = ""; otp = ""
+            phoneDigits = ""; otp = ""; fullName = ""; application = null; arrangementCode = ""; uploads.clear(); photo = null; profile = if (demo) DEMO_PROFILE else EMPTY_PROFILE; trips.clear(); transactions.clear(); walletKobo = 0; earningsKobo = 0; tripsToday = 0; kmToday = 0.0
             reset(Dest.SignIn)
         }
     }
@@ -230,20 +480,62 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setFilter(start: java.time.LocalDate?, end: java.time.LocalDate?) { filterStart = start; filterEnd = end }
 
+    /** The profile photo, once loaded. */
+    var photo by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
+    var photoBusy by mutableStateOf(false)
+    var photoError by mutableStateOf<String?>(null)
+
+    /** Pulls everything the screens show from the server: profile, photo, trips, today's earnings and the wallet. */
+    fun loadAccount() {
+        if (demo) return
+        viewModelScope.launch {
+            runCatching { api.profile() }.getOrNull()?.let { p ->
+                profile = p
+                if (p.photoId != null) loadPhoto(p.photoId)
+            }
+            runCatching { api.trips() }.getOrNull()?.let { (list, today) ->
+                trips.clear(); trips.addAll(list)
+                tripsToday = today.trips; earningsKobo = today.earnedKobo; kmToday = today.distanceM / 1000.0; hoursToday = today.durationS / 3600.0
+            }
+            runCatching { api.walletBalance() }.getOrNull()?.let { walletKobo = it }
+            runCatching { api.walletTransactions() }.getOrNull()?.let { transactions.clear(); transactions.addAll(it) }
+        }
+    }
+
+    private suspend fun loadPhoto(id: String) {
+        val bytes = runCatching { api.fileBytes(id) }.getOrNull() ?: return
+        photo = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+    }
+
+    /** Uploads a new profile photo and shows it. The old one stays on file but is no longer used. */
+    fun changePhoto(uri: android.net.Uri) {
+        if (demo) { photoError = "Demo mode: photos are not saved."; return }
+        viewModelScope.launch {
+            photoBusy = true; photoError = null
+            try {
+                val bytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { shrinkedJpeg(uri) } ?: throw ApiException(0, null, "That photo could not be read. Try another.")
+                val id = api.uploadFile(bytes, "profile.jpg", "image/jpeg")
+                api.setPhoto(id)
+                profile = profile.copy(photoId = id)
+                loadPhoto(id)
+            } catch (e: ApiException) { photoError = if (e.status >= 500) "The upload did not work. Please try again." else e.message } finally { photoBusy = false }
+        }
+    }
+
     fun saveNin(nin: String) { profile = profile.copy(nin = nin) }
 
-    var profile by mutableStateOf(DEMO_PROFILE)
+    var profile by mutableStateOf(if (demo) DEMO_PROFILE else EMPTY_PROFILE)
     var walletKobo by mutableLongStateOf(0L)
-    var earningsKobo by mutableLongStateOf(226_000L)
-    var tripsToday by mutableIntStateOf(1)
-    var kmToday by mutableStateOf(0.65)
+    var earningsKobo by mutableLongStateOf(if (demo) 226_000L else 0L)
+    var tripsToday by mutableIntStateOf(if (demo) 1 else 0)
+    var kmToday by mutableStateOf(if (demo) 0.65 else 0.0)
     var hoursToday by mutableStateOf(0.0)
     var emailSent by mutableStateOf(false)
     var bonusKobo by mutableLongStateOf(0L)
 
-    val trips = mutableStateListOf(
-        TripRecord("7K3M-92QD", "Today, 10:18 AM", DEMO_RECEIPT, "CXX4+65G, Akobo, Ibadan", "Iwo Road, Ibadan", 0.65, 555, "Cash", Rider("Olaoluwa", 5)),
-    )
+    val trips = mutableStateListOf<TripRecord>().apply {
+        if (demo) add(TripRecord("7K3M-92QD", "Today, 10:18 AM", DEMO_RECEIPT, "CXX4+65G, Akobo, Ibadan", "Iwo Road, Ibadan", 0.65, 555, "Cash", Rider("Olaoluwa", 5)))
+    }
     val transactions = mutableStateListOf<WalletTx>()
     val payouts = mutableStateListOf<PayoutRecord>()
 
@@ -278,7 +570,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         get() {
             val v = profile.vehicle
             val out = mutableListOf<Check>()
-            out += if (profile.active) Check(true, "Account active", "Approved by 9jaRide") else Check(false, "Account not active", "Contact support")
+            out += if (profile.active) Check(true, "Account active", "Approved by 9jaRide Pro") else Check(false, "Account not active", "Contact support")
             out += if (v != null) Check(true, "Vehicle added", "${v.model} · ${v.colour} · ${v.plate}") else Check(false, "No vehicle on your account", "Contact support")
             out += if (walletKobo >= 0) Check(true, "Wallet is clear", "Balance ${naira(walletKobo)}")
             else Check(false, "Wallet balance is ${naira(walletKobo)}", "Top up at least ${naira(-walletKobo)} to continue", "Top up")
@@ -597,6 +889,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             rideJob?.cancel()
             receipt = FareReceipt(fare.lines.map { FareLine(it.first, it.second) }, fare.totalKobo, fare.commissionKobo, fare.driverEarnKobo, if (fare.totalKobo > 0) Math.round(fare.commissionKobo * 100.0 / Math.max(1L, fare.totalKobo - fare.taxKobo)).toInt() else 0)
             phase = Phase.Collect
+            loadAccount() // today's earnings, the trip list and the wallet now include this trip
         }
     }
 
@@ -655,5 +948,5 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         return four() + "-" + four()
     }
 
-    companion object { const val OTP_LENGTH = 6 }
+    companion object {}
 }

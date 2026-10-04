@@ -90,6 +90,10 @@ suite('the driver side of a real order', () => {
     expect(done.commissionKobo).toBeGreaterThan(0);
     expect(done.driverEarnKobo).toBe(done.totalKobo - done.taxKobo - done.commissionKobo); // what they keep adds up
     expect((await h.http().get('/driver/rides/active').set(h.auth(driver.token)).expect(200)).body.ride).toBeNull();
+    // the trip shows in the driver's history with what they kept, and in today's totals
+    const history = (await h.http().get('/driver/trips').set(h.auth(driver.token)).expect(200)).body;
+    expect(history.items[0]).toMatchObject({ id: rideId, totalKobo: done.totalKobo, earnedKobo: done.driverEarnKobo, rider: 'Flow' });
+    expect(history.today).toMatchObject({ trips: 1, earnedKobo: done.driverEarnKobo, distanceM: 6000 });
     expect((await h.http().get(`/rides/${rideId}`).set(h.auth(rider.token)).expect(200)).body).toMatchObject({ status: 'TRIP_COMPLETED', fareKobo: done.totalKobo });
   });
 
@@ -106,8 +110,8 @@ suite('the driver side of a real order', () => {
     expect((await h.http().get(`/rides/${rideId}`).set(h.auth(rider.token)).expect(200)).body.status).toBe('CANCELLED_BY_DRIVER');
     expect((await h.http().get('/driver/rides/active').set(h.auth(driver.token)).expect(200)).body.ride).toBeNull();
     // a ride already under way cannot be dropped this way
+    await ping(); // be on the map before the next ride is requested, so matching finds the driver straight away
     const second = await book();
-    await ping();
     await offered(second);
     await h.http().post(`/driver/rides/${second}/accept`).set(h.auth(driver.token)).expect(200);
     await h.http().post(`/driver/rides/${second}/arrive`).set(h.auth(driver.token)).expect(204);

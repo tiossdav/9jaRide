@@ -82,7 +82,7 @@ private fun StatTile(value: String, label: String, modifier: Modifier = Modifier
 fun EarningsScreen(vm: DriverViewModel) {
     val gross = vm.trips.sumOf { it.receipt.total }
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = 36.dp)) {
             Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Txt("Earnings", 24f, 800)
                 Txt("Your wallet and earnings", 13f, 500, C.Muted)
@@ -203,7 +203,7 @@ fun DailyEarningsScreen(vm: DriverViewModel) {
     val takenFromWallet = trips.filter { it.payment == "Cash" }.sumOf { it.receipt.serviceCharge }
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         ScreenHeader("Daily earnings", today.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)) + " · Lagos time", vm::pop)
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(C.Green).padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Txt("You earned", 13f, 500, C.OnGreenMuted)
                 Txt(naira(earned), 38f, 800, Color.White)
@@ -234,7 +234,7 @@ fun DailyEarningsScreen(vm: DriverViewModel) {
 fun PayoutScreen(vm: DriverViewModel) {
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         ScreenHeader("Payout", "Paid out automatically to your bank", vm::pop)
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(C.Green).padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Txt("Next payout balance", 13f, 500, C.OnGreenMuted)
                 Txt(naira(maxOf(0L, vm.walletKobo)), 38f, 800, Color.White)
@@ -293,7 +293,7 @@ fun BankAccountScreen(vm: DriverViewModel) {
     Box(Modifier.fillMaxSize().background(C.Bg)) {
         Column(Modifier.fillMaxSize()) {
             ScreenHeader("Payout bank account", "Where we send your earnings", vm::pop)
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Column(Modifier.tap({ picking = true }, "Select bank")) {
                     LabeledBox("Bank", bank.ifEmpty { "Select your bank" }, if (bank.isEmpty()) C.Faint else C.Ink) { Icon24(Ic.Chevron, C.Faint, 18.dp) }
                 }
@@ -349,7 +349,7 @@ fun TransactionsScreen(vm: DriverViewModel) {
     val shown = vm.transactions.filter { filter == "All" || (filter == "Inflow") == (it.direction == TxDirection.In) }
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         ScreenHeader("Transactions", null, vm::pop)
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Column(Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(Color.White).border(1.dp, C.Border, RoundedCornerShape(16.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) { Icon24(Ic.ArrowDown, C.GreenAccent, 16.dp); Txt("INFLOW", 11f, 600, C.Muted, letterSpacing = 0.8f) }
@@ -393,7 +393,7 @@ fun FundWalletScreen(vm: DriverViewModel) {
     var amount by remember { mutableStateOf(if (debt > 0) ((debt + 9_999) / 10_000) * 10_000 else 100_000L) }
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         ScreenHeader("Fund wallet", null, vm::pop)
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if (!vm.profile.emailVerified) {
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(Modifier.size(64.dp).clip(CircleShape).background(C.GreenTint), contentAlignment = Alignment.Center) { Icon24(Ic.Mail, C.GreenAccent, 28.dp) }

@@ -305,7 +305,7 @@ fun ReceiptCard(r: FareReceipt, paymentIsCash: Boolean) {
         Divider()
         Box(Modifier.padding(vertical = 9.dp)) { MoneyLine("Fare", naira(r.total), bold = false, labelColor = C.Ink) }
         Box(Modifier.padding(vertical = 9.dp)) {
-            MoneyLine("9jaRide service charge · ${r.serviceRatePercent}%", nairaMinus(r.serviceCharge), amountColor = C.RedText, labelColor = C.RedText)
+            MoneyLine("9jaRide Pro service charge · ${r.serviceRatePercent}%", nairaMinus(r.serviceCharge), amountColor = C.RedText, labelColor = C.RedText)
         }
         Box(Modifier.padding(vertical = 9.dp)) { MoneyLine("You earn", naira(r.earn, true), bold = false, labelColor = C.Ink) }
     }
@@ -382,7 +382,7 @@ fun SosSentScreen(vm: DriverViewModel) {
             Icon24(Ic.Warning, C.RedText, 26.dp)
             Txt("Emergency alert sent", 20f, 800, C.RedText)
         }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 SosStep(true, "Alert saved", "Your location and trip are attached")
                 SosStep(vm.sosSteps >= 2, "Admin team notified", "Phone alert sent to staff on duty")

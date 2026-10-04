@@ -174,7 +174,7 @@ fun OtpScreen(vm: RiderViewModel) {
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) { focus.requestFocus(); keyboard?.show() }
-    val n = RiderViewModel.OTP_LENGTH
+    val n = vm.otpLength
     Column(Modifier.fillMaxSize().background(C.Bg).imePadding()) {
         Row(Modifier.statusBarsPadding().padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 8.dp)) { CircleIconButton(Ic.Back, "Back", vm::pop) }
         Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -198,6 +198,7 @@ fun OtpScreen(vm: RiderViewModel) {
                 Txt("Resend code", 13f, 700, C.GreenAccent, Modifier.tap({ vm.requestCode(false) }, "Resend code"))
                 Txt("Call me instead", 13f, 700, C.GreenAccent, Modifier.tap({ vm.requestCode(true) }, "Call me"))
             }
+            if (vm.otpTestMode) Txt("Testing mode: enter 0000", 13f, 700, C.GreenAccent, align = TextAlign.Center)
             if (vm.message != null) Txt(vm.message!!, 13f, 600, C.RedText, align = TextAlign.Center)
             Btn("Verify", vm::verify, Modifier.fillMaxWidth(), enabled = vm.otp.length == n && !vm.busy)
             Txt("Never share this code with anyone, including our staff.", 12.5f, 500, C.Muted, align = TextAlign.Center)

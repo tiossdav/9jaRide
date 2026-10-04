@@ -1,7 +1,7 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpCode, Param, ParseUUIDPipe, Post, Query, UseInterceptors } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import {
-  ArrayMaxSize, IsArray, IsDateString, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested,
+  ArrayMaxSize, IsDefined, IsArray, IsDateString, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested,
 } from 'class-validator';
 import { CurrentUser, Principal, Roles } from '../auth/auth.types';
 import { StaffAuditInterceptor } from '../common/audit.interceptor';
@@ -19,20 +19,74 @@ function Reason() {
 
 class VehicleDto {
   @Matches(/^[a-z][a-z0-9_]{1,29}$/) category!: string;
+  @IsOptional() @IsString() @MaxLength(50) make?: string;
+  @IsOptional() @IsString() @MaxLength(30) colour?: string;
+  @IsOptional() @IsString() @MaxLength(14) plate?: string;
+}
+
+class OwnerDto {
+  @IsString() @MinLength(2) @MaxLength(100) name!: string;
+  @IsString() @MaxLength(20) phone!: string;
+}
+
+/** The car staff give a driver on a payment plan. All of it is required, unlike the driver's own declaration. */
+class AssignedVehicleDto {
+  @Matches(/^[a-z][a-z0-9_]{1,29}$/) category!: string;
   @IsString() @MinLength(2) @MaxLength(50) make!: string;
   @IsString() @MinLength(2) @MaxLength(30) colour!: string;
   @IsString() @MinLength(5) @MaxLength(14) plate!: string;
 }
 
+class PlanDto {
+  @IsInt() @Min(1) @Max(10_000_000_000) totalKobo!: number;
+  @IsInt() @Min(0) @Max(10_000_000_000) depositKobo!: number;
+  @IsInt() @Min(1) @Max(10_000_000_000) instalmentKobo!: number;
+  @IsIn(['daily', 'weekly', 'monthly']) frequency!: 'daily' | 'weekly' | 'monthly';
+  @IsDateString({ strict: true }) startsOn!: string;
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+}
+
+class AssignmentDto {
+  @ValidateNested() @Type(() => AssignedVehicleDto) vehicle!: AssignedVehicleDto;
+  @ValidateNested() @Type(() => PlanDto) plan!: PlanDto;
+}
+
+class ApproveDto {
+  @IsOptional() @ValidateNested() @Type(() => AssignmentDto) assignment?: AssignmentDto;
+  /** The category the reviewer confirmed after inspecting the vehicle. Defaults to the one the driver asked for. */
+  @IsOptional() @Matches(/^[a-z][a-z0-9_]{1,29}$/) category?: string;
+}
+
 class DocumentDto {
   @IsIn(DOCUMENT_KINDS) kind!: DocumentKind;
-  @IsString() @MinLength(3) @MaxLength(300) fileRef!: string;
+  @IsOptional() @IsString() @MaxLength(60) number?: string;
+  @IsUUID() fileId!: string;
   @IsOptional() @IsDateString({ strict: true }) expiresOn?: string;
 }
 
+class NextOfKinDto {
+  @IsString() @MinLength(2) @MaxLength(100) name!: string;
+  @IsString() @MaxLength(20) phone!: string;
+  @IsOptional() @IsString() @MaxLength(40) relationship?: string;
+  @IsString() @MinLength(5) @MaxLength(300) address!: string;
+}
+
+class PersonalDto {
+  @IsString() @MaxLength(120) email!: string;
+  @IsIn(['whatsapp', 'email']) contactPreference!: 'whatsapp' | 'email';
+  @IsOptional() @IsDateString({ strict: true }) dateOfBirth?: string;
+  @IsString() @MaxLength(11) nin!: string;
+  @IsString() @MaxLength(30) lassdri!: string;
+  @IsString() @MinLength(5) @MaxLength(300) address!: string;
+  @IsDefined() @ValidateNested() @Type(() => NextOfKinDto) nextOfKin!: NextOfKinDto;
+}
+
 class ApplicationDto {
-  @ValidateNested() @Type(() => VehicleDto) vehicle!: VehicleDto;
-  @IsArray() @ArrayMaxSize(10) @ValidateNested({ each: true }) @Type(() => DocumentDto) documents!: DocumentDto[];
+  @IsOptional() @IsString() @MaxLength(30) arrangement?: string;
+  @IsDefined() @ValidateNested() @Type(() => VehicleDto) vehicle!: VehicleDto;
+  @IsOptional() @ValidateNested() @Type(() => OwnerDto) owner?: OwnerDto;
+  @IsDefined() @ValidateNested() @Type(() => PersonalDto) personal!: PersonalDto;
+  @IsArray() @ArrayMaxSize(12) @ValidateNested({ each: true }) @Type(() => DocumentDto) documents!: DocumentDto[];
 }
 
 @Controller('driver/application')
@@ -48,6 +102,12 @@ export class DriverApplicationController {
   @Get()
   mine(@CurrentUser() me: Principal) {
     return this.applications.mine(me.id);
+  }
+
+  /** The ways to get a vehicle, shown on the sign-up screen. */
+  @Get('arrangements')
+  async arrangements() {
+    return { items: await this.applications.arrangements() };
   }
 }
 
@@ -82,8 +142,10 @@ export class AdminDriversController {
   }
 
   @Post('driver-applications/:id/approve') @HttpCode(204)
-  async approve(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string) {
-    await this.applications.approve(id, me.id);
+  async approve(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ApproveDto) {
+    // giving a driver a car on a payment plan commits company money, so it is an admin decision
+    if (dto.assignment && me.role !== 'admin') throw new ForbiddenException('only an admin can assign a vehicle and set up a payment plan');
+    await this.applications.approve(id, me.id, { assignment: dto.assignment, category: dto.category });
   }
 
   @Post('driver-applications/:id/request-changes') @HttpCode(204)

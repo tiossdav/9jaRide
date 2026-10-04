@@ -11,6 +11,7 @@ import OnboardingDetail from './pages/OnboardingDetail';
 import Person from './pages/Person';
 import { LedgerPage, Revenue } from './pages/Insights';
 import VehicleDetail from './pages/VehicleDetail';
+import { VehiclePlanDetail, VehiclePlans } from './pages/VehiclePlans';
 import Vehicles from './pages/Vehicles';
 import { AssetTypes, StakeholderPayouts } from './pages/Catalog';
 import Promos from './pages/Promos';
@@ -52,6 +53,8 @@ export default function App() {
         <Route path="vehicles" element={<Vehicles />} />
         <Route path="vehicles/:id" element={<VehicleDetail />} />
         <Route path="finances/wallet" element={<Wallet />} />
+        <Route path="finances/vehicle-plans" element={<VehiclePlans />} />
+        <Route path="finances/vehicle-plans/:id" element={<VehiclePlanDetail />} />
         <Route path="finances/payouts" element={<Payouts />} />
         <Route path="finances/adjustments" element={<Adjustments />} />
         <Route path="finances/reconciliation" element={<Reconciliation />} />

@@ -86,7 +86,7 @@ fun TripsTab(vm: RiderViewModel) {
                 }
             }
         }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (vm.tripsTab == 0) {
                 if (vm.history.isEmpty()) EmptyState(Ic.Car, if (vm.historyLoaded) "No trips yet" else "Loading...", "Your completed rides will show up here.")
                 vm.history.forEach { TripRow(it) { vm.openTrip(it.id) } }
@@ -164,7 +164,7 @@ fun TripDetailsScreen(vm: RiderViewModel, id: String) {
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         Box(Modifier.statusBarsPadding()) { ScreenHeader("Trip details", r?.shortCode, onBack = vm::pop) }
         if (r == null) { Txt("Loading...", 14f, 500, C.Muted, Modifier.padding(20.dp)); return@Column }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Card {
                 Row(verticalAlignment = Alignment.CenterVertically) { Txt(whenText(r.createdAt), 13f, 600, C.Muted, Modifier.weight(1f)); StatusChip(r.status) }
                 Gap(10.dp)
@@ -203,7 +203,7 @@ fun ReceiptScreen(vm: RiderViewModel, id: String) {
     val rc = vm.receipt
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         Box(Modifier.statusBarsPadding()) { ScreenHeader("Receipt", onBack = { vm.pop() }) }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if (rc == null) Txt("Loading...", 14f, 500, C.Muted)
             else Card {
                 rc.lines.forEach { MoneyLine(it.label.ifBlank { it.kind }, naira(it.amountKobo, true)) }

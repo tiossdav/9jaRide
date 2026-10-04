@@ -63,7 +63,7 @@ import com.ninejaride.core.ui.theme.type
 @Composable
 fun TripsScreen(vm: DriverViewModel) {
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = 36.dp)) {
             Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Txt("Trips", 24f, 800)
                 Txt("Your completed trips", 13f, 500, C.Muted)
@@ -113,7 +113,7 @@ fun TripDetailsScreen(vm: DriverViewModel, code: String) {
             Txt("This trip could not be found.", 14f, 500, C.Muted, Modifier.padding(20.dp))
             return@Column
         }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -171,21 +171,21 @@ private fun Fact(label: String, value: String, modifier: Modifier) {
 fun ProfileScreen(vm: DriverViewModel) {
     val p = vm.profile
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = 36.dp)) {
             Column(Modifier.fillMaxWidth().padding(top = 28.dp, bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Avatar(p.name.take(1), 72.dp, 28f)
+                Avatar(p.name.take(1), 72.dp, 28f, vm.photo)
                 Gap(6.dp)
                 Txt(p.name, 20f, 800)
-                Txt(p.gender, 13f, 500, C.Muted)
+                Txt(p.vehicle?.category?.takeIf { it.isNotBlank() }?.let { "$it driver" } ?: p.gender, 13f, 500, C.Muted)
             }
             Row(Modifier.padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ProfileStat("${p.rating}", "Rating", Modifier.weight(1f), star = true)
+                ProfileStat(p.ratingText, "Rating", Modifier.weight(1f), star = true)
                 ProfileStat(p.vehicle?.plate ?: "None", "Vehicle", Modifier.weight(1.3f))
                 ProfileStat(if (p.active) "Active" else "Inactive", "Status", Modifier.weight(1f), color = if (p.active) C.GreenAccent else C.Red)
             }
             Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Txt("MY DETAILS", 12f, 600, C.Muted, letterSpacing = 1f)
-                MenuRow(Ic.User, "Personal details", "Name, phone and email", { vm.push(Dest.PersonalDetails) })
+                MenuRow(Ic.User, "Personal details", "Photo, contact, identity and next of kin", { vm.push(Dest.PersonalDetails) })
                 MenuRow(Ic.Car, "Vehicle", "Everything about your vehicle", { vm.push(Dest.VehicleDetails) })
                 MenuRow(Ic.Gift, "Bonus eligibility", "Daily bonus targets", { vm.push(Dest.Bonus) })
                 MenuRow(Ic.Help, "Help & support", "Contact our team", { vm.push(Dest.Help) })
@@ -224,30 +224,46 @@ private fun ProfileStat(value: String, label: String, modifier: Modifier, star: 
     }
 }
 
-/** D11: what is verified and what is not, in plain words. */
+/** What the driver gave at sign-up and onboarding, with a photo they can replace. */
 @Composable
 fun PersonalDetailsScreen(vm: DriverViewModel) {
     val p = vm.profile
     var adding by remember { mutableStateOf(false) }
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri -> if (uri != null) vm.changePhoto(uri) }
     Box(Modifier.fillMaxSize().background(C.Bg)) {
         Column(Modifier.fillMaxSize()) {
-            ScreenHeader("Personal details", "Keep your information up to date", vm::pop)
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Avatar(p.name.take(1), 72.dp, 28f) }
+            ScreenHeader("Personal details", "What you gave us when you signed up", vm::pop)
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.size(96.dp).tap({ if (!vm.photoBusy) picker.launch("image/*") }, "Change photo")) {
+                        Avatar(p.name.take(1), 96.dp, 36f, vm.photo)
+                        if (vm.photoBusy) Box(Modifier.matchParentSize().clip(CircleShape).background(Color.Black.copy(alpha = 0.35f)), contentAlignment = Alignment.Center) { Txt("...", 22f, 800, Color.White) }
+                        Box(
+                            Modifier.align(Alignment.BottomStart).size(30.dp).clip(CircleShape).background(C.Green).border(2.dp, C.Bg, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon24(Ic.Edit, Color.White, 15.dp) }
+                    }
+                    vm.photoError?.let { Txt(it, 12.5f, 600, C.Red, align = TextAlign.Center) }
+                    Txt(p.name, 18f, 800)
+                }
                 Txt("CONTACT", 12f, 600, C.Muted, letterSpacing = 1f)
                 LabeledBox("Phone number", p.phone) { Chip("Verified") }
-                LabeledBox("Email address", p.email) {
-                    if (p.emailVerified) Chip("Verified") else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Chip("Unverified", C.Orange, C.OrangeTint)
-                        Txt("Verify", 13.5f, 700, C.Green, Modifier.tap({ vm.push(Dest.FundWallet) }, "Verify email"))
-                    }
-                }
+                LabeledBox("Email address", p.email.ifBlank { "Not added" })
+                if (p.contactPreference.isNotBlank()) LabeledBox("We contact you by", if (p.contactPreference == "email") "Email" else "WhatsApp")
                 Txt("IDENTITY", 12f, 600, C.Muted, letterSpacing = 1f)
+                if (p.dateOfBirth.isNotBlank()) LabeledBox("Date of birth", p.dateOfBirth)
                 LabeledBox("NIN", p.nin?.let { "*******" + it.takeLast(4) } ?: "Not added") {
-                    if (p.nin == null) Txt("Add", 13.5f, 700, C.Green, Modifier.tap({ adding = true }, "Add NIN")) else Chip("Added")
+                    if (p.nin == null && vm.demo) Txt("Add", 13.5f, 700, C.Green, Modifier.tap({ adding = true }, "Add NIN")) else if (p.nin != null) Chip("Added")
                 }
-                LabeledBox("Gender", p.gender) { Chip("Verified") }
-                Txt("Your phone number cannot be changed.", 12.5f, 500, C.Muted)
+                if (p.lassdri.isNotBlank()) LabeledBox("LASSDRI number", p.lassdri)
+                if (p.address.isNotBlank()) { Txt("ADDRESS", 12f, 600, C.Muted, letterSpacing = 1f); LabeledBox("Home address", p.address) }
+                if (p.kinName.isNotBlank()) {
+                    Txt("NEXT OF KIN", 12f, 600, C.Muted, letterSpacing = 1f)
+                    LabeledBox("Name", p.kinName + if (p.kinRelationship.isNotBlank()) " (${p.kinRelationship})" else "")
+                    LabeledBox("Phone number", p.kinPhone)
+                    LabeledBox("Address", p.kinAddress)
+                }
+                Txt("Your phone number cannot be changed. To change anything else, contact support.", 12.5f, 500, C.Muted)
             }
         }
         if (adding) {
@@ -275,13 +291,14 @@ fun PersonalDetailsScreen(vm: DriverViewModel) {
     }
 }
 
-/** D14. */
+/** The driver's vehicle, as onboarding recorded it and staff confirmed it. */
 @Composable
 fun VehicleScreen(vm: DriverViewModel) {
     val v = vm.profile.vehicle
+    val plan = vm.profile.plan
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         ScreenHeader("Vehicle", "Your vehicle details", vm::pop)
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (v == null) {
                 Txt("No vehicle is linked to your account yet. Contact support.", 14f, 500, C.Muted)
             } else {
@@ -291,17 +308,24 @@ fun VehicleScreen(vm: DriverViewModel) {
                 ) {
                     RoundIconTile(Ic.Car, C.GreenAccent, C.GreenTint, 52.dp, round = false, iconSize = 26.dp)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Txt("${v.make} ${v.model}", 16f, 800)
-                        Txt("${v.colour} · ${v.year}", 13f, 500, C.Muted)
+                        Txt((listOf(v.make, v.model).filter { it.isNotBlank() }.joinToString(" ")).ifBlank { "Vehicle" }, 16f, 800)
+                        Txt(v.colour, 13f, 500, C.Muted)
                     }
                     Box(Modifier.clip(RoundedCornerShape(10.dp)).background(C.Bg).border(1.5.dp, C.Border, RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 7.dp)) { Txt(v.plate, 14f, 700, letterSpacing = 0.5f) }
                 }
-                LabeledBox("Make", v.make)
-                LabeledBox("Model", v.model)
-                LabeledBox("Year", "${v.year}")
                 LabeledBox("Plate number", v.plate)
+                LabeledBox("Model", (listOf(v.make, v.model).filter { it.isNotBlank() }.joinToString(" ")))
                 LabeledBox("Colour", v.colour)
-                Txt("Make, model, colour and plate are required before approval, so riders always see them.", 12.5f, 500, C.Muted)
+                if (v.category.isNotBlank()) LabeledBox("Category", v.category) { Chip("Confirmed by our team") }
+                if (v.arrangement.isNotBlank()) LabeledBox("How you drive", when (v.arrangement) { "platform_plan" -> "Platform vehicle (payment plan)"; "third_party" -> "Someone else's vehicle"; else -> "Your own vehicle" })
+                LabeledBox("Owner", if (v.ownerName.isNotBlank()) "${v.ownerName} · ${v.ownerPhone}" else vm.profile.name.ifBlank { "You" })
+                if (plan != null) {
+                    Txt("VEHICLE PAYMENT PLAN", 12f, 600, C.Muted, letterSpacing = 1f)
+                    LabeledBox("Paid so far", naira(plan.paidKobo) + " of " + naira(plan.totalKobo))
+                    LabeledBox("Still owed", naira(plan.outstandingKobo))
+                    if (plan.overdueKobo > 0 && plan.status != "cancelled") LabeledBox("Behind by", naira(plan.overdueKobo), valueColor = C.Red)
+                    plan.nextDueOn?.let { LabeledBox("Next payment due", it) }
+                }
                 Txt("To change vehicle details, contact support.", 12.5f, 700, C.Ink)
             }
         }
@@ -313,7 +337,7 @@ fun VehicleScreen(vm: DriverViewModel) {
 fun BonusScreen(vm: DriverViewModel) {
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         ScreenHeader("Bonus eligibility", "Today's bonus targets", vm::pop)
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Fact("TRIPS TODAY", "${vm.tripsToday}", Modifier.weight(1f))
                 Fact("DISTANCE TODAY", "%.2f km".format(vm.kmToday), Modifier.weight(1f))
@@ -338,7 +362,7 @@ fun HelpScreen(vm: DriverViewModel) {
     androidx.compose.runtime.LaunchedEffect(Unit) { vm.loadReports() }
     Column(Modifier.fillMaxSize().background(C.Bg).imePadding()) {
         ScreenHeader("Help & support", "Tell us what went wrong", vm::pop)
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             com.ninejaride.core.ui.components.ReportProblemForm(vm.reportSending, vm.reportNotice) { topic, message -> vm.sendReport(topic, message) }
             com.ninejaride.core.ui.components.MyReports(vm.reports)
             Txt("In danger? Use the SOS button on the home screen, or call 112.", 12.5f, 600, C.RedText, Modifier.padding(top = 8.dp))
@@ -353,7 +377,7 @@ fun DeleteAccountScreen(vm: DriverViewModel) {
     val blocked = checks.any { !it.ok }
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         ScreenHeader("Delete account", "Review before you continue", vm::pop)
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (blocked) {
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(C.RedCard).padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon24(Ic.Warning, C.RedText, 26.dp)

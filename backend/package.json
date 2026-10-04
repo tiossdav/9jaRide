@@ -10,6 +10,7 @@
     "test:int": "node scripts/run-int.js",
     "migrate": "ts-node scripts/migrate.ts",
     "staff:create": "ts-node scripts/create-staff.ts",
+    "reset:test-data": "ts-node scripts/reset-test-data.ts",
     "test:unit": "jest --testPathIgnorePatterns \\.int\\.spec",
     "test:cov": "jest --testPathIgnorePatterns \\.int\\.spec --coverage",
     "test:cov:all": "node scripts/run-int.js --coverage",

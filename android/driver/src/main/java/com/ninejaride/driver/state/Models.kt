@@ -2,7 +2,13 @@ package com.ninejaride.driver.state
 
 import com.ninejaride.core.format.Kobo
 
-data class Vehicle(val make: String, val model: String, val year: Int, val plate: String, val colour: String)
+data class Vehicle(
+    val make: String, val model: String, val year: Int, val plate: String, val colour: String,
+    val category: String = "", val arrangement: String = "", val ownerName: String = "", val ownerPhone: String = "",
+)
+
+/** Where a driver stands on a vehicle payment plan. */
+data class PlanSummary(val status: String, val totalKobo: Long, val paidKobo: Long, val outstandingKobo: Long, val overdueKobo: Long, val nextDueOn: String?)
 
 data class BankAccount(val bank: String, val number: String, val holder: String)
 
@@ -17,7 +23,24 @@ data class DriverProfile(
     val active: Boolean,
     val vehicle: Vehicle?,
     val bank: BankAccount?,
-)
+    // everything the driver gave at sign-up and onboarding
+    val photoId: String? = null,
+    val dateOfBirth: String = "",
+    val lassdri: String = "",
+    val address: String = "",
+    val kinName: String = "",
+    val kinPhone: String = "",
+    val kinRelationship: String = "",
+    val kinAddress: String = "",
+    val contactPreference: String = "",
+    val ratingAverage: Double? = null,
+    val plan: PlanSummary? = null,
+) {
+    val ratingText: String get() = ratingAverage?.let { "%.1f".format(it) } ?: if (rating > 0) "$rating" else "New"
+}
+
+/** Shown until the real details arrive from the server. */
+val EMPTY_PROFILE = DriverProfile(name = "", phone = "", email = "", emailVerified = true, gender = "", nin = null, rating = 0, active = true, vehicle = null, bank = null)
 
 data class Rider(val name: String, val rating: Int)
 
@@ -100,3 +123,15 @@ val DEMO_RECEIPT = FareReceipt(
     serviceCharge = 27_120,
     earn = 198_880,
 )
+
+/** What each document is called on screen. */
+fun documentLabel(kind: String): String = when (kind) {
+    "drivers_licence" -> "Driver's licence"
+    "nin" -> "NIN slip or card"
+    "lassdri" -> "LASSDRI card"
+    "vehicle_photo" -> "Vehicle photo"
+    "insurance" -> "Insurance certificate"
+    "inspection_certificate" -> "Inspection certificate"
+    "owner_consent" -> "Owner's signed consent"
+    else -> kind.replace('_', ' ').replaceFirstChar { it.uppercase() }
+}

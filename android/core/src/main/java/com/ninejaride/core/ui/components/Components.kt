@@ -65,8 +65,14 @@ fun Txt(
     maxLines: Int = Int.MAX_VALUE,
 ) {
     val base = type(size, weight, color, letterSpacing = if (letterSpacing == null) TextUnit.Unspecified else TextUnit(letterSpacing, TextUnitType.Sp))
+    // The app font draws the Naira sign with a single stroke. The real sign has two, so it is drawn with the system font.
+    val shown = if ('\u20A6' !in text) androidx.compose.ui.text.AnnotatedString(text) else androidx.compose.ui.text.buildAnnotatedString {
+        text.forEach { ch ->
+            if (ch == '₦') { pushStyle(androidx.compose.ui.text.SpanStyle(fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif)); append(ch); pop() } else append(ch)
+        }
+    }
     BasicText(
-        text = text,
+        text = shown,
         modifier = modifier,
         style = if (align != null) base.copy(textAlign = align) else base,
         maxLines = maxLines,
@@ -151,9 +157,10 @@ fun Chip(text: String, fg: Color = C.GreenAccent, bg: Color = C.GreenTint) {
 }
 
 @Composable
-fun Avatar(letter: String, size: Dp = 40.dp, fontSize: Float = 16f) {
+fun Avatar(letter: String, size: Dp = 40.dp, fontSize: Float = 16f, photo: androidx.compose.ui.graphics.ImageBitmap? = null) {
     Box(Modifier.size(size).clip(CircleShape).background(C.GreenTint), contentAlignment = Alignment.Center) {
-        Txt(letter, fontSize, 700, C.GreenAccent)
+        if (photo != null) androidx.compose.foundation.Image(bitmap = photo, contentDescription = "Profile photo", contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        else Txt(letter, fontSize, 700, C.GreenAccent)
     }
 }
 

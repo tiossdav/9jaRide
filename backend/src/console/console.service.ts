@@ -2,6 +2,7 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import Redis from 'ioredis';
 import { Pool } from 'pg';
 import { PG_POOL, REDIS } from '../common/infra.module';
+import { VehiclePlansService } from '../vehicle-plans/vehicle-plans.service';
 
 const TZ = `'Africa/Lagos'`;
 const ACTIVE = `('DRIVER_ASSIGNED', 'DRIVER_ARRIVED', 'TRIP_STARTED')`;
@@ -17,7 +18,7 @@ export interface TripQuery {
 /** Read-only numbers and lists behind the admin portal. Money is integer kobo, as everywhere else. */
 @Injectable()
 export class ConsoleService {
-  constructor(@Inject(PG_POOL) private readonly pool: Pool, @Inject(REDIS) private readonly redis: Redis) {}
+  constructor(@Inject(PG_POOL) private readonly pool: Pool, @Inject(REDIS) private readonly redis: Redis, private readonly plans: VehiclePlansService) {}
 
   private async q<T = any>(sql: string, params: unknown[] = []): Promise<T[]> {
     return (await this.pool.query(sql, params)).rows;
@@ -350,6 +351,7 @@ export class ConsoleService {
     params.push(limit, offset);
     const rows = await this.q(
       `SELECT u.id, u.full_name, u.phone, u.status, u.created_at, v.plate, v.make, v.colour, v.category,
+              COALESCE(v.arrangement, (SELECT a.arrangement FROM driver_applications a WHERE a.driver_id = u.id ORDER BY a.submitted_at DESC LIMIT 1)) AS arrangement,
               (SELECT count(*)::int FROM rides r WHERE r.driver_id = u.id AND r.status = 'TRIP_COMPLETED') AS trips,
               (SELECT round(avg(rt.stars)::numeric, 1)::float8 FROM ride_ratings rt JOIN rides r ON r.id = rt.ride_id WHERE r.driver_id = u.id) AS rating
          FROM users u LEFT JOIN vehicles v ON v.driver_id = u.id AND v.active
@@ -361,6 +363,7 @@ export class ConsoleService {
       total: count.n, page: q.page, pageSize: q.pageSize,
       items: rows.map((r) => ({
         id: r.id, name: r.full_name, phone: r.phone, status: r.status, joinedAt: r.created_at, trips: r.trips, rating: r.rating,
+        arrangement: r.arrangement,
         vehicle: r.plate ? { plate: r.plate, make: r.make, colour: r.colour, category: r.category } : null,
       })),
     };
@@ -379,7 +382,7 @@ export class ConsoleService {
     const [rt] = u.role === 'driver'
       ? await this.q(`SELECT round(avg(rt.stars)::numeric, 2)::float8 AS avg, count(*)::int AS n FROM ride_ratings rt JOIN rides r ON r.id = rt.ride_id WHERE r.driver_id = $1`, [id])
       : [{ avg: null, n: 0 }];
-    const vehicles = await this.q(`SELECT id, category, make, colour, plate, active FROM vehicles WHERE driver_id = $1 ORDER BY active DESC`, [id]);
+    const vehicles = await this.q(`SELECT id, category, make, colour, plate, active, arrangement, owner_name, owner_phone FROM vehicles WHERE driver_id = $1 ORDER BY active DESC`, [id]);
     const recent = await this.q(
       `SELECT r.id, r.short_code, r.status, r.created_at, f.total_kobo FROM rides r LEFT JOIN ride_fares f ON f.ride_id = r.id WHERE r.${col} = $1 ORDER BY r.created_at DESC LIMIT 8`, [id],
     );
@@ -390,13 +393,14 @@ export class ConsoleService {
       `SELECT COALESCE(b.balance_kobo, 0)::bigint AS kobo FROM ledger_accounts a LEFT JOIN ledger_balances b ON b.account_id = a.id WHERE a.code = $1`, [`wallet:${id}`],
     );
     const [app] = u.role === 'driver'
-      ? await this.q(`SELECT id, status FROM driver_applications WHERE driver_id = $1 ORDER BY submitted_at DESC LIMIT 1`, [id])
+      ? await this.q(`SELECT id, status, arrangement FROM driver_applications WHERE driver_id = $1 ORDER BY submitted_at DESC LIMIT 1`, [id])
       : [null];
     return {
       id: u.id, name: u.full_name, phone: u.phone, role: u.role, status: u.status, joinedAt: u.created_at,
       completedTrips: t.completed, cancelledTrips: t.cancelled, totalKobo: Number(t.kobo), rating: rt.avg, ratings: rt.n,
       walletKobo: bal ? Number(bal.kobo) : 0, vehicles,
-      application: app ? { id: app.id, status: app.status } : null,
+      application: app ? { id: app.id, status: app.status, arrangement: app.arrangement } : null,
+      vehiclePlan: u.role === 'driver' ? await this.plans.forDriver(id) : null,
       recentTrips: recent.map((r) => ({ id: r.id, code: r.short_code, status: r.status, at: r.created_at, totalKobo: r.total_kobo == null ? null : Number(r.total_kobo) })),
       statusHistory: history.map((h) => ({ status: h.status, reason: h.reason, at: h.created_at, by: h.actor })),
     };
@@ -412,12 +416,12 @@ export class ConsoleService {
     const { limit, offset } = this.pageArgs(q.page, q.pageSize);
     params.push(limit, offset);
     const rows = await this.q(
-      `SELECT v.id, v.plate, v.make, v.colour, v.category, v.active, v.suspended_at, u.id AS driver_id, u.full_name, u.status
+      `SELECT v.id, v.plate, v.make, v.colour, v.category, v.active, v.suspended_at, v.arrangement, u.id AS driver_id, u.full_name, u.status
          FROM vehicles v JOIN users u ON u.id = v.driver_id WHERE ${where} ORDER BY v.active DESC, v.plate LIMIT $${params.length - 1} OFFSET $${params.length}`, params,
     );
     return {
       total: count.n, page: q.page, pageSize: q.pageSize, counts: { total: k.total, active: k.active, online: online.size },
-      items: rows.map((r) => ({ id: r.id, plate: r.plate, make: r.make, colour: r.colour, category: r.category, active: r.active, suspended: r.suspended_at != null, driverId: r.driver_id, driver: r.full_name, driverStatus: r.status, online: online.has(r.driver_id) })),
+      items: rows.map((r) => ({ id: r.id, plate: r.plate, make: r.make, colour: r.colour, category: r.category, arrangement: r.arrangement, active: r.active, suspended: r.suspended_at != null, driverId: r.driver_id, driver: r.full_name, driverStatus: r.status, online: online.has(r.driver_id) })),
     };
   }
 

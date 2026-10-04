@@ -117,6 +117,9 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     var fullName by mutableStateOf("")
     var voiceCode by mutableStateOf(false)
     var otp by mutableStateOf("")
+    /** How many digits the code has, and whether the server is using its fixed test code. Both come from the server with each request. */
+    var otpLength by mutableIntStateOf(6)
+    var otpTestMode by mutableStateOf(false)
     var resendSeconds by mutableIntStateOf(170)
     var busy by mutableStateOf(false)
     var message by mutableStateOf<String?>(null)
@@ -129,7 +132,10 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     private fun intlPhone() = "+234" + phoneDigits.drop(1)
 
     fun onPhoneChange(v: String) { phoneDigits = v.filter { it.isDigit() }.take(11); message = null }
-    fun onOtpChange(v: String) { otp = v.filter { it.isDigit() }.take(OTP_LENGTH); message = null }
+    fun onOtpChange(v: String) {
+        otp = v.filter { it.isDigit() }.take(otpLength); message = null
+        if (otp.length == otpLength && !busy) verify() // no button to press once the code is complete
+    }
 
     /** Sign-up asks for a name first; sign-in does not. */
     fun sendCode(needName: Boolean) {
@@ -144,7 +150,8 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             busy = true
             try {
-                api.requestOtp(intlPhone(), voice)
+                val info = api.requestOtp(intlPhone(), voice)
+                otpLength = info.codeLength; otpTestMode = info.testMode
                 otp = ""
                 resendSeconds = 170
                 if (current != Dest.Otp) push(Dest.Otp)
@@ -155,7 +162,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun verify() {
-        if (otp.length != OTP_LENGTH) return
+        if (otp.length != otpLength) return
         viewModelScope.launch {
             busy = true
             message = null
@@ -259,6 +266,20 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     private var searchJob: Job? = null
 
     /** The pickup defaults to where the phone is. Called when the Where-to screen opens. */
+    /** Bumped each time the rider taps "my location", so the map moves back to them even if they had panned away. */
+    var focusTick by mutableIntStateOf(0)
+
+    /** The location button on the map: centre on the rider and use that spot as the pickup. */
+    fun locateMe() {
+        if (!location.hasPermission()) { push(Dest.LocationPermission); return }
+        location.start()
+        focusTick++
+        val here = location.point ?: run { say("We are still finding you. Try again in a moment."); return }
+        pickup = Place("Current location", here)
+        pickupText = "Current location"
+        viewModelScope.launch { Geocoding.reverse(here)?.let { pickup = Place(it, here); pickupText = it } }
+    }
+
     fun prepareBooking() {
         if (pickup == null) {
             val here = location.point
@@ -695,5 +716,5 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() { location.stop(); super.onCleared() }
 
-    companion object { const val OTP_LENGTH = 6 }
+    companion object {}
 }

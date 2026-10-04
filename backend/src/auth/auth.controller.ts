@@ -16,7 +16,7 @@ class RegistrationDto {
 
 class VerifyOtpDto {
   @IsString() @MaxLength(20) phone!: string;
-  @IsString() @Length(6, 6) code!: string;
+  @IsString() @Length(4, 6) code!: string;
 }
 
 class RegisterDto extends RegistrationDto {
@@ -44,7 +44,7 @@ export class AuthController {
   @Public() @Post('auth/otp/request') @HttpCode(200)
   async requestOtp(@Body() dto: RequestOtpDto, @Req() req: Request) {
     const r = await this.auth.requestOtp(dto.phone, dto.channel ?? 'sms', req.ip ?? null);
-    return { sent: true, expiresInSeconds: r.expiresInSeconds };
+    return { sent: true, expiresInSeconds: r.expiresInSeconds, codeLength: r.codeLength, testMode: r.testMode };
   }
 
   @Public() @Post('auth/otp/verify') @HttpCode(200)

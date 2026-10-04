@@ -52,7 +52,7 @@ private const val SUPPORT_EMAIL = "support@9jaridepro.com"
 @Composable
 fun AccountTab(vm: RiderViewModel) {
     Column(Modifier.fillMaxSize().background(C.Bg)) {
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).statusBarsPadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).statusBarsPadding().padding(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Avatar((vm.profile?.name ?: "R").take(1).uppercase(), 60.dp, 24f)
                 Column {
@@ -121,7 +121,7 @@ fun PersonalDetailsScreen(vm: RiderViewModel) {
 fun WalletScreen(vm: RiderViewModel) {
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         Box(Modifier.statusBarsPadding()) { ScreenHeader("Wallet", onBack = vm::pop) }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(C.Green).padding(20.dp)) {
                 Txt("Available balance", 12.5f, 600, C.OnGreenMuted)
                 Txt(naira(vm.wallet?.availableKobo ?: 0), 32f, 800, Color.White)
@@ -153,7 +153,7 @@ fun TopUpScreen(vm: RiderViewModel) {
     }
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         Box(Modifier.statusBarsPadding()) { ScreenHeader("Top up wallet", onBack = vm::pop) }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Txt("Amount", 12.5f, 600, C.Muted)
             Txt(naira(vm.topUpAmount), 36f, 800)
             listOf(listOf(100_000L, 200_000L, 500_000L), listOf(1_000_000L, 2_000_000L, 5_000_000L)).forEach { row ->
@@ -199,7 +199,7 @@ fun HelpScreen(vm: RiderViewModel) {
     LaunchedEffect(Unit) { vm.loadReports() }
     Column(Modifier.fillMaxSize().background(C.Bg).imePadding()) {
         Box(Modifier.statusBarsPadding()) { ScreenHeader("Help and support", onBack = vm::pop) }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             com.ninejaride.core.ui.components.ReportProblemForm(vm.reportSending, vm.reportNotice) { topic, message -> vm.sendReport(topic, message) }
             com.ninejaride.core.ui.components.MyReports(vm.reports)
             Gap(8.dp)

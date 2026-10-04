@@ -32,7 +32,7 @@ const NAV: { group: string; items: Item[] }[] = [
         label: 'Finances', icon: 'wallet', roles: MONEY,
         children: [
           { label: 'Wallet', icon: 'wallet', to: '/finances/wallet' }, { label: 'Revenue', icon: 'trend', to: '/finances/revenue' }, { label: 'Reconciliation', icon: 'refresh', to: '/finances/reconciliation' },
-          { label: 'Stakeholder payouts', icon: 'bank2', to: '/finances/stakeholders' }, { label: 'Driver payouts', icon: 'card', to: '/finances/payouts' },
+          { label: 'Stakeholder payouts', icon: 'bank2', to: '/finances/stakeholders' }, { label: 'Driver payouts', icon: 'card', to: '/finances/payouts' }, { label: 'Vehicle plans', icon: 'car', to: '/finances/vehicle-plans' },
           { label: 'Adjustments', icon: 'book', to: '/finances/adjustments' }, { label: 'Ledger', icon: 'layers', to: '/finances/ledger' },
         ],
       },
@@ -61,7 +61,7 @@ const CRUMBS: [string, string[]][] = [
   ['/live', ['Operations', 'Live operations']], ['/finances/revenue', ['Finances', 'Revenue']], ['/finances/ledger', ['Finances', 'Ledger']], ['/safety', ['Operations', 'Safety Center']], ['/customers', ['Users', 'Customers']],
   ['/trips', ['Trips']], ['/pricing', ['Setup', 'Trip Fees']], ['/setup/asset-types', ['Setup', 'Asset Type']], ['/setup/revenue', ['Setup', 'Revenue Setup']], ['/setup/cancellation', ['Setup', 'Cancellation Policy']],
   ['/finances/stakeholders', ['Finances', 'Stakeholder payouts']], ['/promo', ['Promo']], ['/support', ['Support']], ['/drivers', ['Users', 'Drivers']], ['/onboarding', ['Users', 'Drivers', 'Onboarding']],
-  ['/people', ['Users', 'Profile']], ['/vehicles', ['Vehicles']], ['/finances/wallet', ['Finances', 'Wallet']], ['/finances/payouts', ['Finances', 'Driver payouts']],
+  ['/people', ['Users', 'Profile']], ['/vehicles', ['Vehicles']], ['/finances/wallet', ['Finances', 'Wallet']], ['/finances/payouts', ['Finances', 'Driver payouts']], ['/finances/vehicle-plans', ['Finances', 'Vehicle plans']],
   ['/finances/adjustments', ['Finances', 'Adjustments']], ['/finances/reconciliation', ['Finances', 'Reconciliation']], ['/activity', ['Activity Logs']], ['/team/roles', ['Team', 'Roles']], ['/team', ['Team', 'Members']],
 ];
 export interface Me { name: string; role: string; email?: string; mustChangePassword?: boolean }

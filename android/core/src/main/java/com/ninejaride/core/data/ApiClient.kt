@@ -8,7 +8,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -23,6 +25,9 @@ import java.util.concurrent.TimeUnit
 class ApiException(val status: Int, val code: String?, override val message: String, val ticket: String? = null) : Exception(message) {
     val isNetwork get() = status == 0
 }
+
+/** How long the code the server just sent is. [testMode] is true while the server uses its fixed test code instead of a real SMS. */
+class OtpInfo(val codeLength: Int, val testMode: Boolean)
 
 class Session(val accessToken: String, val refreshToken: String, val role: String)
 
@@ -49,12 +54,12 @@ class ApiClient(context: Context, private val baseUrl: String, private val appVe
             }.apply()
         }
 
-    private fun rawCall(method: String, path: String, body: String?, token: String?, extraHeaders: Map<String, String>): Pair<Int, JsonObject> {
+    private fun rawCall(method: String, path: String, body: String?, token: String?, extraHeaders: Map<String, String>, multipart: okhttp3.RequestBody? = null): Pair<Int, JsonObject> {
         val req = Request.Builder().url(baseUrl + path)
             .header("X-App-Platform", "android")
             .header("X-App-Version", appVersion)
             .apply { token?.let { header("Authorization", "Bearer $it") }; extraHeaders.forEach { (k, v) -> header(k, v) } }
-            .method(method, if (method == "GET" || method == "HEAD") null else (body ?: "").toRequestBody(jsonType))
+            .method(method, multipart ?: if (method == "GET" || method == "HEAD") null else (body ?: "").toRequestBody(jsonType))
             .build()
         try {
             http.newCall(req).execute().use { res ->
@@ -75,6 +80,34 @@ class ApiClient(context: Context, private val baseUrl: String, private val appVe
 
     private fun failure(status: Int, o: JsonObject) =
         ApiException(status, o["code"]?.jsonPrimitive?.contentOrNull, o["message"]?.jsonPrimitive?.contentOrNull ?: "Something went wrong ($status).", o["registrationTicket"]?.jsonPrimitive?.contentOrNull)
+
+    /** Sends one file (a photo or PDF) as the form field "file". Signed in, with the same one retry after a token refresh. */
+    suspend fun upload(path: String, bytes: ByteArray, filename: String, mime: String): JsonObject = withContext(Dispatchers.IO) {
+        fun form() = okhttp3.MultipartBody.Builder().setType(okhttp3.MultipartBody.FORM)
+            .addFormDataPart("file", filename, bytes.toRequestBody(mime.toMediaType())).build()
+        val before = session
+        var (status, obj) = rawCall("POST", path, null, before?.accessToken, emptyMap(), form())
+        if (status == 401 && before != null && refresh(before)) {
+            val r = rawCall("POST", path, null, session?.accessToken, emptyMap(), form())
+            status = r.first; obj = r.second
+        }
+        if (status !in 200..299) throw failure(status, obj)
+        obj
+    }
+
+    /** Fetches a private file (such as a profile photo) as bytes, signed in. */
+    suspend fun download(path: String): ByteArray = withContext(Dispatchers.IO) {
+        fun fetch(token: String?): Pair<Int, ByteArray> {
+            val req = Request.Builder().url(baseUrl + path).apply { token?.let { header("Authorization", "Bearer $it") } }.build()
+            try { http.newCall(req).execute().use { return it.code to (it.body?.bytes() ?: ByteArray(0)) } }
+            catch (e: IOException) { throw ApiException(0, null, "No connection. Check your network and try again.") }
+        }
+        val before = session
+        var (status, bytes) = fetch(before?.accessToken)
+        if (status == 401 && before != null && refresh(before)) { val r = fetch(session?.accessToken); status = r.first; bytes = r.second }
+        if (status !in 200..299) throw ApiException(status, null, "Could not load the file.")
+        bytes
+    }
 
     /** Calls the API. With [auth], a 401 triggers one token refresh and one retry. */
     suspend fun call(method: String, path: String, body: String? = null, auth: Boolean = false, headers: Map<String, String> = emptyMap()): JsonObject =
@@ -106,8 +139,9 @@ class ApiClient(context: Context, private val baseUrl: String, private val appVe
     }
 
     // ---- sign-in, shared by both apps
-    suspend fun requestOtp(phone: String, voice: Boolean) {
-        call("POST", "/auth/otp/request", buildJsonObject { put("phone", phone); put("channel", if (voice) "voice" else "sms") }.toString())
+    suspend fun requestOtp(phone: String, voice: Boolean): OtpInfo {
+        val o = call("POST", "/auth/otp/request", buildJsonObject { put("phone", phone); put("channel", if (voice) "voice" else "sms") }.toString())
+        return OtpInfo(o["codeLength"]?.jsonPrimitive?.intOrNull ?: 6, o["testMode"]?.jsonPrimitive?.booleanOrNull == true)
     }
 
     /** Signs in with the code. For a number with no account the server answers 422 with a registration ticket. */

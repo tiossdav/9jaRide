@@ -19,6 +19,9 @@ import androidx.compose.ui.unit.dp
 /** The line icons from the design, as the same 24x24 SVG paths, so they match it exactly. */
 object Ic {
     val Pin = listOf("M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z", "M9.5 10a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0")
+    /** The "find my location" crosshair. */
+    val Locate = listOf("M8 12a4 4 0 1 0 8 0a4 4 0 1 0-8 0", "M12 2v4", "M12 18v4", "M2 12h4", "M18 12h4")
+    val Edit = listOf("M4 20h4L19 9l-4-4L4 16z", "M13.5 6.5l4 4")
     val Home = listOf("M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z")
     val Check = listOf("M5 12.5l4.5 4.5L19 7")
     val Star = listOf("M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.2l-5.5 3 1-6.2L3 9.6l6.2-.9z")

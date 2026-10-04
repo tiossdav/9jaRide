@@ -31,6 +31,15 @@ export const ACCESS_TOKEN_SECONDS = Number(process.env.ACCESS_TOKEN_SECONDS ?? 9
 export const USER_REFRESH_SECONDS = Number(process.env.USER_REFRESH_SECONDS ?? 30 * 86400);
 export const STAFF_REFRESH_SECONDS = Number(process.env.STAFF_REFRESH_SECONDS ?? 12 * 3600);
 export const OTP_TTL_SECONDS = 300;
+
+/**
+ * TEMPORARY testing switch. While no SMS/voice provider is connected, OTP_MODE is "test" (the default): every code is
+ * 0000 and nothing is sent. Once a provider is wired into OTP_SENDER, set OTP_MODE=live and codes become random six
+ * digits again; the sign-in and sign-up flow is the same either way. Read at call time so it can be flipped in tests.
+ */
+export const otpTestMode = () => (process.env.OTP_MODE ?? 'test') !== 'live';
+export const TEST_OTP_CODE = '0000';
+export const otpCodeLength = () => (otpTestMode() ? TEST_OTP_CODE.length : 6);
 export const OTP_MAX_ATTEMPTS = 5;
 
 export interface TokenPair {

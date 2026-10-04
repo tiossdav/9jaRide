@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { newKey, post } from './api';
 import { go, useConfirm } from './bits';
-import { Modal } from './ui';
+import { Modal, moneyInput, toKobo } from './ui';
 
 export type AdjustKind = 'refund' | 'credit' | 'debit' | 'topup_correction';
 
@@ -27,7 +27,7 @@ export function AdjustModal({ userId, rideId, kind: start = 'credit', who, onClo
   const [reason, setReason] = useState('');
   const [key] = useState(newKey);
   const confirm = useConfirm();
-  const kobo = Math.round(Number(naira) * 100);
+  const kobo = toKobo(naira);
   const valid = /^[0-9a-f-]{36}$/i.test(user) && kobo > 0 && reason.trim().length >= 3 && (kind !== 'refund' || /^[0-9a-f-]{36}$/i.test(ride)) && (kind !== 'topup_correction' || ref.length >= 6);
 
   return (
@@ -39,7 +39,7 @@ export function AdjustModal({ userId, rideId, kind: start = 'credit', who, onClo
       {!userId && <div className="field"><label htmlFor="uid">Person&apos;s ID</label><input id="uid" className="input" placeholder="Copy it from their profile address" value={user} onChange={(e) => setUser(e.target.value.trim())} /></div>}
       {kind === 'refund' && !rideId && <div className="field"><label htmlFor="rid">Trip ID</label><input id="rid" className="input" value={ride} onChange={(e) => setRide(e.target.value.trim())} /></div>}
       {kind === 'topup_correction' && <div className="field"><label htmlFor="ref">Paystack reference</label><input id="ref" className="input" value={ref} onChange={(e) => setRef(e.target.value.trim())} /></div>}
-      <div className="field"><label htmlFor="amt">Amount (₦)</label><input id="amt" className="input" inputMode="decimal" placeholder="0.00" value={naira} onChange={(e) => setNaira(e.target.value.replace(/[^0-9.]/g, ''))} /></div>
+      <div className="field"><label htmlFor="amt">Amount (₦)</label><input id="amt" className="input" inputMode="decimal" placeholder="0.00" value={naira} onChange={(e) => setNaira(moneyInput(e.target.value))} /></div>
       <div className="field"><label htmlFor="why">Reason</label><textarea id="why" className="input" placeholder="What happened and why this is right" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} /></div>
       <div className="note">A second person must approve this before any money moves.</div>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>

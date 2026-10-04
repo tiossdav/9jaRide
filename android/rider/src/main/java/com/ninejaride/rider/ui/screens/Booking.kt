@@ -85,11 +85,14 @@ private fun categoryIcon(c: String) = if (c == "package") Ic.Box else Ic.Car
 @Composable
 fun HomeTab(vm: RiderViewModel) {
     val here = vm.location.point
-    Box(Modifier.fillMaxSize()) {
+    // The map takes the top 60% of the screen; the booking card gets the rest.
+    Column(Modifier.fillMaxSize().background(C.Bg)) {
+      Box(Modifier.weight(0.6f).fillMaxWidth()) {
         MapPanel(
             Modifier.fillMaxSize(),
             markers = here?.let { listOf(MapMarker(it, MarkerKind.Pickup)) } ?: emptyList(),
             center = here ?: IBADAN,
+            zoom = 15.5 + (vm.focusTick % 2) * 0.0001, // a tiny change is what makes the map move back after the rider panned away
             interactive = true,
         )
         Row(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -97,7 +100,14 @@ fun HomeTab(vm: RiderViewModel) {
                 Txt("Hi, " + (vm.profile?.name?.substringBefore(' ')?.ifBlank { null } ?: "there"), 13.5f, 700)
             }
         }
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // the usual "find me" button, top right of the map
+        Box(
+            Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp).size(46.dp).clip(CircleShape).background(C.Surface)
+                .border(1.dp, C.Border, CircleShape).tap(vm::locateMe, "Use my location"),
+            contentAlignment = Alignment.Center,
+        ) { Icon24(Ic.Locate, C.GreenAccent, 24.dp) }
+      }
+      Column(Modifier.weight(0.4f).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Card(padding = 14.dp) {
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Raised).tap({ vm.prepareBooking(); vm.push(Dest.WhereTo) }, "Where to").padding(horizontal = 14.dp, vertical = 14.dp),
@@ -162,7 +172,7 @@ fun WhereToScreen(vm: RiderViewModel) {
             AddressInput("Pickup", vm.pickupText, vm.activeField == 0, "Pickup address", C.Green, { vm.onFieldText(0, it) }, null)
             AddressInput("Drop-off", vm.dropoffText, vm.activeField == 1, "Where to?", C.Orange, { vm.onFieldText(1, it) }, dropFocus)
         }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 36.dp)) {
             if (vm.activeField == 0 && vm.location.point != null) {
                 PlaceRow("Use my current location", null) {
                     val p = vm.location.point!!
@@ -216,7 +226,7 @@ fun SelectRideScreen(vm: RiderViewModel) {
             Box(Modifier.statusBarsPadding().padding(16.dp)) { CircleIconButton(Ic.Back, "Back", vm::pop) }
         }
         Column(Modifier.weight(0.58f).fillMaxWidth().clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)).background(C.Surface).navigationBarsPadding().padding(20.dp)) {
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Txt("Choose a ride", 18f, 800, modifier = Modifier.weight(1f))
                     vm.route?.let { Txt("${"%.1f".format(it.distanceM / 1000.0)} km  -  ${(it.durationS / 60).coerceAtLeast(1)} min", 12.5f, 600, C.Muted) }
@@ -319,7 +329,7 @@ fun WalletHoldScreen(vm: RiderViewModel) {
 fun ScheduleFormScreen(vm: RiderViewModel) {
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         Box(Modifier.statusBarsPadding()) { ScreenHeader("Schedule a ride", "Book ahead, once or every week", onBack = vm::pop) }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp)).background(C.Raised).padding(4.dp)) {
                 listOf("One time" to false, "Weekly" to true).forEach { (label, weekly) ->
                     val on = vm.schedWeekly == weekly
@@ -419,7 +429,7 @@ fun ScheduleConfirmScreen(vm: RiderViewModel) {
     val q = vm.quotes.value[vm.selectedCategory]
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         Box(Modifier.statusBarsPadding()) { ScreenHeader("Confirm schedule", onBack = vm::pop) }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Card { com.ninejaride.core.ui.components.RouteBlock(vm.pickupText, vm.dropoffText) }
             Card {
                 com.ninejaride.core.ui.components.MoneyLine("When", if (vm.schedWeekly) "Every " + vm.schedDays.sortedBy { it.value }.joinToString(", ") { it.getDisplayName(TextStyle.SHORT, Locale.ENGLISH) } else (vm.schedDate?.format(dayFmt) ?: ""))

@@ -71,6 +71,9 @@ fun App(vm: DriverViewModel = viewModel()) {
         when (val d = vm.current) {
             Dest.Splash -> SplashScreen()
             Dest.SignIn -> SignInScreen(vm)
+            Dest.SignUp -> com.ninejaride.driver.ui.screens.SignUpScreen(vm)
+            Dest.Apply -> com.ninejaride.driver.ui.screens.ApplyScreen(vm)
+            Dest.ApplicationStatus -> com.ninejaride.driver.ui.screens.ApplicationStatusScreen(vm)
             Dest.Otp -> OtpScreen(vm)
             Dest.LocationPermission -> LocationPermissionScreen(vm)
             Dest.UpdateRequired -> UpdateRequiredScreen(vm)

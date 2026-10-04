@@ -3,22 +3,57 @@ import Redis from 'ioredis';
 import { Pool } from 'pg';
 import { suspendedKey } from '../auth/auth.guard';
 import { ACCESS_TOKEN_SECONDS } from '../auth/auth.types';
+import { normalisePhone } from '../auth/phone';
 import { TokensService } from '../auth/tokens.service';
 import { PG_POOL, REDIS } from '../common/infra.module';
 import { keys } from '../dispatch/dispatch.types';
+import { FilesService } from '../files/files.service';
+import { PlanTerms, VehiclePlansService } from '../vehicle-plans/vehicle-plans.service';
 
-export const DOCUMENT_KINDS = ['drivers_licence', 'vehicle_papers', 'insurance', 'road_worthiness', 'selfie'] as const;
+export const DOCUMENT_KINDS = ['drivers_licence', 'nin', 'lassdri', 'vehicle_papers', 'insurance', 'inspection_certificate', 'vehicle_photo', 'road_worthiness', 'selfie', 'owner_consent'] as const;
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
-/** Must be present, and not expired, to approve. Placeholder list until operations decides. */
-export const REQUIRED_DOCUMENTS: DocumentKind[] = (process.env.REQUIRED_DOCUMENTS?.split(',') as DocumentKind[]) ?? ['drivers_licence', 'vehicle_papers', 'insurance'];
-const NEEDS_EXPIRY: DocumentKind[] = ['drivers_licence', 'insurance', 'road_worthiness'];
+/** A driver can ask for these two. Staff may confirm a different one after seeing the vehicle. */
+export const REQUESTABLE_CATEGORIES = ['regular', 'comfort'];
+
+/**
+ * What must be on file before approval, by arrangement. A platform vehicle's papers and insurance are the platform's, so
+ * the driver only proves who they are; a car owned by someone else also needs that owner's permission.
+ */
+export function requiredDocuments(arrangement: string): DocumentKind[] {
+  const person: DocumentKind[] = ['drivers_licence', 'nin', 'lassdri'];
+  if (arrangement === 'platform_plan') return person;
+  const car: DocumentKind[] = [...person, 'vehicle_photo', 'insurance', 'inspection_certificate'];
+  return arrangement === 'third_party' ? [...car, 'owner_consent'] : car;
+}
+const NEEDS_EXPIRY: DocumentKind[] = ['drivers_licence', 'insurance', 'inspection_certificate', 'road_worthiness'];
+
+export interface Personal {
+  email: string;
+  contactPreference: 'whatsapp' | 'email';
+  dateOfBirth?: string;
+  nin: string;
+  lassdri: string;
+  address: string;
+  nextOfKin: { name: string; phone: string; relationship?: string; address: string };
+}
 
 export interface ApplicationInput {
-  vehicle: { category: string; make: string; colour: string; plate: string };
-  documents: { kind: DocumentKind; fileRef: string; expiresOn?: string }[];
+  /** A code from vehicle_arrangements; "own" when the app does not say. */
+  arrangement?: string;
+  /** Make, colour and plate are only asked for when the arrangement needs them; the category is the one the driver wants. */
+  vehicle: { category: string; make?: string; colour?: string; plate?: string };
+  owner?: { name: string; phone: string };
+  personal: Personal;
+  documents: { kind: DocumentKind; number?: string; fileId: string; expiresOn?: string }[];
 }
 
 const normalisePlate = (p: string) => p.toUpperCase().replace(/[\s-]/g, '');
+
+/** What staff supply when approving a platform vehicle: which car the driver gets and on what terms. */
+export interface Assignment {
+  vehicle: { category: string; make: string; colour: string; plate: string };
+  plan: PlanTerms;
+}
 
 @Injectable()
 export class DriverApplicationsService {
@@ -26,20 +61,61 @@ export class DriverApplicationsService {
     @Inject(PG_POOL) private readonly pool: Pool,
     @Inject(REDIS) private readonly redis: Redis,
     private readonly tokens: TokensService,
+    private readonly plans: VehiclePlansService,
+    private readonly files: FilesService,
   ) {}
+
+  /** The ways a driver can come by a car, for the sign-up screen. */
+  async arrangements() {
+    const { rows } = await this.pool.query(`SELECT code, name, description, needs_vehicle_details, needs_owner_details, needs_plan FROM vehicle_arrangements WHERE active ORDER BY sort_order`);
+    return rows.map((r) => ({ code: r.code, name: r.name, description: r.description, asksForVehicle: r.needs_vehicle_details, asksForOwner: r.needs_owner_details, hasPaymentPlan: r.needs_plan }));
+  }
 
   // ------------------------------------------------------------------ driver side
 
   /** Submit, or resubmit after staff asked for changes. A driver can have one open application at a time. */
   async submit(driverId: string, input: ApplicationInput): Promise<{ id: string }> {
-    const plate = normalisePlate(input.vehicle.plate);
-    if (!/^[A-Z0-9]{5,10}$/.test(plate)) throw new BadRequestException('enter the number plate letters and digits only');
+    const arr = (await this.pool.query(`SELECT * FROM vehicle_arrangements WHERE code = $1 AND active`, [input.arrangement ?? 'own'])).rows[0];
+    if (!arr) throw new BadRequestException('choose how you will get your vehicle');
+    if (!REQUESTABLE_CATEGORIES.includes(input.vehicle.category)) throw new BadRequestException('choose Regular or Comfort');
+
+    let plate: string | null = null;
+    let make: string | null = null;
+    let colour: string | null = null;
+    if (arr.needs_vehicle_details) {
+      plate = normalisePlate(input.vehicle.plate ?? '');
+      make = input.vehicle.make?.trim() ?? '';
+      colour = input.vehicle.colour?.trim() ?? '';
+      if (!/^[A-Z0-9]{5,10}$/.test(plate)) throw new BadRequestException('enter the number plate letters and digits only');
+      if (make.length < 2 || colour.length < 2) throw new BadRequestException('enter the model and colour of the vehicle');
+    }
+    let ownerName: string | null = null;
+    let ownerPhone: string | null = null;
+    if (arr.needs_owner_details) {
+      ownerName = input.owner?.name?.trim() ?? '';
+      ownerPhone = normalisePhone(input.owner?.phone ?? '');
+      if (ownerName.length < 2) throw new BadRequestException("enter the owner's name");
+      if (!ownerPhone) throw new BadRequestException("enter the owner's phone number");
+    }
+
+    const p = input.personal;
+    const email = p.email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) throw new BadRequestException('enter a valid email address');
+    if (!/^\d{11}$/.test(p.nin.trim())) throw new BadRequestException('the NIN is 11 digits');
+    if (p.lassdri.trim().length < 4) throw new BadRequestException('enter your LASSDRI number');
+    if (p.address.trim().length < 5) throw new BadRequestException('enter your home address');
+    const kinPhone = normalisePhone(p.nextOfKin.phone);
+    if (p.nextOfKin.name.trim().length < 2 || !kinPhone || p.nextOfKin.address.trim().length < 5) throw new BadRequestException("enter your next of kin's name, phone number and address");
+    if (p.dateOfBirth && new Date(p.dateOfBirth) > new Date(Date.now() - 18 * 365.25 * 86_400_000)) throw new BadRequestException('drivers must be at least 18');
+
     const kinds = new Set<string>();
     for (const d of input.documents) {
       if (kinds.has(d.kind)) throw new BadRequestException(`document ${d.kind} was sent twice`);
       kinds.add(d.kind);
       if (NEEDS_EXPIRY.includes(d.kind) && !d.expiresOn) throw new BadRequestException(`${d.kind} needs an expiry date`);
+      if (d.kind === 'drivers_licence' && !d.number?.trim()) throw new BadRequestException('enter the driver licence number');
     }
+    if (!(await this.files.ownedBy(driverId, input.documents.map((d) => d.fileId)))) throw new BadRequestException('one of the uploaded files is not yours or does not exist');
 
     const client = await this.pool.connect();
     try {
@@ -51,28 +127,37 @@ export class DriverApplicationsService {
         `SELECT id, status FROM driver_applications WHERE driver_id = $1 AND status IN ('SUBMITTED', 'CHANGES_REQUESTED')`,
         [driverId],
       );
+      const cols = [
+        input.vehicle.category, make, colour, plate, arr.code, ownerName, ownerPhone,
+        email, p.contactPreference, p.dateOfBirth ?? null, p.nin.trim(), p.lassdri.trim().toUpperCase(), p.address.trim(),
+        p.nextOfKin.name.trim(), kinPhone, p.nextOfKin.relationship?.trim() || null, p.nextOfKin.address.trim(),
+      ];
       let id: string;
       if (open.rows[0]) {
         if (open.rows[0].status === 'SUBMITTED') throw new ConflictException({ code: 'application_pending', message: 'your application is already being reviewed' });
         id = open.rows[0].id;
         await client.query(
-          `UPDATE driver_applications SET status = 'SUBMITTED', vehicle_category = $2, vehicle_make = $3, vehicle_colour = $4,
-                  vehicle_plate = $5, submitted_at = now(), updated_at = now() WHERE id = $1`,
-          [id, input.vehicle.category, input.vehicle.make.trim(), input.vehicle.colour.trim(), plate],
+          `UPDATE driver_applications SET status = 'SUBMITTED', vehicle_category = $2, vehicle_make = $3, vehicle_colour = $4, vehicle_plate = $5, arrangement = $6,
+                  owner_name = $7, owner_phone = $8, email = $9, contact_preference = $10, date_of_birth = $11, nin = $12, lassdri_number = $13, address = $14,
+                  next_of_kin_name = $15, next_of_kin_phone = $16, next_of_kin_relationship = $17, next_of_kin_address = $18, submitted_at = now(), updated_at = now()
+            WHERE id = $1`,
+          [id, ...cols],
         );
         await client.query(`DELETE FROM application_documents WHERE application_id = $1`, [id]);
       } else {
         const created = await client.query(
-          `INSERT INTO driver_applications (driver_id, vehicle_category, vehicle_make, vehicle_colour, vehicle_plate)
-           VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-          [driverId, input.vehicle.category, input.vehicle.make.trim(), input.vehicle.colour.trim(), plate],
+          `INSERT INTO driver_applications (driver_id, vehicle_category, vehicle_make, vehicle_colour, vehicle_plate, arrangement, owner_name, owner_phone,
+                  email, contact_preference, date_of_birth, nin, lassdri_number, address, next_of_kin_name, next_of_kin_phone, next_of_kin_relationship, next_of_kin_address)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id`,
+          [driverId, ...cols],
         );
         id = created.rows[0].id;
       }
       for (const d of input.documents) {
-        await client.query(`INSERT INTO application_documents (application_id, kind, file_ref, expires_on) VALUES ($1, $2, $3, $4)`, [
-          id, d.kind, d.fileRef, d.expiresOn ?? null,
-        ]);
+        await client.query(
+          `INSERT INTO application_documents (application_id, kind, file_ref, number, file_id, expires_on) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [id, d.kind, `file:${d.fileId}`, d.number?.trim() || null, d.fileId, d.expiresOn ?? null],
+        );
       }
       await client.query('COMMIT');
       return { id };
@@ -84,14 +169,15 @@ export class DriverApplicationsService {
     }
   }
 
-  /** The driver's most recent application and what staff said about it. */
+  /** The driver's most recent application, everything they entered, and what staff said about it. */
   async mine(driverId: string) {
-    const { rows } = await this.pool.query(
-      `SELECT id, status, vehicle_category, vehicle_make, vehicle_colour, vehicle_plate, review_note, submitted_at, reviewed_at
-         FROM driver_applications WHERE driver_id = $1 ORDER BY created_at DESC LIMIT 1`,
-      [driverId],
-    );
-    return rows[0] ? this.presentSummary(rows[0]) : null;
+    const { rows } = await this.pool.query(`SELECT * FROM driver_applications WHERE driver_id = $1 ORDER BY created_at DESC LIMIT 1`, [driverId]);
+    if (!rows[0]) return null;
+    const docs = await this.pool.query(`SELECT kind, number, file_id, expires_on FROM application_documents WHERE application_id = $1`, [rows[0].id]);
+    return {
+      ...this.presentSummary(rows[0]),
+      documents: docs.rows.map((d) => ({ kind: d.kind, number: d.number, fileId: d.file_id, expiresOn: d.expires_on })),
+    };
   }
 
   // ------------------------------------------------------------------ staff side
@@ -101,7 +187,14 @@ export class DriverApplicationsService {
       id: r.id,
       driverId: r.driver_id,
       status: r.status,
+      arrangement: r.arrangement,
+      owner: r.owner_name ? { name: r.owner_name, phone: r.owner_phone } : null,
       vehicle: { category: r.vehicle_category, make: r.vehicle_make, colour: r.vehicle_colour, plate: r.vehicle_plate },
+      approvedCategory: r.approved_category,
+      personal: {
+        email: r.email, contactPreference: r.contact_preference, dateOfBirth: r.date_of_birth, nin: r.nin, lassdri: r.lassdri_number, address: r.address,
+        nextOfKin: { name: r.next_of_kin_name, phone: r.next_of_kin_phone, relationship: r.next_of_kin_relationship, address: r.next_of_kin_address },
+      },
       reviewNote: r.review_note,
       submittedAt: r.submitted_at,
       reviewedAt: r.reviewed_at,
@@ -124,7 +217,7 @@ export class DriverApplicationsService {
     );
     if (!rows[0]) throw new NotFoundException('application not found');
     const docs = await this.pool.query(
-      `SELECT kind, file_ref, expires_on, expires_on < current_date AS expired FROM application_documents WHERE application_id = $1 ORDER BY kind`,
+      `SELECT kind, file_ref, number, file_id, expires_on, expires_on < current_date AS expired FROM application_documents WHERE application_id = $1 ORDER BY kind`,
       [id],
     );
     return {
@@ -132,16 +225,20 @@ export class DriverApplicationsService {
       driverName: rows[0].full_name,
       phone: rows[0].phone,
       accountStatus: rows[0].user_status,
-      documents: docs.rows.map((d) => ({ kind: d.kind, fileRef: d.file_ref, expiresOn: d.expires_on, expired: d.expired })),
-      missingDocuments: REQUIRED_DOCUMENTS.filter((k) => !docs.rows.some((d) => d.kind === k)),
+      documents: docs.rows.map((d) => ({ kind: d.kind, fileRef: d.file_ref, number: d.number, fileId: d.file_id, expiresOn: d.expires_on, expired: d.expired })),
+      missingDocuments: requiredDocuments(rows[0].arrangement).filter((k) => !docs.rows.some((d) => d.kind === k)),
     };
   }
 
   /**
-   * Approve: every required document must be present and unexpired. This is what creates the driver's vehicle, so a
-   * driver cannot reach dispatch without passing review. A plate already on another active vehicle blocks approval.
+   * Approve: every required document must be present and unexpired, and the reviewer confirms the vehicle category after
+   * inspecting it (the driver's request is the default). This is what creates the driver's vehicle, so a driver cannot
+   * reach dispatch without passing review. A plate already on another active vehicle blocks approval.
+   * For a platform vehicle the approver also says which car the driver gets and the payment plan, and both are created
+   * in the same step, so a driver is never approved onto a car with no agreement behind it.
    */
-  async approve(id: string, staffId: string): Promise<void> {
+  async approve(id: string, staffId: string, opts: { assignment?: Assignment; category?: string } = {}): Promise<void> {
+    const { assignment } = opts;
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -153,27 +250,40 @@ export class DriverApplicationsService {
         await client.query(`SELECT kind, expires_on < current_date AS expired FROM application_documents WHERE application_id = $1`, [id])
       ).rows;
       const problems = [
-        ...REQUIRED_DOCUMENTS.filter((k) => !docs.some((d) => d.kind === k)).map((k) => `${k} is missing`),
+        ...requiredDocuments(app.arrangement).filter((k) => !docs.some((d) => d.kind === k)).map((k) => `${k} is missing`),
         ...docs.filter((d) => d.expired).map((d) => `${d.kind} has expired`),
       ];
       if (problems.length) throw new ConflictException({ code: 'documents_not_ready', message: problems.join('; ') });
 
-      const cat = await client.query(`SELECT active FROM asset_types WHERE code = $1`, [app.vehicle_category]);
+      const arr = (await client.query(`SELECT needs_plan FROM vehicle_arrangements WHERE code = $1`, [app.arrangement])).rows[0];
+      if (arr.needs_plan && !assignment) throw new BadRequestException('choose the vehicle to give this driver and set up the payment plan');
+      // the car: what the driver declared, or what staff assign for a platform vehicle
+      const car = arr.needs_plan
+        ? { make: assignment!.vehicle.make.trim(), colour: assignment!.vehicle.colour.trim(), plate: normalisePlate(assignment!.vehicle.plate) }
+        : { make: app.vehicle_make, colour: app.vehicle_colour, plate: app.vehicle_plate };
+      const category: string = (arr.needs_plan ? assignment!.vehicle.category : opts.category) ?? app.vehicle_category;
+      if (!/^[A-Z0-9]{5,10}$/.test(car.plate)) throw new BadRequestException('enter the number plate letters and digits only');
+
+      const cat = await client.query(`SELECT active FROM asset_types WHERE code = $1`, [category]);
       if (!cat.rows[0]?.active) throw new ConflictException({ code: 'category_off', message: 'that vehicle category is switched off' });
+      // approve first (the database refuses unless the category is confirmed), then create the vehicle from it
+      await client.query(
+        `UPDATE driver_applications SET status = 'APPROVED', approved_category = $2, category_confirmed_by = $3, category_confirmed_at = now(),
+                reviewed_by = $3, reviewed_at = now(), updated_at = now() WHERE id = $1`,
+        [id, category, staffId],
+      );
       await client.query(`UPDATE vehicles SET active = false WHERE driver_id = $1 AND active`, [app.driver_id]);
+      let vehicleId: string;
       try {
-        await client.query(
-          `INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, $2, $3, $4, $5)`,
-          [app.driver_id, app.vehicle_category, app.vehicle_make, app.vehicle_colour, app.vehicle_plate],
-        );
+        vehicleId = (await client.query(
+          `INSERT INTO vehicles (driver_id, category, make, colour, plate, arrangement, owner_name, owner_phone, application_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+          [app.driver_id, category, car.make, car.colour, car.plate, app.arrangement, app.owner_name, app.owner_phone, id],
+        )).rows[0].id;
       } catch (e: any) {
         if (e?.code === '23505') throw new ConflictException({ code: 'plate_in_use', message: 'that number plate is registered to another driver' });
         throw e;
       }
-      await client.query(
-        `UPDATE driver_applications SET status = 'APPROVED', reviewed_by = $2, reviewed_at = now(), updated_at = now() WHERE id = $1`,
-        [id, staffId],
-      );
+      if (arr.needs_plan) await this.plans.createInTx(client, app.driver_id, vehicleId, assignment!.plan, staffId);
       await client.query('COMMIT');
       await this.redis.del(`driver:${app.driver_id}:category`); // pick up the new vehicle on the next ping
     } catch (e) {
