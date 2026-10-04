@@ -7,7 +7,7 @@ import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
 import { AuthService } from '../auth/auth.service';
 import { OTP_SENDER } from '../auth/auth.types';
-import { PG_POOL } from '../common/infra.module';
+import { PG_POOL, REDIS } from '../common/infra.module';
 import { LedgerService } from '../ledger/ledger.service';
 import { PaystackClient } from '../payments/paystack.client';
 import { FakeProvider } from '../payments/testing/fake-provider.testing';
@@ -30,6 +30,8 @@ export async function bootApp(opts: { otpMode?: 'test' | 'live' } = {}) {
   await app.listen(0);
   const baseUrl = (await app.getUrl()).replace('[::1]', 'localhost');
 
+  // Each spec starts with an empty cache, so drivers left online by an earlier spec cannot be matched to this spec's rides.
+  await app.get<import('ioredis').default>(REDIS).flushdb();
   const pool: Pool = app.get(PG_POOL);
   const ledger = app.get(LedgerService);
   const authService = app.get(AuthService);
