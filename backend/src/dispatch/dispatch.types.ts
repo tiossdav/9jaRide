@@ -8,7 +8,7 @@ export const SEARCH_RADII_KM = (process.env.SEARCH_RADII_KM ?? '3,5,8').split(',
 // Redis key layout. Redis holds only live positions, locks and short-lived offers (spec: strict Redis/Postgres split).
 export const keys = {
   geo: (category: Category) => `drivers:geo:${category}`,
-  driverState: (driverId: string) => `driver:${driverId}:state`, // hash, expires 20 s after the last ping
+  driverState: (driverId: string) => `driver:${driverId}:state`, // hash, expires DRIVER_STATE_TTL_SECONDS after the last ping
   driverOffer: (driverId: string) => `driver:${driverId}:offer`, // one open offer per driver
   // The ride a driver is on. Unlike driverState it does not expire after 20 s, so a driver who loses signal on a
   // trip is not put back into matching when their pings resume. A long expiry is only a safety net.
@@ -19,7 +19,8 @@ export const keys = {
   sweeperLock: 'lock:dispatch:sweeper',
 };
 
-export const DRIVER_STATE_TTL_SECONDS = 20;
+/** How long a driver counts as online after their last location report. The app reports every 10 s, so this survives a missed report or a slow network. */
+export const DRIVER_STATE_TTL_SECONDS = Number(process.env.DRIVER_STATE_TTL_SECONDS ?? 45);
 
 export interface DriverPing {
   driverId: string;

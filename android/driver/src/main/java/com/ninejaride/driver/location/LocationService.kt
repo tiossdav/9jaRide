@@ -213,7 +213,7 @@ class LocationService : Service() {
         private const val CHANNEL = "online"
         private const val NOTIFICATION_ID = 41
         private const val ACTION_STOP = "com.ninejaride.driver.STOP_LOCATION"
-        private const val UPLOAD_EVERY_MS = 20_000L
+        private const val UPLOAD_EVERY_MS = 10_000L
         private const val BATCH = 100
         private const val MAX_ACCURACY_M = 100f
         private const val PREFS = "driver_state"

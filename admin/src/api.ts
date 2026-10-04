@@ -94,6 +94,17 @@ export async function openFile(path: string): Promise<void> {
   }
 }
 
+/** Asks a sleeping hosted server to start, and says when it answers. A free host can take a minute or two. */
+export async function wakeServer(): Promise<boolean> {
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 110_000);
+    const res = await fetch(BASE + '/health', { signal: ctl.signal });
+    clearTimeout(timer);
+    return res.ok;
+  } catch { return false; }
+}
+
 export const newKey = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
 
 export async function login(email: string, password: string): Promise<string> {

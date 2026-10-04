@@ -227,6 +227,8 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun boot() {
+        // a hosted server that went to sleep starts now, while the splash screen is showing
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { runCatching { client.wake() } }
         viewModelScope.launch {
             delay(1200)
             if (api.session == null) { reset(Dest.Welcome); return@launch }

@@ -109,11 +109,31 @@ class ApiClient(context: Context, private val baseUrl: String, private val appVe
         bytes
     }
 
+    private var lastWake = 0L
+
+    /**
+     * A hosted server on a free plan goes to sleep when idle and takes up to a minute or two to start again. This asks it
+     * to start and waits for it to answer. True when it did.
+     */
+    fun wake(): Boolean {
+        val patient = http.newBuilder().connectTimeout(40, TimeUnit.SECONDS).readTimeout(100, TimeUnit.SECONDS).build()
+        return try { patient.newCall(Request.Builder().url("$baseUrl/health").build()).execute().use { it.isSuccessful } } catch (e: IOException) { false }
+    }
+
+    /** One request; if the phone cannot reach the server it wakes it (at most once every two minutes) and tries again. */
+    private fun send(method: String, path: String, body: String?, token: String?, headers: Map<String, String>): Pair<Int, JsonObject> =
+        try { rawCall(method, path, body, token, headers) } catch (e: ApiException) {
+            if (!e.isNetwork || System.currentTimeMillis() - lastWake < 120_000L) throw e
+            lastWake = System.currentTimeMillis()
+            if (!wake()) throw ApiException(0, null, "Cannot reach the server. Check your internet connection and try again.")
+            rawCall(method, path, body, token, headers)
+        }
+
     /** Calls the API. With [auth], a 401 triggers one token refresh and one retry. */
     suspend fun call(method: String, path: String, body: String? = null, auth: Boolean = false, headers: Map<String, String> = emptyMap()): JsonObject =
         withContext(Dispatchers.IO) {
             val before = if (auth) session else null
-            var (status, obj) = rawCall(method, path, body, before?.accessToken, headers)
+            var (status, obj) = send(method, path, body, before?.accessToken, headers)
             if (auth && status == 401 && before != null && refresh(before)) {
                 val r = rawCall(method, path, body, session?.accessToken, headers)
                 status = r.first; obj = r.second

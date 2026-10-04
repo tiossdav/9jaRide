@@ -411,6 +411,8 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ start-up
     fun boot() {
+        // a hosted server that went to sleep starts now, while the splash screen is showing
+        if (!demo) viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { runCatching { api.client.wake() } }
         viewModelScope.launch {
             delay(1200)
             if (!demo) {

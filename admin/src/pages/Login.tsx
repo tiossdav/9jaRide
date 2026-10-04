@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { login } from '../api';
+import { login, wakeServer } from '../api';
 
 export default function Login() {
   const nav = useNavigate();
@@ -8,6 +8,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [wake, setWake] = useState<string | null>(null);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -31,6 +32,10 @@ export default function Login() {
           <div className="field"><label htmlFor="pw">Password</label>
             <input id="pw" className="input" type="password" autoComplete="current-password" placeholder="••••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
           {error && <div className="error" role="alert">{error}</div>}
+          <div className="note" style={{ marginTop: 10 }}>
+            {wake ?? 'Slow or no connection? The server may be asleep. '}
+            <a href="#wake" style={{ color: 'var(--accent)' }} onClick={async (ev) => { ev.preventDefault(); setWake('Waking the server, this can take a minute or two…'); setWake((await wakeServer()) ? 'The server is awake. You can sign in now.' : 'It is still starting. Try again in a minute.'); }}>Wake the server</a>
+          </div>
           <button className="btn lg" disabled={busy || !email || !password}>{busy ? 'Signing in…' : 'Sign in'}</button>
         </form>
       </div>
