@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Test builds only (this file lives in src/debug, so release builds never get it): allow plain HTTP to a backend
+         on the developer's computer over Wi-Fi. The real server must use HTTPS. -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
