@@ -235,13 +235,13 @@ fun PersonalDetailsScreen(vm: DriverViewModel) {
             ScreenHeader("Personal details", "What you gave us when you signed up", vm::pop)
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.size(96.dp).tap({ if (!vm.photoBusy) picker.launch("image/*") }, "Change photo")) {
-                        Avatar(p.name.take(1), 96.dp, 36f, vm.photo)
+                    Box(Modifier.size(76.dp).tap({ if (!vm.photoBusy) picker.launch("image/*") }, "Change photo")) {
+                        Avatar(p.name.take(1), 76.dp, 30f, vm.photo)
                         if (vm.photoBusy) Box(Modifier.matchParentSize().clip(CircleShape).background(Color.Black.copy(alpha = 0.35f)), contentAlignment = Alignment.Center) { Txt("...", 22f, 800, Color.White) }
                         Box(
-                            Modifier.align(Alignment.BottomStart).size(30.dp).clip(CircleShape).background(C.Green).border(2.dp, C.Bg, CircleShape),
+                            Modifier.align(Alignment.BottomEnd).size(26.dp).clip(CircleShape).background(C.OrangeIcon).border(2.dp, C.Bg, CircleShape),
                             contentAlignment = Alignment.Center,
-                        ) { Icon24(Ic.Edit, Color.White, 15.dp) }
+                        ) { Icon24(Ic.Edit, Color.White, 13.dp) }
                     }
                     vm.photoError?.let { Txt(it, 12.5f, 600, C.Red, align = TextAlign.Center) }
                     Txt(p.name, 18f, 800)
