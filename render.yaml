@@ -1,0 +1,75 @@
+# Render blueprint for a hosted TEST copy of 9jaRide: the API, its database and cache, and the admin portal.
+# Steps are in DEPLOY.md. Names become the web addresses (https://<name>.onrender.com); if Render says a name is taken,
+# change it here and in ADMIN_ORIGIN / VITE_API_BASE below.
+
+databases:
+  - name: ninejaride-db
+    databaseName: jaride
+    user: jaride
+    plan: free                    # the free database is deleted after 30 days; pick a paid plan to keep the data
+    postgresMajorVersion: "16"
+
+services:
+  # Redis-compatible cache: live driver positions, ride offers, rate limits
+  - type: keyvalue
+    name: ninejaride-cache
+    plan: free
+    maxmemoryPolicy: noeviction
+    ipAllowList: []               # reachable only from inside Render
+
+  # The API the apps and the admin portal talk to
+  - type: web
+    name: ninejaride-api
+    runtime: node
+    plan: free                    # sleeps after 15 minutes without traffic; the first request then takes about a minute
+    rootDir: backend
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run start:hosted     # migrations, first admin and starting fares if missing, then the server
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ninejaride-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: ninejaride-cache
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: TRUST_PROXY
+        value: "1"
+      - key: FILE_STORAGE          # uploaded documents and photos are kept in the database (no disk needed)
+        value: db
+      # TEMPORARY, for testing only: every sign-in code is 0000. Remove both lines (or set OTP_MODE=live) once an SMS
+      # provider is connected. Anyone who knows the address can sign up while this is on.
+      - key: OTP_MODE
+        value: test
+      - key: OTP_ALLOW_TEST_IN_PRODUCTION
+        value: "true"
+      - key: ADMIN_ORIGIN
+        value: https://ninejaride-admin.onrender.com
+      - key: ADMIN_BOOTSTRAP_EMAIL     # asked for when the blueprint is applied; creates the first admin
+        sync: false
+      - key: ADMIN_BOOTSTRAP_PASSWORD  # at least 12 characters; change it after the first sign-in
+        sync: false
+
+  # The admin portal (static files)
+  - type: web
+    name: ninejaride-admin
+    runtime: static
+    rootDir: admin
+    buildCommand: npm ci --include=dev && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE
+        value: https://ninejaride-api.onrender.com
+    routes:
+      - type: rewrite              # the portal's own pages (/trips, /drivers...) all load index.html
+        source: /*
+        destination: /index.html

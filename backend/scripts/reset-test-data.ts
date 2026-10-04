@@ -3,6 +3,7 @@ import Redis from 'ioredis';
 import { rmSync } from 'fs';
 import { join, resolve } from 'path';
 import { Client } from 'pg';
+import { SYSTEM, STARTING_FARES, insertStartingFares } from './starting-fares';
 
 /**
  * Wipes every person and everything they did (riders, drivers, rides, money, applications, support, promo codes, staff
@@ -17,16 +18,7 @@ import { Client } from 'pg';
 const KEEP_TABLES = new Set([
   'schema_migrations', 'spatial_ref_sys', 'vehicle_arrangements', 'asset_types', 'pricing_versions', 'setting_versions', 'app_config', 'ledger_accounts', 'staff_users',
 ]);
-const SYSTEM = '00000000-0000-0000-0000-000000000001';
-const SYSTEM_APPROVER = '00000000-0000-0000-0000-000000000002';
 const KEEP_CATEGORIES = ['regular', 'comfort', 'package'];
-
-/** Starting fares so a ride can be booked on day one. Change them any time in the portal (Trip Fees); these are not final prices. */
-const STARTING_FARES = [
-  { category: 'regular', base: 120000, perKm: 20000, perMinute: 15000 },
-  { category: 'comfort', base: 160000, perKm: 26000, perMinute: 19500 },
-  { category: 'package', base: 100000, perKm: 18000, perMinute: 12000 },
-];
 
 async function main() {
   if (process.env.NODE_ENV === 'production') throw new Error('Refusing to wipe data when NODE_ENV=production.');
@@ -62,13 +54,7 @@ async function main() {
     await db.query(`DELETE FROM asset_types WHERE code <> ALL($1::text[])`, [KEEP_CATEGORIES]);
     await db.query(`UPDATE asset_types SET active = true WHERE code = ANY($1::text[])`, [KEEP_CATEGORIES]);
     await db.query(`DELETE FROM setting_versions WHERE created_by <> $1`, [SYSTEM]);
-    for (const f of STARTING_FARES) {
-      await db.query(
-        `INSERT INTO pricing_versions (category, effective_from, base_kobo, per_km_kobo, per_minute_kobo, waiting_per_minute_kobo, free_waiting_seconds, tax_kobo, created_by, approved_by, approved_at)
-         VALUES ($1, '2026-01-01T00:00:00+01', $2, $3, $4, 5000, 180, 3000, $5, $6, now())`,
-        [f.category, f.base, f.perKm, f.perMinute, SYSTEM, SYSTEM_APPROVER],
-      );
-    }
+    await insertStartingFares(db);
     await db.query('COMMIT');
     console.log(`Cleared ${cleared.length} tables, ${staff.rowCount} staff accounts and ${accounts.rowCount} wallet accounts.`);
     console.log(`Kept staff: ${keepStaff.join(', ')}. Starting fares set for: ${STARTING_FARES.map((f) => f.category).join(', ')}.`);

@@ -15,6 +15,20 @@ export interface FileStorage {
 }
 export const FILE_STORAGE = Symbol('FILE_STORAGE');
 
+/** Keeps files in the database. Chosen with FILE_STORAGE=db, for hosts where a local folder would not survive a restart. */
+@Injectable()
+export class DbFileStorage implements FileStorage {
+  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+  async put(key: string, bytes: Buffer) {
+    await this.pool.query(`INSERT INTO file_blobs (storage_key, bytes) VALUES ($1, $2)`, [key, bytes]);
+  }
+  async get(key: string) {
+    const { rows } = await this.pool.query(`SELECT bytes FROM file_blobs WHERE storage_key = $1`, [key]);
+    if (!rows[0]) throw new NotFoundException('file not found');
+    return rows[0].bytes as Buffer;
+  }
+}
+
 export class LocalFileStorage implements FileStorage {
   private readonly dir = resolve(process.env.UPLOAD_DIR ?? join(process.cwd(), 'uploads'));
   async put(key: string, bytes: Buffer) {
