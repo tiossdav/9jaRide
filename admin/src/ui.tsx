@@ -1,6 +1,7 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { ReactNode, useEffect, useRef, useState } from 'react';
+import { TbRouteAltRight } from 'react-icons/tb';
 import { ApiError, blobUrl, get } from './api';
 
 // ---------------------------------------------------------------- formatting
@@ -92,8 +93,9 @@ const P = {
   bank2: 'M3 10l9-6 9 6M5 10v8M10 10v8M14 10v8M19 10v8M3 20h18',
   steer: 'M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18zM12 10a2 2 0 1 0 0 4a2 2 0 0 0 0-4zM12 14v7M3.5 10.5L10 12M20.5 10.5L14 12',
 };
-export type IconName = keyof typeof P;
-export const Icon = ({ name, size = 17 }: { name: IconName; size?: number }) => (
+export type IconName = keyof typeof P | 'route';
+/** `route` is the Tabler route icon (react-icons); the rest are drawn from the paths above. */
+export const Icon = ({ name, size = 17 }: { name: IconName; size?: number }) => name === 'route' ? <TbRouteAltRight size={size} aria-hidden="true" style={{ flex: 'none' }} /> : (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none' }}><path d={P[name]} /></svg>
 );
 

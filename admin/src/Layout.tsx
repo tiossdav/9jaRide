@@ -29,7 +29,7 @@ const NAV: { group: string; items: Item[] }[] = [
       { label: 'Safety Center', icon: 'shield', to: '/safety', roles: OPS },
       { label: 'Users', icon: 'users', roles: OPS, children: [{ label: 'Drivers', icon: 'steer', to: '/drivers' }, { label: 'Customers', icon: 'users', to: '/customers' }] },
       { label: 'Vehicles', icon: 'car', to: '/vehicles', roles: OPS },
-      { label: 'Trips', icon: 'pin', to: '/trips', roles: OPS },
+      { label: 'Trips', icon: 'route', to: '/trips', roles: OPS },
       { label: 'Support', icon: 'help', to: '/support', roles: OPS },
     ],
   },
