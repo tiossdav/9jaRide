@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { openFile, post } from '../api';
 import { ReasonModal, Toast, go, kv, useAction, useConfirm } from '../bits';
-import { arrangementLabel, dateTime, formatPlate, Loading, Modal, Pill, title, useLoad } from '../ui';
+import { arrangementLabel, AuthImage, dateTime, formatPlate, Loading, Modal, Pill, title, useLoad } from '../ui';
 import { AssignModal } from './AssignVehicle';
 
 interface App {
@@ -39,6 +39,7 @@ export default function OnboardingDetail() {
   const business = a.arrangement === 'business_vehicle'; // a business gives the vehicle later; only the driver is checked now
   const blocked = a.missingDocuments.length > 0 || a.documents.some((d) => d.expired);
   const p = a.personal;
+  const selfie = a.documents.find((d) => d.kind === 'selfie');
 
   return (
     <>
@@ -50,6 +51,7 @@ export default function OnboardingDetail() {
       <div className="grid g2">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="card"><h3>Personal information</h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '8px 0 10px' }}>{selfie?.fileId ? <AuthImage fileId={selfie.fileId} alt={`${a.driverName} photo`} size={84} /> : <span className="chip red">Driver photo missing</span>}<div className="note">Driver photo</div></div>
             {kv('Name', a.driverName)}{kv('Phone number', a.phone)}{kv('Email', p.email ?? '-')}{kv('Contact by', p.contactPreference ? title(p.contactPreference) : '-')}
             {kv('Date of birth', p.dateOfBirth ? p.dateOfBirth.slice(0, 10) : '-')}{kv('NIN', <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>{p.nin ?? '-'}{a.ninCheck.status === 'verified' ? <span className="chip">Verified</span> : a.ninCheck.status === 'failed' ? <span className="chip red">Failed</span> : <span className="chip grey">{a.ninCheck.status === 'pending' ? 'Checking' : 'Not checked'}</span>}{open && a.ninCheck.status !== 'verified' && me?.role === 'admin' && <button className="btn ghost" style={{ height: 26, padding: '0 10px' }} onClick={() => setAsk('nin')}>Accept by hand</button>}</span>)}{a.ninCheck.reason && a.ninCheck.status !== 'verified' && <div className="note" style={{ marginBottom: 6 }}>{a.ninCheck.reason}</div>}{kv('LASSDRI number', p.lassdri ?? '-')}{kv('Address', p.address ?? '-')}</div>
           <div className="card"><h3>Next of kin</h3>
