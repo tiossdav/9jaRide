@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { get, logout } from './api';
+import { get, logout, signedIn } from './api';
+import { NotificationBell, NotificationStack, useNotifications } from './Notifications';
 import { useConfirm } from './bits';
 import { ChangePassword } from './ChangePassword';
 import { Icon, IconName } from './ui';
@@ -77,6 +78,7 @@ function Soon({ icon, label, sub, collapsed }: { icon: IconName; label: string; 
 }
 
 export default function Layout({ toggleTheme }: { toggleTheme: () => void }) {
+  const notices = useNotifications(signedIn());
   const [me, setMe] = useState<Me | null>(null);
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('side') === '1'; } catch { return false; } });
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -86,6 +88,8 @@ export default function Layout({ toggleTheme }: { toggleTheme: () => void }) {
   const nav = useNavigate();
   const loc = useLocation();
   useEffect(() => { get('/me').then(setMe).catch(() => undefined); }, []);
+  const [, newMinute] = useState(0);
+  useEffect(() => { const t = setInterval(() => newMinute((n) => n + 1), 60_000); return () => clearInterval(t); }, []); // the date in the header moves on at midnight
   // Finance staff have no dashboard: send them to the money overview.
   useEffect(() => { if (me?.role === 'finance' && loc.pathname === '/') nav('/finances/wallet', { replace: true }); }, [me, loc.pathname, nav]);
   useEffect(() => { try { localStorage.setItem('side', collapsed ? '1' : '0'); } catch { /* not saved */ } }, [collapsed]);
@@ -142,6 +146,7 @@ export default function Layout({ toggleTheme }: { toggleTheme: () => void }) {
             {trail.map((t, n) => <Fragment key={t}><span className="sep">/</span><span className={n === trail.length - 1 ? 'last' : ''}>{t}</span></Fragment>)}
           </nav>
           <div className="grow" />
+          <NotificationBell api={notices} />
           <button className="icon-btn" onClick={toggleTheme} aria-label="Switch light or dark"><Icon name="sun" /></button>
           <span className="vr" />
           <button className="user" onClick={() => setMenu(!menu)} aria-haspopup="menu" aria-expanded={menu}>
@@ -157,6 +162,7 @@ export default function Layout({ toggleTheme }: { toggleTheme: () => void }) {
           )}
         </header>
         <main className="page"><Outlet context={{ me, today }} /></main>
+        <NotificationStack api={notices} />
       </div>
       {confirm.node}
       {me && (changing || me.mustChangePassword) && me.email && <ChangePassword email={me.email} forced={me.mustChangePassword && !changing} onClose={() => setChanging(false)} onDone={() => { setChanging(false); get('/me').then(setMe); }} />}

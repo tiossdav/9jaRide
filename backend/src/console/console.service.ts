@@ -76,15 +76,21 @@ export class ConsoleService {
       `SELECT count(*)::int AS total,
               count(*) FILTER (WHERE created_at AT TIME ZONE ${TZ} >= date_trunc('month', now() AT TIME ZONE ${TZ}))::int AS this_month,
               count(*) FILTER (WHERE created_at AT TIME ZONE ${TZ} >= date_trunc('day', now() AT TIME ZONE ${TZ}))::int AS today,
-              count(*) FILTER (WHERE created_at AT TIME ZONE ${TZ} >= date_trunc('day', now() AT TIME ZONE ${TZ}) AND status = 'TRIP_COMPLETED')::int AS today_completed,
               count(*) FILTER (WHERE created_at AT TIME ZONE ${TZ} >= date_trunc('day', now() AT TIME ZONE ${TZ}) AND status IN ${CANCELLED})::int AS today_cancelled,
               count(*) FILTER (WHERE status IN ${ACTIVE})::int AS ongoing
          FROM rides`,
     );
+    // "Today" is always the Lagos calendar day, worked out from the clock each time, so the numbers start again from zero at
+    // midnight without anything being reset. A trip counts on the day it finished, not the day it was booked.
     const [today] = await this.q(
-      `SELECT COALESCE(sum(f.total_kobo), 0)::bigint AS kobo
+      `SELECT COALESCE(sum(f.total_kobo), 0)::bigint AS kobo, count(*)::int AS completed
          FROM rides r JOIN ride_fares f ON f.ride_id = r.id
-        WHERE r.status = 'TRIP_COMPLETED' AND r.created_at AT TIME ZONE ${TZ} >= date_trunc('day', now() AT TIME ZONE ${TZ})`,
+        WHERE r.status = 'TRIP_COMPLETED' AND f.created_at AT TIME ZONE ${TZ} >= date_trunc('day', now() AT TIME ZONE ${TZ})`,
+    );
+    const [fresh] = await this.q(
+      `SELECT (SELECT count(*) FROM users WHERE role = 'rider' AND created_at AT TIME ZONE ${TZ} >= date_trunc('day', now() AT TIME ZONE ${TZ}))::int AS riders,
+              (SELECT count(*) FROM users WHERE role = 'driver' AND created_at AT TIME ZONE ${TZ} >= date_trunc('day', now() AT TIME ZONE ${TZ}))::int AS drivers,
+              (SELECT count(*) FROM sos_events WHERE created_at AT TIME ZONE ${TZ} >= date_trunc('day', now() AT TIME ZONE ${TZ}))::int AS sos`,
     );
     const [payouts] = await this.q(
       `SELECT COALESCE(sum(amount_kobo), 0)::bigint AS kobo, count(*)::int AS n FROM payout_requests WHERE status IN ('PENDING_APPROVAL', 'APPROVED', 'PROCESSING')`,
@@ -99,8 +105,9 @@ export class ConsoleService {
       revenueByMonth: revenue.map((r) => ({ month: r.m, kobo: Number(r.kobo) })),
       activity: {
         total: activity.total, thisMonth: activity.this_month, today: activity.today,
-        completedToday: activity.today_completed, cancelledToday: activity.today_cancelled, ongoing: activity.ongoing,
+        completedToday: today.completed, cancelledToday: activity.today_cancelled, ongoing: activity.ongoing,
       },
+      newToday: { riders: fresh.riders, drivers: fresh.drivers, sos: fresh.sos },
       finance: { todayKobo: Number(today.kobo), pendingPayoutKobo: Number(payouts.kobo), pendingPayouts: payouts.n, awaitingApproval: awaiting.n },
     };
   }

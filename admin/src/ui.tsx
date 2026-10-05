@@ -91,19 +91,44 @@ export const Icon = ({ name, size = 17 }: { name: IconName; size?: number }) => 
 
 // ---------------------------------------------------------------- data loading
 /** Loads from the API now and again every `everyMs` (0 = once). Keeps the last good answer if a refresh fails. */
-export function useLoad<T>(path: string, everyMs = 0): { data: T | null; error: string | null; reload: () => void } {
+// How many requests are in flight, so a search box can say "Searching..." without every page wiring it up.
+let inFlight = 0;
+const watchers = new Set<() => void>();
+const track = (delta: number) => { inFlight += delta; watchers.forEach((w) => w()); };
+export function useAnyLoading(): boolean {
+  const [, bump] = useState(0);
+  useEffect(() => { const w = () => bump((n) => n + 1); watchers.add(w); return () => { watchers.delete(w); }; }, []);
+  return inFlight > 0;
+}
+
+/**
+ * Loads a page of data. When only the query string changes (a search, a filter, the next page) the rows already on screen
+ * stay until the new ones arrive, so the page does not flash to a loading skeleton and a search box keeps what was typed.
+ * Moving to a different resource does clear it.
+ */
+export function useLoad<T>(path: string, everyMs = 0): { data: T | null; error: string | null; reload: () => void; loading: boolean } {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
+  const base = useRef(path.split('?')[0]);
   useEffect(() => {
     let live = true;
-    const run = () => get<T>(path).then((d) => { if (live) { setData(d); setError(null); } }).catch((e: ApiError) => { if (live) setError(e.message); });
-    setData(null);
-    run();
-    const t = everyMs ? setInterval(run, everyMs) : undefined;
+    const same = base.current === path.split('?')[0];
+    base.current = path.split('?')[0];
+    const run = (first: boolean) => {
+      if (first) { setLoading(true); track(1); }
+      return get<T>(path)
+        .then((d) => { if (live) { setData(d); setError(null); } })
+        .catch((e: ApiError) => { if (live) setError(e.message); })
+        .finally(() => { if (first) { track(-1); if (live) setLoading(false); } });
+    };
+    if (!same) setData(null);
+    run(true);
+    const t = everyMs ? setInterval(() => run(false), everyMs) : undefined;
     return () => { live = false; if (t) clearInterval(t); };
   }, [path, everyMs, tick]);
-  return { data, error, reload: () => setTick((n) => n + 1) };
+  return { data, error, reload: () => setTick((n) => n + 1), loading };
 }
 
 export function Loading({ error, retry }: { error?: string | null; retry?: () => void }) {

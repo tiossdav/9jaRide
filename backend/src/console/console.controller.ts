@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Header, HttpCode, Param, ParseUUIDPipe, 
 import { Type } from 'class-transformer';
 import { CurrentUser, Principal } from '../auth/auth.types';
 import { StaffAuditInterceptor } from '../common/audit.interceptor';
+import { NotificationsService } from './notifications.service';
 import { PricingAdminService } from './pricing-admin.service';
 import { VehiclesAdminService } from './vehicles-admin.service';
 import { IsDate, IsIn, IsInt, IsOptional, IsString, Matches, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
@@ -28,6 +29,8 @@ class LedgerQuery {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize?: number;
 }
+
+class SinceQuery { @IsOptional() @Type(() => Date) @IsDate() since?: Date; }
 
 class DaysQuery { @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(90) days?: number; }
 
@@ -63,7 +66,11 @@ class SafetyQuery {
 @Controller('admin/console')
 @Roles('support', 'admin')
 export class ConsoleController {
-  constructor(private readonly console: ConsoleService, private readonly pricingAdmin: PricingAdminService, private readonly vehiclesAdmin: VehiclesAdminService) {}
+  constructor(private readonly console: ConsoleService, private readonly pricingAdmin: PricingAdminService, private readonly vehiclesAdmin: VehiclesAdminService, private readonly notices: NotificationsService) {}
+
+  /** What happened since the given moment, for the pop-ups. Every team sees its own kinds of event. */
+  @Roles('support', 'finance', 'admin') @Get('notifications')
+  notifications(@CurrentUser() me: Principal, @Query() q: SinceQuery) { return this.notices.feed(me.role, q.since ?? new Date(Date.now() - 3_600_000)); }
 
   @Get('dashboard') dashboard() { return this.console.dashboard(); }
   @Get('live') live() { return this.console.live(); }

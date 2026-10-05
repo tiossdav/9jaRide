@@ -1,6 +1,6 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import { ApiError } from './api';
-import { Modal } from './ui';
+import { Modal, useAnyLoading } from './ui';
 
 /** Page n of m with Previous and Next, and the "Showing 1 to 20 of 62 results" line from the design. */
 export function Pager({ page, pageSize, total, onPage }: { page: number; pageSize: number; total: number; onPage: (p: number) => void }) {
@@ -18,8 +18,24 @@ export function Pager({ page, pageSize, total, onPage }: { page: number; pageSiz
 /** A search box that waits for the person to stop typing before it reports. */
 export function SearchBox({ placeholder, onSearch }: { placeholder: string; onSearch: (s: string) => void }) {
   const [typed, setTyped] = useState('');
-  useEffect(() => { const t = setTimeout(() => onSearch(typed), 350); return () => clearTimeout(t); }, [typed]); // eslint-disable-line react-hooks/exhaustive-deps
-  return <input className="input" style={{ maxWidth: 320 }} placeholder={placeholder} aria-label={placeholder} value={typed} onChange={(e) => setTyped(e.target.value)} />;
+  const busy = useAnyLoading();
+  const first = useRef(true);
+  // Waits for a pause in typing, then searches. Nothing runs on the first render, so opening a page never resets its filters,
+  // and nothing here reloads the page: only the list under the box changes.
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    const t = setTimeout(() => onSearch(typed.trim()), 300);
+    return () => clearTimeout(t);
+  }, [typed]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div style={{ position: 'relative', maxWidth: 320, width: '100%' }} role="search">
+      <input className="input" style={{ width: '100%', paddingRight: 64 }} placeholder={placeholder} aria-label={placeholder} value={typed}
+        onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onSearch(typed.trim()); } }} />
+      {typed && <button type="button" aria-label="Clear search" onClick={() => { setTyped(''); onSearch(''); }}
+        style={{ position: 'absolute', right: 8, top: 6, border: 0, background: 'transparent', color: 'var(--muted)', cursor: 'pointer', fontSize: 16 }}>×</button>}
+      {busy && typed && <span className="note" style={{ position: 'absolute', right: 30, top: 9, fontSize: 10.5 }}>Searching…</span>}
+    </div>
+  );
 }
 
 export function Segmented<T extends string>({ options, value, onChange }: { options: readonly (readonly [T, string])[]; value: T; onChange: (v: T) => void }) {

@@ -9,6 +9,7 @@ interface Dash {
   tripsByMonth: { month: number; total: number; completed: number; cancelled: number }[];
   revenueByMonth: { month: number; kobo: number }[];
   activity: { total: number; thisMonth: number; today: number; completedToday: number; cancelledToday: number; ongoing: number };
+  newToday: { riders: number; drivers: number; sos: number };
   finance: { todayKobo: number; pendingPayoutKobo: number; pendingPayouts: number; awaitingApproval: number };
 }
 
@@ -71,6 +72,9 @@ export default function Dashboard() {
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
             <Pill tone="green">Completed {d.activity.completedToday}</Pill><Pill tone="blue">Ongoing {d.activity.ongoing}</Pill><Pill tone="red">Cancelled {d.activity.cancelledToday}</Pill>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <Pill>New riders today {d.newToday.riders}</Pill><Pill>New drivers today {d.newToday.drivers}</Pill>{d.newToday.sos > 0 && <Pill tone="red">SOS today {d.newToday.sos}</Pill>}
           </div>
         </div>
         <div className="card">

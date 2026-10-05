@@ -33,6 +33,61 @@ suite('admin console endpoints', () => {
     expect(pricing.some((p: { state: string }) => p.state === 'live')).toBe(true);
   });
 
+  it('counts today from the calendar day, so a trip finished yesterday is not in the numbers for today', async () => {
+    const support = await h.staff('support');
+    const dash = async () => (await h.http().get('/admin/console/dashboard').set(h.auth(support.token)).expect(200)).body;
+    const before = await dash();
+    const rider = await h.login('rider');
+    const driver = await h.login('driver');
+    const rideId = await h.completedRide(rider.id, driver.id, 123_400);
+    const during = await dash();
+    expect(during.finance.todayKobo - before.finance.todayKobo).toBe(123_400);
+    expect(during.activity.completedToday - before.activity.completedToday).toBe(1);
+    expect(during.newToday.riders - before.newToday.riders).toBe(1);
+    // the same trip, finished two days ago: it is history now, still in the totals but not in today
+    await h.pool.query(`ALTER TABLE ride_fares DISABLE TRIGGER USER`);
+    await h.pool.query(`UPDATE ride_fares SET created_at = now() - interval '2 days' WHERE ride_id = $1`, [rideId]);
+    await h.pool.query(`ALTER TABLE ride_fares ENABLE TRIGGER USER`);
+    const after = await dash();
+    expect(after.finance.todayKobo).toBe(before.finance.todayKobo);
+    expect(after.activity.completedToday).toBe(before.activity.completedToday);
+  });
+
+  it('tells staff what just happened, and keeps an SOS on screen until someone takes it', async () => {
+    const support = await h.staff('support');
+    const admin = await h.staff('admin');
+    const finance = await h.staff('finance');
+    const since = new Date(Date.now() - 5_000).toISOString();
+    const feed = async (who: { token: string }, from = since) => (await h.http().get('/admin/console/notifications').query({ since: from }).set(h.auth(who.token)).expect(200)).body;
+
+    const rider = await h.login('rider', 'Notice Rider');
+    const driver = await h.login('driver', 'Notice Driver');
+    await h.http().post('/sos').set(h.auth(driver.token)).set('Idempotency-Key', h.key()).send({ location: { lat: 6.5, lng: 3.4 } }).expect(200);
+
+    const seen = await feed(support);
+    expect(seen.items.map((n: { type: string }) => n.type)).toEqual(expect.arrayContaining(['sos', 'rider', 'driver']));
+    const sos = seen.items.find((n: { type: string }) => n.type === 'sos');
+    expect(sos).toMatchObject({ severity: 'critical', title: 'SOS emergency alert' });
+    expect(sos.text).toContain('Notice Driver');
+    expect(seen.openSos.some((o: { person: string }) => o.person === 'Notice Driver')).toBe(true);
+
+    // each team sees its own kinds of event
+    expect((await feed(admin)).items.some((n: { type: string }) => n.type === 'sos')).toBe(true);
+    const money = await feed(finance);
+    expect(money.items.every((n: { type: string }) => n.type === 'payment')).toBe(true);
+    expect(money.openSos).toEqual([]);
+
+    // an alert older than the pop-up window is still listed while it is open (a reload must not lose it)
+    const later = await feed(support, new Date(Date.now() + 60_000).toISOString());
+    expect(later.items).toEqual([]);
+    expect(later.openSos.some((o: { person: string }) => o.person === 'Notice Driver')).toBe(true);
+
+    // once somebody acknowledges it, it leaves the sticky list
+    await h.http().post(`/admin/sos/${sos.link.split('/').pop()}/acknowledge`).set(h.auth(support.token)).expect(200);
+    expect((await feed(support, later.now)).openSos.some((o: { person: string }) => o.person === 'Notice Driver')).toBe(false);
+    expect(rider.id).toBeTruthy();
+  });
+
   it('lists trips with search and shows the fare snapshot on one', async () => {
     const support = await h.staff('support');
     const rider = await h.login('rider', 'Consoletest Rider');
