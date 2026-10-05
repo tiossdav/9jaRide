@@ -124,4 +124,11 @@ object BookingAlert {
     fun fullScreenAllowed(context: Context): Boolean = Build.VERSION.SDK_INT < 34 || context.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
 
     fun needsDndAccess(context: Context): Boolean = !context.getSystemService(NotificationManager::class.java).isNotificationPolicyAccessGranted
+
+    /**
+     * Not every phone has a Do Not Disturb access page (some makers replace it with their own). When this phone has none, the app
+     * cannot ask for it, so it does not nag; the booking still rings on the alarm volume.
+     */
+    fun dndSettingsAvailable(context: Context): Boolean =
+        Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).resolveActivity(context.packageManager) != null
 }

@@ -680,13 +680,14 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             if (!demo) {
                 if (!com.ninejaride.driver.alert.BookingAlert.notificationsAllowed(app)) out += Check(false, "Booking alerts are off", "Allow notifications so new bookings can ring", "Allow", soft = true, fix = "notifications")
                 if (!com.ninejaride.driver.alert.BookingAlert.fullScreenAllowed(app)) out += Check(false, "Bookings cannot open the screen", "Allow full-screen alerts so a booking shows over other apps", "Allow", soft = true, fix = "fullscreen")
-                if (com.ninejaride.driver.alert.BookingAlert.needsDndAccess(app)) out += Check(false, "Bookings may stay silent in Do Not Disturb", "Allow Do Not Disturb access so the booking ring is heard", "Allow", soft = true, fix = "dnd")
+                if (com.ninejaride.driver.alert.BookingAlert.dndSettingsAvailable(app) && com.ninejaride.driver.alert.BookingAlert.needsDndAccess(app)) out += Check(false, "Bookings may stay silent in Do Not Disturb", "Allow Do Not Disturb access so the booking ring is heard", "Allow", soft = true, fix = "dnd")
             }
             return out
         }
 
     fun askGoOnline() {
-        if (goOnlineChecks.all { it.ok }) dialog = Dialog.GoOnline else push(Dest.GoOnlineChecks)
+        // Only real problems (account, vehicle, wallet) stop the driver. Advice about alerts is shown in the confirmation, not in the way.
+        if (goOnlineChecks.filter { !it.soft }.all { it.ok }) dialog = Dialog.GoOnline else push(Dest.GoOnlineChecks)
     }
 
     fun confirmGoOnline() { dialog = null; wentOnline(true) }
@@ -711,6 +712,13 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                 if (!demo) LocationService.setTrip(app, p == Phase.ToPickup || p == Phase.Waiting || p == Phase.InTrip)
             }
         }
+        // If the server says this phone cannot be online (another phone took over, no usable vehicle, an agreement to accept),
+        // the service stops itself; the screen must show offline too, with the reason, not stay "online".
+        viewModelScope.launch {
+            androidx.compose.runtime.snapshotFlow { LocationStatus.stoppedReason }.collect { reason ->
+                if (reason != null) { online = false; offerJob?.cancel(); say("You are offline", reason); LocationStatus.stoppedReason = null }
+            }
+        }
         // The background service is the only thing asking the server for offers; they arrive here.
         viewModelScope.launch {
             com.ninejaride.driver.alert.OfferFeed.offer.collect { o ->
@@ -726,6 +734,9 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Bumped when the driver comes back from a settings page, so the checks are read again. */
     var checksTick by mutableIntStateOf(0)
+
+    /** True when something about booking alerts is not set up. Shown as advice when going online. */
+    val alertAdvice: Boolean get() = goOnlineChecks.any { it.soft && !it.ok }
 
     /** Opens the phone setting that fixes a booking-alert check. */
     fun openAlertSetting(kind: String) {
@@ -744,7 +755,8 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         if (!demo) {
             // With a real server, "online" means the service is sharing the phone's position. No permission, no online.
             if (on && !LocationService.start(getApplication())) { online = false; dialog = Dialog.LocationDenied; return }
-            if (!on) LocationService.stop(getApplication())
+            if (on) viewModelScope.launch { runCatching { api.claimOnline() } } // this phone takes over from any other with the account
+            if (!on) { LocationService.stop(getApplication()); viewModelScope.launch { runCatching { api.releaseOnline() } } }
             if (on) stopDeviceLocation()
         }
         online = on

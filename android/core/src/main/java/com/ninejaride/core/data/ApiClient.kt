@@ -46,6 +46,8 @@ class ApiClient(context: Context, private val baseUrl: String, private val appVe
     private val patientHttp: OkHttpClient by lazy { http.newBuilder().readTimeout(40, TimeUnit.SECONDS).build() }
     private val prefs = context.applicationContext.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
     private val refreshLock = Mutex()
+    /** This installation's own id, made once. Sent with every request. */
+    private val deviceId: String = prefs.getString("device_id", null) ?: java.util.UUID.randomUUID().toString().also { prefs.edit().putString("device_id", it).apply() }
 
     // Tokens sit in app-private storage. Move them to the Android Keystore before a public release.
     var session: Session?
@@ -59,6 +61,7 @@ class ApiClient(context: Context, private val baseUrl: String, private val appVe
     private fun rawCall(method: String, path: String, body: String?, token: String?, extraHeaders: Map<String, String>, multipart: okhttp3.RequestBody? = null, patient: Boolean = false): Pair<Int, JsonObject> {
         val req = Request.Builder().url(baseUrl + path)
             .header("X-App-Platform", "android")
+            .header("X-Device-Id", deviceId)
             .header("X-App-Version", appVersion)
             .apply { token?.let { header("Authorization", "Bearer $it") }; extraHeaders.forEach { (k, v) -> header(k, v) } }
             .method(method, multipart ?: if (method == "GET" || method == "HEAD") null else (body ?: "").toRequestBody(jsonType))

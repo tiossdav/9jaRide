@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Query, UseInterceptors } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsBooleanString, IsDate, IsIn, IsInt, Matches, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested,
@@ -93,6 +93,9 @@ class CompleteDto {
   @IsInt() @Min(0) @Max(86_400) durationS!: number;
   @IsInt() @Min(0) @Max(86_400) waitingS!: number;
 }
+
+/** A phone's own id, as sent in X-Device-Id. Anything odd is ignored rather than trusted. */
+const cleanDevice = (v?: string): string | undefined => (v && /^[A-Za-z0-9-]{8,64}$/.test(v) ? v : undefined);
 
 class WaitQuery {
   @IsOptional() @IsString() @MaxLength(40) waitFor?: string;
@@ -200,19 +203,34 @@ export class RidesController {
   // ------------------------------------------------------------------ driver
 
   @Roles('driver') @Post('driver/location') @HttpCode(204)
-  async ping(@CurrentUser() me: Principal, @Body() dto: PingDto) {
-    await this.location.ingest(me.id, [{ ...dto, recordedAt: new Date() }]);
+  async ping(@CurrentUser() me: Principal, @Body() dto: PingDto, @Headers('x-device-id') device?: string) {
+    await this.location.ingest(me.id, [{ ...dto, recordedAt: new Date() }], cleanDevice(device));
+  }
+
+  /** The driver went online on this phone: it now holds the claim, and any other phone with this account is told to go offline. */
+  @Roles('driver') @Post('driver/online') @HttpCode(204)
+  async online(@CurrentUser() me: Principal, @Headers('x-device-id') device?: string) {
+    const id = cleanDevice(device);
+    if (id) await this.location.claimDevice(me.id, id);
+  }
+
+  @Roles('driver') @Post('driver/offline') @HttpCode(204)
+  async offline(@CurrentUser() me: Principal, @Headers('x-device-id') device?: string) {
+    const id = cleanDevice(device);
+    if (id) await this.location.releaseDevice(me.id, id);
   }
 
   /** The background-location upload: one or many timestamped readings, from the live stream or the offline queue. */
   @Roles('driver') @Post('driver/location/batch') @HttpCode(200)
-  batch(@CurrentUser() me: Principal, @Body() dto: BatchDto) {
-    return this.location.ingest(me.id, dto.points);
+  batch(@CurrentUser() me: Principal, @Body() dto: BatchDto, @Headers('x-device-id') device?: string) {
+    return this.location.ingest(me.id, dto.points, cleanDevice(device));
   }
 
   /** The offer waiting for this driver. The app asks every few seconds while the driver is online. */
   @Roles('driver') @Get('driver/offer')
-  async myOffer(@CurrentUser() me: Principal, @Query() q: WaitQuery) {
+  async myOffer(@CurrentUser() me: Principal, @Query() q: WaitQuery, @Headers('x-device-id') device?: string) {
+    // a phone that is not the one the driver is online on is not given the booking
+    try { await this.location.assertDevice(me.id, cleanDevice(device)); } catch { return { offer: null }; }
     // With wait=<seconds> the answer is held until an offer arrives (or the time runs out): one request in place of many.
     return { offer: q.wait ? await this.rides.waitForDriverOffer(me.id, q.wait) : await this.rides.driverOffer(me.id) };
   }

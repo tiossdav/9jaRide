@@ -52,6 +52,7 @@ import com.ninejaride.core.ui.components.MapPanel
 import com.ninejaride.core.ui.components.MarkerKind
 import com.ninejaride.core.ui.components.Tab
 import com.ninejaride.core.ui.components.Btn
+import com.ninejaride.core.ui.components.tap
 import com.ninejaride.core.ui.components.BtnKind
 import com.ninejaride.core.ui.components.CarDot
 import com.ninejaride.core.ui.components.Chip
@@ -303,6 +304,7 @@ private fun GoOnlineSheet(vm: DriverViewModel) {
             Txt("Go online?", 18f, 800)
         }
         Txt("Your wallet, email and vehicle are checked first. You will start receiving trip requests.", 13.5f, 500, C.Muted)
+        if (vm.alertAdvice) Txt("New bookings may be quiet on this phone. See how to fix it", 13f, 700, C.Green, Modifier.tap({ vm.dialog = null; vm.push(Dest.GoOnlineChecks) }, "Booking alert settings"))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Btn("Cancel", { vm.dialog = null }, Modifier.weight(1f), kind = BtnKind.Outline)
             Btn("Yes, go online", {

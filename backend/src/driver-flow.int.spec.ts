@@ -158,4 +158,25 @@ suite('the driver side of a real order', () => {
     await h.http().get(`/rides/${rideId}`).query({ waitFor: 'DRIVER_ARRIVED', wait: 2 }).set(h.auth((await h.login('rider')).token)).expect(404);
     await h.http().get('/driver/offer').query({ wait: 60 }).set(h.auth(driver.token)).expect(400);
   });
+
+  it('keeps one phone online per driver account, and the newest to go online takes over', async () => {
+    const { driver } = await setup();
+    const A = 'phone-aaaaaaaa'; const B = 'phone-bbbbbbbb';
+    const ping = (device?: string) => h.http().post('/driver/location').set(h.auth(driver.token)).set(...(device ? (['X-Device-Id', device] as [string, string]) : (['X-Nothing', '1'] as [string, string]))).send({ lat: pickup.lat, lng: pickup.lng, accuracyM: 8 });
+    await ping(A).expect(204); // the first phone to report is the one the system sees
+    const refused = await ping(B).expect(409); // a second phone is told why, instead of looking online here
+    expect(refused.body.code).toBe('other_device');
+    await h.http().post('/driver/online').set(h.auth(driver.token)).set('X-Device-Id', B).expect(204); // B goes online: it takes over
+    await ping(B).expect(204);
+    expect((await ping(A).expect(409)).body.code).toBe('other_device'); // and A is the one told
+    // A cannot knock B off by saying it went offline
+    await h.http().post('/driver/offline').set(h.auth(driver.token)).set('X-Device-Id', A).expect(204);
+    await ping(B).expect(204);
+    // B going offline frees the claim; an app that sends no id is not checked
+    await h.http().post('/driver/offline').set(h.auth(driver.token)).set('X-Device-Id', B).expect(204);
+    await ping(A).expect(204);
+    await ping().expect(204);
+    // the booking is only handed to the phone that holds the claim
+    expect((await h.http().get('/driver/offer').set(h.auth(driver.token)).set('X-Device-Id', B).expect(200)).body.offer).toBeNull();
+  });
 });

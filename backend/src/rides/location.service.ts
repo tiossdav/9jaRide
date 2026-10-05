@@ -29,6 +29,9 @@ export interface IngestResult {
   live: boolean;
 }
 
+/** A phone holds the "online here" claim this long after its last report. */
+export const DEVICE_HOLD_SECONDS = 120;
+
 @Injectable()
 export class LocationService {
   constructor(
@@ -36,6 +39,32 @@ export class LocationService {
     @Inject(REDIS) private readonly redis: Redis,
     private readonly dispatch: DispatchService,
   ) {}
+
+  private deviceKey = (driverId: string) => `driver:${driverId}:device`;
+
+  /** Tells the server which phone the driver is online on. The phone that says so last takes over from any other. */
+  async claimDevice(driverId: string, deviceId: string): Promise<void> {
+    await this.redis.set(this.deviceKey(driverId), deviceId, 'EX', DEVICE_HOLD_SECONDS);
+  }
+
+  /** Going offline gives the claim up, but only for the phone that holds it, so an old phone cannot knock a new one off. */
+  async releaseDevice(driverId: string, deviceId: string): Promise<void> {
+    if ((await this.redis.get(this.deviceKey(driverId))) === deviceId) await this.redis.del(this.deviceKey(driverId));
+  }
+
+  /**
+   * One phone is online per driver account. A phone that is not the one holding the claim is refused with a clear reason, so the
+   * app can say so and go offline, instead of looking online here while the other phone is the one the system sees.
+   * Phones that send no device id (older apps) are not checked.
+   */
+  async assertDevice(driverId: string, deviceId?: string): Promise<void> {
+    if (!deviceId) return;
+    const holder = await this.redis.get(this.deviceKey(driverId));
+    if (holder && holder !== deviceId) {
+      throw new ConflictException({ code: 'other_device', message: 'You are online on another phone with this account. Go offline there first, or go online here again to take over.' });
+    }
+    await this.redis.set(this.deviceKey(driverId), deviceId, 'EX', DEVICE_HOLD_SECONDS); // nobody holds it yet, or it is this phone: keep it
+  }
 
   /** The category comes from the driver's approved, active vehicle, never from the request. */
   async driverCategory(driverId: string): Promise<Category> {
@@ -59,7 +88,8 @@ export class LocationService {
    * after the phone reconnected. Safe to upload twice. Spoofed positions are dropped. While the driver is on a trip
    * every accepted reading is also kept, so the distance they report at the end can be checked against the route.
    */
-  async ingest(driverId: string, points: LocationPoint[]): Promise<IngestResult> {
+  async ingest(driverId: string, points: LocationPoint[], deviceId?: string): Promise<IngestResult> {
+    await this.assertDevice(driverId, deviceId);
     const category = await this.driverCategory(driverId);
     const now = Date.now();
     const valid = points

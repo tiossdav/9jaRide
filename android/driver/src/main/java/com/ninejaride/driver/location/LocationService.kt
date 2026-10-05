@@ -46,6 +46,8 @@ object LocationStatus {
     var problem by mutableStateOf<String?>(null)
     /** The newest good position, so the screens need not ask the phone for one of their own while the service is running. */
     var last by mutableStateOf<com.ninejaride.core.data.MapPoint?>(null)
+    /** Set when the service had to stop and the driver must be told why (and shown as offline). The screen clears it. */
+    var stoppedReason by mutableStateOf<String?>(null)
 }
 
 /**
@@ -216,6 +218,8 @@ class LocationService : Service() {
                 failures = 0
             } catch (e: ApiException) {
                 failures++
+                // These are not hiccups: the server has said this phone cannot be online, so stop and say why rather than look online.
+                if (e.code in STOP_CODES || e.status == 403) { stopBecause(e.message); return }
                 LocationStatus.problem = when {
                     e.isNetwork -> "No connection. Your location will be sent when you are back online."
                     e.status == 401 -> "Please sign in again."
@@ -239,6 +243,15 @@ class LocationService : Service() {
         if (now - g.recordedAtMillis > 180_000L) return
         queue.add(g.copy(recordedAtMillis = now))
         LocationStatus.pending = queue.size()
+    }
+
+    /** Ends sharing: the driver is shown as offline in the app, with the reason. */
+    private fun stopBecause(reason: String) {
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("online", false).apply()
+        LocationStatus.stoppedReason = reason
+        com.ninejaride.driver.alert.BookingAlert.stop(this)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private suspend fun flush() {
@@ -281,6 +294,7 @@ class LocationService : Service() {
         private const val ACTION_STOP = "com.ninejaride.driver.STOP_LOCATION"
         private const val IDLE_UPLOAD_EVERY_MS = 15_000L // waiting for a booking: the server counts a driver online for 45 s after a report
         private const val TRIP_UPLOAD_EVERY_MS = 5_000L  // on a trip: the rider is watching the car move
+        private val STOP_CODES = setOf("other_device", "no_active_vehicle", "agreement_pending")
         private const val ACTION_MODE = "com.ninejaride.driver.LOCATION_MODE"
         private const val BATCH = 100
         private const val MAX_ACCURACY_M = 100f

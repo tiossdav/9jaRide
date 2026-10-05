@@ -254,6 +254,10 @@ class Api(context: Context) {
         client.call("POST", "/sos", buildJsonObject { at?.let { put("location", buildJsonObject { put("lat", it.lat); put("lng", it.lng) }) } }.toString(), auth = true, headers = mapOf("Idempotency-Key" to key))
     }
 
+    /** This phone is now the one the driver is online on. Any other phone with the account is told to go offline. */
+    suspend fun claimOnline() { client.call("POST", "/driver/online", "{}", auth = true) }
+    suspend fun releaseOnline() { client.call("POST", "/driver/offline", "{}", auth = true) }
+
     suspend fun logout() = client.logout()
 }
 
