@@ -151,20 +151,27 @@ fun ApplyScreen(vm: DriverViewModel) {
     }
 }
 
-/** The driver's own photo: taken with the camera or chosen from the gallery. Riders see it when the driver is on the way. */
+/**
+ * Opens the camera and hands back the picture. Onboarding photos are taken on the spot (no gallery), so what staff see is the
+ * real person, document and vehicle. Pass the result to [onPhoto]; call the returned function to open the camera.
+ */
 @Composable
-private fun DriverPhoto(vm: DriverViewModel) {
+private fun rememberCamera(onPhoto: (android.net.Uri) -> Unit): () -> Unit {
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    var camUri by remember { mutableStateOf<android.net.Uri?>(null) }
-    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> if (uri != null) vm.uploadDocument("selfie", uri) }
-    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) camUri?.let { vm.uploadDocument("selfie", it) } }
-    fun takePhoto() {
+    var taken by remember { mutableStateOf<android.net.Uri?>(null) }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) taken?.let(onPhoto) }
+    return {
         val dir = java.io.File(ctx.cacheDir, "photos").apply { mkdirs() }
-        val file = java.io.File(dir, "driver_${System.currentTimeMillis()}.jpg")
-        val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", file)
-        camUri = uri
+        val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", java.io.File(dir, "shot_${System.currentTimeMillis()}.jpg"))
+        taken = uri
         camera.launch(uri)
     }
+}
+
+/** The driver's own photo, taken with the camera. Riders see it when the driver is on the way. */
+@Composable
+private fun DriverPhoto(vm: DriverViewModel) {
+    val takePhoto = rememberCamera { vm.uploadDocument("selfie", it) }
     val has = vm.uploads["selfie"] != null
     Txt("YOUR PHOTO", 11f, 500, C.Muted, letterSpacing = 1f)
     Card {
@@ -180,22 +187,15 @@ private fun DriverPhoto(vm: DriverViewModel) {
             }
         }
         Gap(10.dp)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Btn(if (vm.uploading == "selfie") "Uploading..." else "Take photo", ::takePhoto, Modifier.weight(1f), enabled = vm.uploading == null, height = 44.dp, size = 14f)
-            Btn("Gallery", { gallery.launch("image/*") }, Modifier.weight(1f), kind = BtnKind.Outline, enabled = vm.uploading == null, height = 44.dp, size = 14f)
-        }
+        Btn(if (vm.uploading == "selfie") "Uploading..." else if (has) "Retake photo" else "Take photo", takePhoto, Modifier.fillMaxWidth(), enabled = vm.uploading == null, height = 46.dp, size = 14.5f)
     }
 }
 
 @Composable
 private fun DocumentsStep(vm: DriverViewModel) {
     var pending by remember { mutableStateOf<String?>(null) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        val kind = pending
-        if (uri != null && kind != null) vm.uploadDocument(kind, uri)
-        pending = null
-    }
-    Txt("Take a clear photo of each document, or pick one from your gallery. Make sure the details can be read.", 13.5f, 500, C.Muted)
+    val camera = rememberCamera { uri -> pending?.let { vm.uploadDocument(it, uri) }; pending = null }
+    Txt("Take a clear photo of each document with your camera. Make sure the details can be read.", 13.5f, 500, C.Muted)
     fun clear(set: (String) -> Unit): (String) -> Unit = { set(it); vm.applyError = null }
     vm.neededDocuments().forEach { kind ->
         val done = vm.uploads[kind] != null
@@ -220,8 +220,8 @@ private fun DocumentsStep(vm: DriverViewModel) {
             }
             Gap(10.dp)
             Btn(
-                if (vm.uploading == kind) "Uploading..." else if (done) "Replace photo" else "Add photo",
-                { pending = kind; picker.launch("image/*") }, Modifier.fillMaxWidth(), kind = if (done) BtnKind.Outline else BtnKind.Primary,
+                if (vm.uploading == kind) "Uploading..." else if (done) "Retake photo" else "Take photo",
+                { pending = kind; camera() }, Modifier.fillMaxWidth(), kind = if (done) BtnKind.Outline else BtnKind.Primary,
                 enabled = vm.uploading == null, height = 46.dp, size = 14.5f,
             )
         }
