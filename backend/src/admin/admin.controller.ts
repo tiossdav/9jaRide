@@ -126,6 +126,11 @@ class ApplicationQuery {
   @IsOptional() @IsIn(['SUBMITTED', 'CHANGES_REQUESTED', 'APPROVED', 'REJECTED']) status?: string;
 }
 
+class ChangesDto {
+  @Reason() note!: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) items?: string[];
+}
+
 class NoteDto {
   @Reason() note!: string;
 }
@@ -164,8 +169,8 @@ export class AdminDriversController {
   }
 
   @Post('driver-applications/:id/request-changes') @HttpCode(204)
-  async changes(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() dto: NoteDto) {
-    await this.applications.requestChanges(id, me.id, dto.note);
+  async changes(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ChangesDto) {
+    await this.applications.requestChanges(id, me.id, dto.note, dto.items ?? []);
   }
 
   @Post('driver-applications/:id/reject') @HttpCode(204)

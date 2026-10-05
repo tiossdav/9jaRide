@@ -5,6 +5,8 @@ import com.ninejaride.core.data.ApiClient
 import com.ninejaride.core.data.ApiException
 import com.ninejaride.core.data.Session
 import com.ninejaride.driver.BuildConfig
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -45,6 +47,8 @@ class ServerApplication(
     val kinName: String, val kinPhone: String, val kinRelationship: String, val kinAddress: String,
     val category: String, val plate: String, val make: String, val colour: String, val ownerName: String, val ownerPhone: String,
     val documents: List<ServerDoc>, val deductionBps: Int = 0,
+    /** What staff asked to be fixed: about_you, next_of_kin, vehicle, or a document kind (selfie is the driver photo). Empty when nothing specific was named. */
+    val changeItems: List<String> = emptyList(),
 )
 
 /** Everything the application form collects, ready to send. */
@@ -101,6 +105,7 @@ class Api(context: Context) {
             v?.str("category") ?: "regular", v?.str("plate") ?: "", v?.str("make") ?: "", v?.str("colour") ?: "", ow?.str("name") ?: "", ow?.str("phone") ?: "",
             o["documents"]?.jsonArray?.map { val d = it.jsonObject; ServerDoc(d.str("kind") ?: "", d.str("number"), d.str("fileId"), d.str("expiresOn")?.take(10)) } ?: emptyList(),
             (o.lng("deductionBps") ?: 0).toInt(),
+            o["changeItems"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList(),
         )
     }
 

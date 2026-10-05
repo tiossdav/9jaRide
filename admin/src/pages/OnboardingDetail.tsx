@@ -83,7 +83,7 @@ export default function OnboardingDetail() {
           ) : <div className="card"><h3>Decision</h3><div className="note" style={{ marginTop: 6 }}>This application is closed. {a.status === 'APPROVED' && <Link to={`/people/${a.driverId}`} style={{ color: 'var(--accent)' }}>Open the driver</Link>}</div></div>}
         </div>
       </div>
-      {ask === 'changes' && <ReasonModal title="Request changes" text="The driver sees this note and can fix and resubmit." confirm="Send request" onClose={() => setAsk(null)} onSubmit={async (note) => { await post(`/admin/driver-applications/${a.id}/request-changes`, { note }); reload(); }} />}
+      {ask === 'changes' && <ChangesModal app={a} onClose={() => setAsk(null)} onDone={() => { setToast('Changes requested'); reload(); }} />}
       {ask === 'nin' && <ReasonModal title="Accept this NIN by hand?" text="Use this only after you have seen the card or another proof. Your reason is kept with the application." confirm="Accept NIN" onClose={() => setAsk(null)} onSubmit={async (note) => { await post(`/admin/driver-applications/${a.id}/accept-nin`, { note }); reload(); }} />}
       {ask === 'reject' && <ReasonModal title="Reject application" confirm="Reject" danger onClose={() => setAsk(null)} onSubmit={async (reason) => { await post(`/admin/driver-applications/${a.id}/reject`, { reason }); nav('/drivers'); }} />}
       {assigning && <AssignModal app={a} onClose={() => setAssigning(false)} onDone={() => { setToast('Driver approved and vehicle assigned'); reload(); }} />}
@@ -115,5 +115,25 @@ function InspectModal({ app, onClose, onDone }: { app: App; onClose: () => void;
       </div>
       {confirm.node}
     </Modal>
+  );
+}
+
+/** Staff pick the parts that need fixing; the driver updates only those and the rest of the application stays as entered. */
+function ChangesModal({ app, onClose, onDone }: { app: App; onClose: () => void; onDone: () => void }) {
+  const [items, setItems] = useState<string[]>([]);
+  const options: [string, string][] = [
+    ['about_you', 'About you (personal information)'], ['next_of_kin', 'Next of kin'], ['vehicle', 'Vehicle details'],
+    ...app.documents.map((d) => [d.kind, d.kind === 'selfie' ? 'Driver photo' : title(d.kind)] as [string, string]),
+  ];
+  const toggle = (k: string) => setItems((x) => (x.includes(k) ? x.filter((i) => i !== k) : [...x, k]));
+  return (
+    <ReasonModal title="Request changes" text="Tick what needs fixing. The driver is taken straight to those parts and everything else stays saved." confirm="Send request" onClose={onClose}
+      onSubmit={async (note) => { await post(`/admin/driver-applications/${app.id}/request-changes`, { note, items }); onDone(); }}>
+      <div style={{ display: 'grid', gap: 6, margin: '10px 0' }}>
+        {options.map(([k, label]) => (
+          <label key={k} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13.5 }}><input type="checkbox" checked={items.includes(k)} onChange={() => toggle(k)} />{label}</label>
+        ))}
+      </div>
+    </ReasonModal>
   );
 }

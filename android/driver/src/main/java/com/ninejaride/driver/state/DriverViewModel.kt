@@ -276,9 +276,21 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Opens the form from the first step, filled in with what was sent before when staff asked for changes. */
+    /** When staff named what to fix, the driver sees only those steps; everything else stays as entered. */
+    val updateItems: List<String> get() = application?.takeIf { it.status == "CHANGES_REQUESTED" }?.changeItems.orEmpty()
+    val updateMode: Boolean get() = updateItems.isNotEmpty()
+    /** Documents (and the photo) replaced during this update. A flagged one must be replaced, not sent again. */
+    val replaced = mutableStateListOf<String>()
+
+    private fun stepOf(item: String) = when (item) { "about_you", "selfie" -> 1; "next_of_kin" -> 2; "vehicle" -> 3; else -> 4 }
+    /** The steps to go through: all five, or only the ones staff flagged. */
+    val applySteps: List<Int> get() = if (updateMode) updateItems.map(::stepOf).distinct().sorted() else listOf(0, 1, 2, 3, 4)
+    val isLastApplyStep: Boolean get() = applyStep == applySteps.last()
+
     fun openApplication() {
-        applyStep = 0; applyError = null
+        applyError = null; replaced.clear()
         application?.let { prefill(it) }
+        applyStep = if (updateMode) applySteps.first() else 0
         viewModelScope.launch {
             if (arrangements.isEmpty()) runCatching { api.arrangements() }.getOrNull()?.let { arrangements.addAll(it) }
             if (arrangementCode.isEmpty()) arrangementCode = arrangements.firstOrNull()?.code ?: "own"
@@ -311,6 +323,19 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             val app = runCatching { api.application() }.getOrNull() ?: return@launch
             application = app
             if (app.status == "APPROVED" && dialog != Dialog.Approved) dialog = Dialog.Approved
+        }
+    }
+
+    /** The "Check status" button: asks the server and says where the application stands. */
+    fun checkStatus() {
+        viewModelScope.launch {
+            val app = runCatching { api.application() }.getOrNull()
+            if (app == null) { say("No connection", "We could not check your status. Please try again."); return@launch }
+            application = app
+            when (app.status) {
+                "SUBMITTED" -> dialog = Dialog.Verifying
+                "APPROVED" -> dialog = Dialog.Approved
+            }
         }
     }
 
@@ -395,6 +420,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         return when (applyStep) {
             0 -> null
             1 -> when {
+                updateMode && "selfie" in updateItems && "selfie" !in replaced -> "Take a new photo of yourself. Our team asked for it to be replaced."
                 dateOrNull(dateOfBirth, future = false) == null -> "Choose your date of birth. You must be at least 18."
                 address.trim().length < 5 -> "Enter your home address."
                 nin.filter { it.isDigit() }.length != 11 -> "Your NIN is 11 digits."
@@ -423,6 +449,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                 a.asksForVehicle && insuranceNumber.trim().length < 3 -> "Enter the insurance policy number."
                 a.asksForVehicle && dateOrNull(insuranceExpiry) == null -> "Choose when the insurance expires. It must be in the future."
                 a.asksForVehicle && dateOrNull(inspectionExpiry) == null -> "Choose when the inspection certificate expires."
+                updateMode && updateItems.any { it !in setOf("about_you", "next_of_kin", "vehicle", "selfie") && it !in replaced } -> "Take a new photo of: " + updateItems.filter { it !in setOf("about_you", "next_of_kin", "vehicle", "selfie") && it !in replaced }.joinToString(", ") { documentLabel(it) } + "."
                 neededDocuments().any { uploads[it] == null } -> "Upload a photo for: " + neededDocuments().filter { uploads[it] == null }.joinToString(", ") { documentLabel(it) } + "."
                 else -> null
             }
@@ -432,10 +459,14 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     fun applyNext() {
         applyProblem()?.let { applyError = it; return }
         applyError = null
-        if (applyStep < 4) applyStep++ else submitApplication()
+        if (isLastApplyStep) submitApplication() else applyStep = applySteps.first { it > applyStep }
     }
 
-    fun applyBack() { applyError = null; if (applyStep > 0) applyStep-- else if (application != null) reset(Dest.ApplicationStatus) else pop() }
+    fun applyBack() {
+        applyError = null
+        val before = applySteps.lastOrNull { it < applyStep }
+        if (before != null) applyStep = before else if (application != null) reset(Dest.ApplicationStatus) else pop()
+    }
 
     /** Reads the picked photo, shrinks it so it uploads quickly on mobile data, and sends it. */
     fun uploadDocument(kind: String, uri: android.net.Uri) {
@@ -444,6 +475,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val bytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { shrinkedJpeg(uri) } ?: throw ApiException(0, null, "That photo could not be read. Try another.")
                 uploads[kind] = api.uploadFile(bytes, "$kind.jpg", "image/jpeg")
+                if (kind !in replaced) replaced.add(kind)
                 if (kind == "selfie") photoPreview = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, android.graphics.BitmapFactory.Options().apply { inSampleSize = 4 })?.asImageBitmap()
             } catch (e: ApiException) { applyError = if (e.status >= 500) "The upload did not work. Please try again." else e.message } finally { uploading = null }
         }

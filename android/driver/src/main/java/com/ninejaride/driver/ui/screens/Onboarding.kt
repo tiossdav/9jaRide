@@ -81,7 +81,7 @@ private fun heading(vm: DriverViewModel) = when (vm.applyStep) {
 fun ApplyScreen(vm: DriverViewModel) {
     val step = vm.applyStep
     Column(Modifier.fillMaxSize().background(C.Bg).imePadding()) {
-        ScreenHeader(heading(vm), "Step ${step + 1} of 5", onBack = vm::applyBack)
+        ScreenHeader(heading(vm), if (vm.updateMode) "Update ${vm.applySteps.indexOf(step) + 1} of ${vm.applySteps.size}" else "Step ${step + 1} of 5", onBack = vm::applyBack)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             val a = vm.chosen
             fun edit(set: (String) -> Unit): (String) -> Unit = { set(it); vm.applyError = null }
@@ -144,7 +144,7 @@ fun ApplyScreen(vm: DriverViewModel) {
         }
         Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp).navigationBarsPadding().padding(bottom = 12.dp)) {
             Btn(
-                if (step < 4) "Continue" else if (vm.applying) "Sending..." else "Send application",
+                if (!vm.isLastApplyStep) "Continue" else if (vm.applying) "Sending..." else "Send application",
                 vm::applyNext, Modifier.fillMaxWidth(), enabled = !vm.applying && vm.uploading == null && (step > 0 || vm.arrangements.isNotEmpty()),
             )
         }
@@ -197,7 +197,8 @@ private fun DocumentsStep(vm: DriverViewModel) {
     val camera = rememberCamera { uri -> pending?.let { vm.uploadDocument(it, uri) }; pending = null }
     Txt("Take a clear photo of each document with your camera. Make sure the details can be read.", 13.5f, 500, C.Muted)
     fun clear(set: (String) -> Unit): (String) -> Unit = { set(it); vm.applyError = null }
-    vm.neededDocuments().forEach { kind ->
+    // when staff asked for specific documents, only those are shown
+    vm.neededDocuments().filter { !vm.updateMode || it in vm.updateItems }.forEach { kind ->
         val done = vm.uploads[kind] != null
         Card {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -244,12 +245,12 @@ fun ApplicationStatusScreen(vm: DriverViewModel) {
     androidx.compose.runtime.LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(15_000); if (vm.dialog == null) vm.refreshApplication() } }
     if (vm.dialog == Dialog.Verifying) SheetOverlay(onDismiss = null) {
         Txt("Profile Under Verification", 19f, 800)
-        Txt("Your profile is currently under verification. One of our agents will review your information shortly.", 14f, 500, C.Muted)
+        Txt("Your profile is still under verification. One of our agents will review your information soon.", 14f, 500, C.Muted)
         Btn("Got it", { vm.dialog = null }, Modifier.fillMaxWidth())
     }
     if (vm.dialog == Dialog.Approved) SheetOverlay(onDismiss = null) {
         Txt("Congratulations! \uD83C\uDF89", 21f, 800)
-        Txt("Congratulations! Your profile has been approved. You can now proceed to the settlement process.", 14f, 500, C.Muted)
+        Txt("Your profile has been approved. You can now proceed to the next step.", 14f, 500, C.Muted)
         Btn("Continue", vm::continueAfterApproval, Modifier.fillMaxWidth())
     }
     Column(Modifier.fillMaxSize().background(C.Bg).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 36.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -266,8 +267,27 @@ fun ApplicationStatusScreen(vm: DriverViewModel) {
                 Gap(14.dp)
                 Txt("Please update your application", 22f, 800, align = TextAlign.Center)
                 app.reviewNote?.let { Gap(10.dp); Card(Modifier.fillMaxWidth()) { Txt("What we need", 12f, 600, C.Muted); Txt(it, 14f, 500) } }
-                Gap(18.dp)
-                Btn("Update my application", vm::openApplication, Modifier.fillMaxWidth())
+                if (app.changeItems.isNotEmpty()) {
+                    Gap(12.dp)
+                    Card(Modifier.fillMaxWidth()) {
+                        val flagged = app.changeItems
+                        val rows = buildList {
+                            add("about_you" to "About you"); add("selfie" to "Driver photo"); add("next_of_kin" to "Next of kin"); add("vehicle" to "Vehicle details")
+                            app.documents.filter { it.kind != "selfie" }.forEach { add(it.kind to documentLabel(it.kind)) }
+                        }
+                        rows.forEach { (k, label) ->
+                            val bad = k in flagged
+                            Row(Modifier.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Txt(if (bad) "Needs update" else "Looks good", 11.5f, 700, if (bad) C.OrangeIcon else C.GreenAccent)
+                                Txt(label, 14f, if (bad) 700 else 500, modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                    Gap(6.dp)
+                    Txt("Only the items marked \"Needs update\" have to be changed. Everything else stays as you entered it.", 12.5f, 500, C.Muted, align = TextAlign.Center)
+                }
+                Gap(14.dp)
+                Btn(if (app.changeItems.isNotEmpty()) "Update now" else "Update my application", vm::openApplication, Modifier.fillMaxWidth())
             }
             else -> {
                 Chip("Under review")
@@ -279,7 +299,7 @@ fun ApplicationStatusScreen(vm: DriverViewModel) {
                 val how = if (app?.contactPreference == "email") "by email at ${app.email}" else "on WhatsApp"
                 Txt("We will send you a notification $how as soon as there is a decision. You can close the app and come back; we will keep your place.", 14f, 500, C.Muted, align = TextAlign.Center)
                 Gap(18.dp)
-                Btn("Check status", vm::refreshApplication, Modifier.fillMaxWidth())
+                Btn("Check status", vm::checkStatus, Modifier.fillMaxWidth())
             }
         }
         Gap(12.dp)

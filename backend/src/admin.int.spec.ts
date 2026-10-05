@@ -82,6 +82,23 @@ suite('admin essentials', () => {
       expect(fresh.body.id).not.toBe(first.body.id);
     });
 
+    it('says which parts need fixing, keeps the rest, and wants a flagged document replaced', async () => {
+      const driver = await h.login('driver');
+      const support = await h.staff('support');
+      const body = await application(driver.token);
+      const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send(body).expect(200);
+      const ask = (items: string[]) => h.http().post(`/admin/driver-applications/${sub.body.id}/request-changes`).set(h.auth(support.token)).send({ note: 'Please fix', items });
+      await ask(['not_a_thing']).expect(400);
+      await ask(['drivers_licence', 'next_of_kin']).expect(204);
+      expect((await h.http().get('/driver/application').set(h.auth(driver.token)).expect(200)).body).toMatchObject({ status: 'CHANGES_REQUESTED', changeItems: ['drivers_licence', 'next_of_kin'] });
+      // everything else is still saved, and sending the same licence photo again is refused
+      const same = await h.http().post('/driver/application').set(h.auth(driver.token)).send(body).expect(400);
+      expect(same.body.message).toContain('drivers licence needs a new photo');
+      const fresh = await application(driver.token);
+      await h.http().post('/driver/application').set(h.auth(driver.token)).send(fresh).expect(200);
+      expect((await h.http().get('/driver/application').set(h.auth(driver.token)).expect(200)).body).toMatchObject({ status: 'SUBMITTED', changeItems: [] });
+    });
+
     it('refuses a plate that belongs to another driver, and bad input', async () => {
       const support = await h.staff('support');
       const shared = plate();

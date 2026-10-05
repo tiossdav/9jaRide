@@ -15,6 +15,8 @@ import { PlanTerms, VehiclePlansService } from '../vehicle-plans/vehicle-plans.s
 
 export const DOCUMENT_KINDS = ['drivers_licence', 'nin', 'lassdri', 'vehicle_papers', 'insurance', 'inspection_certificate', 'vehicle_photo', 'road_worthiness', 'selfie', 'owner_consent'] as const;
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
+/** What staff can ask a driver to fix: a part of the form, or one document (selfie is the driver photo). */
+export const CHANGE_ITEMS: string[] = ['about_you', 'next_of_kin', 'vehicle', ...DOCUMENT_KINDS];
 /** A driver can ask for these two. Staff may confirm a different one after seeing the vehicle. */
 export const REQUESTABLE_CATEGORIES = ['regular', 'comfort'];
 
@@ -157,8 +159,18 @@ export class DriverApplicationsService {
       if (open.rows[0]) {
         if (open.rows[0].status === 'SUBMITTED') throw new ConflictException({ code: 'application_pending', message: 'your application is already being reviewed' });
         id = open.rows[0].id;
+        // a document staff flagged has to be replaced, not sent again as it was
+        const flagged: string[] = (await client.query(`SELECT change_items FROM driver_applications WHERE id = $1`, [id])).rows[0]?.change_items ?? [];
+        if (flagged.length) {
+          const before = (await client.query(`SELECT kind, file_id FROM application_documents WHERE application_id = $1`, [id])).rows;
+          for (const kind of flagged) {
+            const was = before.find((d) => d.kind === kind);
+            const now = input.documents.find((d) => d.kind === kind);
+            if (was && now && was.file_id === now.fileId) throw new BadRequestException(`${kind.replace(/_/g, ' ')} needs a new photo: staff asked for it to be replaced`);
+          }
+        }
         await client.query(
-          `UPDATE driver_applications SET status = 'SUBMITTED', vehicle_category = $2, vehicle_make = $3, vehicle_colour = $4, vehicle_plate = $5, arrangement = $6,
+          `UPDATE driver_applications SET status = 'SUBMITTED', change_items = '{}', vehicle_category = $2, vehicle_make = $3, vehicle_colour = $4, vehicle_plate = $5, arrangement = $6,
                   owner_name = $7, owner_phone = $8, email = $9, contact_preference = $10, date_of_birth = $11, nin = $12, lassdri_number = $13, address = $14,
                   next_of_kin_name = $15, next_of_kin_phone = $16, next_of_kin_relationship = $17, next_of_kin_address = $18, nin_status = $19, nin_reason = $20, nin_reference = $21, deduction_bps = $22, nin_checked_at = now(), submitted_at = now(), updated_at = now()
             WHERE id = $1`,
@@ -220,6 +232,7 @@ export class DriverApplicationsService {
         nextOfKin: { name: r.next_of_kin_name, phone: r.next_of_kin_phone, relationship: r.next_of_kin_relationship, address: r.next_of_kin_address },
       },
       reviewNote: r.review_note,
+      changeItems: (r.change_items ?? []) as string[],
       submittedAt: r.submitted_at,
       reviewedAt: r.reviewed_at,
     };
@@ -363,11 +376,11 @@ export class DriverApplicationsService {
     if (!res.rowCount) throw new ConflictException({ code: 'wrong_state', message: 'only an application waiting for review can be changed' });
   }
 
-  private async decide(id: string, staffId: string, status: 'REJECTED' | 'CHANGES_REQUESTED', note: string) {
+  private async decide(id: string, staffId: string, status: 'REJECTED' | 'CHANGES_REQUESTED', note: string, items: string[] = []) {
     const res = await this.pool.query(
-      `UPDATE driver_applications SET status = $2, review_note = $3, reviewed_by = $4, reviewed_at = now(), updated_at = now()
+      `UPDATE driver_applications SET status = $2, review_note = $3, reviewed_by = $4, reviewed_at = now(), updated_at = now(), change_items = $5
         WHERE id = $1 AND status = 'SUBMITTED'`,
-      [id, status, note, staffId],
+      [id, status, note, staffId, items],
     );
     if (res.rowCount) return;
     const { rows } = await this.pool.query(`SELECT status FROM driver_applications WHERE id = $1`, [id]);
@@ -379,8 +392,10 @@ export class DriverApplicationsService {
     return this.decide(id, staffId, 'REJECTED', reason);
   }
 
-  requestChanges(id: string, staffId: string, note: string) {
-    return this.decide(id, staffId, 'CHANGES_REQUESTED', note);
+  requestChanges(id: string, staffId: string, note: string, items: string[] = []) {
+    const bad = items.filter((i) => !CHANGE_ITEMS.includes(i));
+    if (bad.length) throw new BadRequestException(`unknown item to change: ${bad.join(', ')}`);
+    return this.decide(id, staffId, 'CHANGES_REQUESTED', note, [...new Set(items)]);
   }
 
   // ------------------------------------------------------------------ account status
