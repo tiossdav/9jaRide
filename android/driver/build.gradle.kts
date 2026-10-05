@@ -5,6 +5,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// Firebase (push notifications) switches on once google-services.json from the Firebase console is in this folder.
+if (file("google-services.json").exists()) apply(plugin = "com.google.gms.google-services")
+
 android {
     namespace = "com.ninejaride.driver"
     compileSdk = 36

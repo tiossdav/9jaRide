@@ -619,6 +619,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Pulls everything the screens show from the server: profile, photo, trips, today's earnings and the wallet. */
     fun loadAccount() {
+        if (!demo) viewModelScope.launch { com.ninejaride.core.data.Push.register(getApplication(), api.client) } // so bookings reach this phone when the app is closed
         if (demo) return
         viewModelScope.launch {
             runCatching { api.profile() }.getOrNull()?.let { p ->

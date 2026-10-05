@@ -84,131 +84,107 @@ private fun categoryIcon(c: String) = if (c == "package") Ic.Box else Ic.Car
 
 // ---------------------------------------------------------------- the Home tab
 
+/**
+ * The home screen, in two parts that fill it: the map with the rider's position takes the top 55% of the height, and one
+ * continuous panel takes the bottom 45% (it is the screen's bottom half, not a card floating over a background). The panel's
+ * rounded top edge sits a little over the map so the two read as one surface. Everything in it fits without scrolling:
+ * where to, pickup and scheduling, then the ride options.
+ */
 @Composable
 fun HomeTab(vm: RiderViewModel) {
     val here = vm.location.point
-    // The map takes the top 40% of the screen; booking and the promotions below it get the other 60%.
-    Column(Modifier.fillMaxSize().background(C.Bg)) {
-      Box(Modifier.weight(0.4f).fillMaxWidth()) {
-        MapPanel(
-            Modifier.fillMaxSize(),
-            markers = here?.let { listOf(MapMarker(it, MarkerKind.Pickup)) } ?: emptyList(),
-            center = here ?: IBADAN,
-            zoom = 15.5 + (vm.focusTick % 2) * 0.0001, // a tiny change is what makes the map move back after the rider panned away
-            interactive = true,
-        )
-        Row(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(C.Surface).border(1.dp, C.Border, RoundedCornerShape(999.dp)).padding(horizontal = 14.dp, vertical = 9.dp)) {
-                Txt("Hi, " + (vm.profile?.name?.substringBefore(' ')?.ifBlank { null } ?: "there"), 13.5f, 700)
-            }
-        }
-        // the usual "find me" button, top right of the map
-        Box(
-            Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp).size(46.dp).clip(CircleShape).background(C.Surface)
-                .border(1.dp, C.Border, CircleShape).tap(vm::locateMe, "Use my location"),
-            contentAlignment = Alignment.Center,
-        ) { Icon24(Ic.Locate, C.GreenAccent, 24.dp) }
-      }
-      Column(Modifier.weight(0.6f).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(top = 16.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // booking comes first: where to, then the pickup it starts from, then scheduling
-            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Txt("Where are you going?", 20f, 800)
-                Card(padding = 12.dp) {
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Raised).tap({ vm.prepareBooking(); vm.activeField = 0; vm.push(Dest.WhereTo) }, "Pickup location").padding(horizontal = 14.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(C.Green))
-                        Column(Modifier.weight(1f)) { Txt("Pickup", 11.5f, 600, C.Muted); Txt(vm.pickupText.ifBlank { if (here != null) "Current location" else "Finding your location..." }, 14f, 700, maxLines = 1) }
-                    }
-                    Gap(8.dp)
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Raised).tap({ vm.prepareBooking(); vm.push(Dest.WhereTo) }, "Where to").padding(horizontal = 14.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Icon24(Ic.Pin, C.Orange)
-                        Txt("Where to?", 16f, 700, modifier = Modifier.weight(1f))
-                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(C.GreenTint).padding(horizontal = 10.dp, vertical = 5.dp)) { Txt("Now", 12f, 700, C.GreenAccent) }
-                    }
-                    Gap(8.dp)
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).border(1.dp, C.Border, RoundedCornerShape(14.dp)).tap(vm::openSchedule, "Schedule a ride").padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Icon24(Ic.Calendar, C.GreenAccent)
-                        Column(Modifier.weight(1f)) { Txt("Schedule a ride", 14.5f, 700); Txt("Book for later, or every week", 12f, 500, C.Muted) }
-                        Icon24(Ic.Chevron, C.Faint, 18.dp)
-                    }
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(C.Surface)) {
+        val mapH = maxHeight * 0.55f
+        val panelH = maxHeight - mapH
+        val overlap = 22.dp // the panel's rounded corners show the map behind them
+        Box(Modifier.fillMaxWidth().height(mapH + overlap)) {
+            MapPanel(
+                Modifier.fillMaxSize(),
+                markers = here?.let { listOf(MapMarker(it, MarkerKind.Pickup)) } ?: emptyList(),
+                center = here ?: IBADAN,
+                zoom = 15.5 + (vm.focusTick % 2) * 0.0001, // a tiny change is what makes the map move back after the rider panned away
+                interactive = true,
+            )
+            Row(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(C.Surface).border(1.dp, C.Border, RoundedCornerShape(999.dp)).padding(horizontal = 14.dp, vertical = 9.dp)) {
+                    Txt("Hi, " + (vm.profile?.name?.substringBefore(' ')?.ifBlank { null }?.replaceFirstChar { it.uppercase() } ?: "there"), 13.5f, 700)
                 }
             }
-            PromoCarousel(vm)
-      }
-    }
-}
-
-/**
- * Things worth knowing, under the booking box, in rows that swipe sideways with dots to show where you are. The words come from
- * the server (staff change them in the admin portal); a built-in set is shown until they arrive. Booking stays first on the screen.
- */
-@Composable
-private fun PromoCarousel(vm: RiderViewModel) {
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    val invite = {
-        val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
-            .putExtra(android.content.Intent.EXTRA_TEXT, "Ride with 9jaRide: safe, fairly priced rides in Lagos. Get the app and book your first trip.")
-        runCatching { ctx.startActivity(android.content.Intent.createChooser(send, "Invite friends").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
-        Unit
-    }
-    val cards = vm.homeCards
-    val forYou = cards.filter { it.kind == "invite" || it.kind == "promo" || it.kind == "feature" }
-    val notes = cards.filter { it.kind == "announcement" }
-    val tips = cards.filter { it.kind == "safety" }
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        CardRow("For you", forYou, vm, invite)
-        CardRow("Ride announcements", notes, vm, invite)
-        CardRow("Safety tips", tips, vm, invite)
-        // more content is on its way; this keeps the end of the screen from looking unfinished
-        Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).border(1.dp, C.Border, RoundedCornerShape(16.dp)).padding(16.dp)) {
-            Txt("More offers and updates will appear here soon.", 12.5f, 500, C.Muted)
+            // the usual "find me" button, top right of the map
+            Box(
+                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp).size(46.dp).clip(CircleShape).background(C.Surface)
+                    .border(1.dp, C.Border, CircleShape).tap(vm::locateMe, "Use my location"),
+                contentAlignment = Alignment.Center,
+            ) { Icon24(Ic.Locate, C.GreenAccent, 24.dp) }
+        }
+        Column(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(panelH + overlap)
+                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(C.Surface)
+                .padding(top = 8.dp, bottom = 12.dp),
+            // Nothing scrolls: every section is sized to fit, and the space left over is shared out between them.
+            verticalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            Box(Modifier.align(Alignment.CenterHorizontally).size(width = 40.dp, height = 4.dp).clip(RoundedCornerShape(2.dp)).background(C.Border))
+            BookingBlock(vm, here != null)
+            QuickActions(vm)
         }
     }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+/** The main thing on the screen: where to, from where, and when. */
 @Composable
-private fun CardRow(heading: String, items: List<com.ninejaride.rider.data.HomeCard>, vm: RiderViewModel, onInvite: () -> Unit) {
-    if (items.isEmpty()) return
-    val pager = androidx.compose.foundation.pager.rememberPagerState(pageCount = { items.size })
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Txt(heading, 15f, 800, modifier = Modifier.padding(horizontal = 16.dp))
-        androidx.compose.foundation.pager.HorizontalPager(
-            state = pager, contentPadding = PaddingValues(horizontal = 16.dp), pageSpacing = 10.dp, modifier = Modifier.fillMaxWidth(),
-        ) { page ->
-            val c = items[page]
-            val (tint, accent) = when (c.kind) {
-                "invite" -> C.GreenTint to C.GreenAccent
-                "safety" -> Color(0xFFFDECEC) to C.RedText
-                "announcement" -> Color(0xFFE8F0FE) to Color(0xFF2F5FD0)
-                "promo" -> Color(0xFFFFF3E0) to C.Orange
-                else -> C.Raised to C.Ink
-            }
-            val action: () -> Unit = when (c.kind) {
-                "invite" -> onInvite
-                "feature" -> { { vm.openSchedule() } }
-                else -> { {} }
-            }
-            Column(
-                Modifier.fillMaxWidth().height(118.dp).clip(RoundedCornerShape(16.dp)).background(tint).tap(action, c.title).padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+private fun BookingBlock(vm: RiderViewModel, located: Boolean) {
+    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Txt("Where are you going?", 20f, 800)
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(C.Raised).border(1.5.dp, C.GreenAccent, RoundedCornerShape(16.dp))
+                .tap({ vm.prepareBooking(); vm.push(Dest.WhereTo) }, "Where to").padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon24(Ic.Pin, C.Orange, 22.dp)
+            Txt("Search destination", 16f, 700, C.Muted, modifier = Modifier.weight(1f))
+            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(C.GreenAccent).padding(horizontal = 12.dp, vertical = 5.dp)) { Txt("Now", 12.5f, 800, androidx.compose.ui.graphics.Color.White) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).border(1.dp, C.Border, RoundedCornerShape(14.dp))
+                    .tap({ vm.prepareBooking(); vm.activeField = 0; vm.push(Dest.WhereTo) }, "Pickup location").padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Txt(c.title, 15.5f, 800, accent, maxLines = 2)
-                Txt(c.body, 12.5f, 500, C.Ink, maxLines = 4)
+                Box(Modifier.size(9.dp).clip(CircleShape).background(C.Green))
+                Column(Modifier.weight(1f)) {
+                    Txt("Pickup", 10.5f, 600, C.Muted)
+                    Txt(vm.pickupText.ifBlank { if (located) "Current location" else "Finding you..." }, 13.5f, 700, maxLines = 1)
+                }
+            }
+            Row(
+                Modifier.clip(RoundedCornerShape(14.dp)).background(C.GreenTint).tap(vm::openSchedule, "Schedule a ride").padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon24(Ic.Calendar, C.GreenAccent, 20.dp)
+                Column { Txt("Schedule", 13.5f, 800, C.GreenAccent); Txt("a ride", 10.5f, 600, C.GreenAccent) }
             }
         }
-        if (items.size > 1) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                items.indices.forEach { i ->
-                    Box(Modifier.padding(horizontal = 3.dp).size(if (i == pager.currentPage) 8.dp else 6.dp).clip(CircleShape).background(if (i == pager.currentPage) C.GreenAccent else C.Border))
+    }
+}
+
+/** Ride options and other things people come for, as one row of tiles. */
+@Composable
+private fun QuickActions(vm: RiderViewModel) {
+    val actions = buildList {
+        CATEGORIES.forEach { c -> add(Triple(categoryLabel(c), categoryIcon(c)) { vm.bookCategory(c) }) }
+        add(Triple("Wallet", Ic.Wallet) { vm.push(Dest.Wallet) })
+    }.take(4)
+    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Txt("Ride options", 14f, 800)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            actions.forEach { (label, icon, go) ->
+                Column(
+                    Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(C.Raised).tap(go, label).padding(vertical = 9.dp, horizontal = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Box(Modifier.size(34.dp).clip(CircleShape).background(C.Surface), contentAlignment = Alignment.Center) { Icon24(icon, C.GreenAccent, 19.dp) }
+                    Txt(label, 12f, 700, maxLines = 1)
                 }
             }
         }

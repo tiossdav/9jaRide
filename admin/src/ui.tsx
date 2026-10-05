@@ -239,7 +239,9 @@ export function LeafletMap({ dots, height = 340 }: { dots: MapDot[]; height?: nu
   useEffect(() => {
     if (!el.current || map.current) return;
     map.current = L.map(el.current, { zoomControl: true }).setView([7.3775, 3.947], 12);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map.current);
+    const mapbox = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
+    if (mapbox) L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/512/{z}/{x}/{y}@2x?access_token=${mapbox}`, { maxZoom: 20, tileSize: 512, zoomOffset: -1, attribution: '© Mapbox © OpenStreetMap' }).addTo(map.current);
+    else L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map.current);
     layer.current = L.layerGroup().addTo(map.current);
     return () => { map.current?.remove(); map.current = null; };
   }, []);

@@ -1,1 +1,5 @@
 apk/
+
+# Firebase server key (service account): never commit it
+*firebase-adminsdk*.json
+service-account*.json

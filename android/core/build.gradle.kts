@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
@@ -5,12 +7,18 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// The Mapbox token comes from -PmapboxToken=... or android/local.properties, never from a file in git.
+val mapboxToken: String = (project.findProperty("mapboxToken") as String?)
+    ?: Properties().also { p -> rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { p.load(it) } }.getProperty("mapboxToken", "")
+
 android {
     namespace = "com.ninejaride.core"
     compileSdk = 36
     defaultConfig {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // empty means "no Mapbox": the apps fall back to the free OpenStreetMap services
+        buildConfigField("String", "MAPBOX_TOKEN", "\"$mapboxToken\"")
     }
     testOptions { unitTests.isReturnDefaultValues = true }
     compileOptions {
@@ -18,7 +26,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
 }
 
 // api(): the apps use these types directly, so they come through with the module.
@@ -36,6 +44,9 @@ dependencies {
     api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     api("com.squareup.okhttp3:okhttp:4.12.0")
     api("org.osmdroid:osmdroid-android:6.1.20")
+    // push notifications; inert in an app built without google-services.json
+    api(platform("com.google.firebase:firebase-bom:33.7.0"))
+    api("com.google.firebase:firebase-messaging")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")

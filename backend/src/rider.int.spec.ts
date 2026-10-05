@@ -70,6 +70,32 @@ suite('rider app endpoints', () => {
     await h.http().get('/rides').set(h.auth(driver.token)).expect(403);
   });
 
+  it('keeps each phone push token with whoever signed in last, and announces ride status changes', async () => {
+    const a = await h.login('rider');
+    const b = await h.login('rider');
+    const driver = await h.login('driver');
+    const token = `tok-${randomUUID()}-${randomUUID()}`;
+    await h.http().post('/me/push-token').set(h.auth(a.token)).send({ token }).expect(204);
+    await h.http().post('/me/push-token').set(h.auth(b.token)).send({ token }).expect(204); // same phone, new person
+    expect((await h.pool.query(`SELECT user_id, app FROM push_tokens WHERE token = $1`, [token])).rows[0]).toEqual({ user_id: b.id, app: 'rider' });
+    await h.http().post('/me/push-token').set(h.auth(b.token)).send({ token: 'short' }).expect(400);
+    await h.http().delete('/me/push-token').set(h.auth(b.token)).send({ token }).expect(204);
+    expect((await h.pool.query(`SELECT 1 FROM push_tokens WHERE token = $1`, [token])).rowCount).toBe(0);
+
+    // the database says when a ride's status changes, which is what sends the rider a notification
+    const { Client } = await import('pg');
+    const listener = new Client({ connectionString: process.env.DATABASE_URL });
+    await listener.connect();
+    const heard: string[] = [];
+    listener.on('notification', (n) => heard.push(n.payload ?? ''));
+    await listener.query('LISTEN ride_status');
+    const rideId = await h.completedRide(a.id, driver.id, 100_000);
+    await h.pool.query(`INSERT INTO ride_status_history (ride_id, from_status, to_status, reason) VALUES ($1, 'TRIP_STARTED', 'TRIP_COMPLETED', 'test')`, [rideId]);
+    await new Promise((r) => setTimeout(r, 300));
+    await listener.end();
+    expect(heard).toContain(`${rideId}:TRIP_COMPLETED`);
+  });
+
   it('takes one rating per finished trip, from its rider', async () => {
     const rider = await h.login('rider');
     const other = await h.login('rider');

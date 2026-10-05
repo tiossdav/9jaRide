@@ -78,6 +78,8 @@ data class RideListItem(
     val dropoffAddress: String?,
     val fareKobo: Long?,
     val estimate: Pair<Long, Long>?,
+    /** Where the trip went, so it can be offered again as a recent place. */
+    val dropoff: MapPoint? = null,
 )
 
 data class ReceiptLine(val kind: String, val label: String, val amountKobo: Long)
@@ -186,6 +188,7 @@ class RiderApi(private val client: ApiClient) {
         RideListItem(
             o.str("id")!!, o.str("shortCode") ?: "", o.str("status")!!, o.str("paymentMethod") ?: "", o.str("category") ?: "", o.str("createdAt") ?: "",
             o.str("scheduledFor"), o.str("pickupAddress"), o.str("dropoffAddress"), o.long("fareKobo"), estimate(o.obj("estimate")),
+            o.obj("dropoff")?.let { d -> d.dbl("lat")?.let { lat -> d.dbl("lng")?.let { MapPoint(lat, it) } } },
         )
     }
 

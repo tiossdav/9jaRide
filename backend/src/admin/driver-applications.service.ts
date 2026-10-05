@@ -1,4 +1,5 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { PushService } from '../push/push.service';
 import Redis from 'ioredis';
 import { Pool } from 'pg';
 import { suspendedKey } from '../auth/auth.guard';
@@ -74,6 +75,7 @@ export class DriverApplicationsService {
     private readonly files: FilesService,
     private readonly nin: NinService,
     private readonly fleet: FleetService,
+    @Optional() private readonly push?: PushService,
   ) {}
 
   /** The ways a driver can come by a car, for the sign-up screen. */
@@ -359,6 +361,7 @@ export class DriverApplicationsService {
       }
       await client.query('COMMIT');
       await this.redis.del(`driver:${app.driver_id}:category`); // pick up the new vehicle on the next ping
+      void this.push?.toUser(app.driver_id, { type: 'application', title: 'Congratulations! You are approved', body: 'Open 9jaRide Pro to continue to the next step.' }, 'driver');
     } catch (e) {
       await client.query('ROLLBACK').catch(() => undefined);
       throw e;
@@ -382,7 +385,13 @@ export class DriverApplicationsService {
         WHERE id = $1 AND status = 'SUBMITTED'`,
       [id, status, note, staffId, items],
     );
-    if (res.rowCount) return;
+    if (res.rowCount) {
+      const who = (await this.pool.query(`SELECT driver_id FROM driver_applications WHERE id = $1`, [id])).rows[0]?.driver_id;
+      if (who) void this.push?.toUser(who, status === 'REJECTED'
+        ? { type: 'application', title: 'Application not approved', body: 'Open 9jaRide Pro to see why.' }
+        : { type: 'application', title: 'Your application needs an update', body: 'Open 9jaRide Pro to see what to change. Everything else is saved.' }, 'driver');
+      return;
+    }
     const { rows } = await this.pool.query(`SELECT status FROM driver_applications WHERE id = $1`, [id]);
     if (!rows[0]) throw new NotFoundException('application not found');
     throw new ConflictException({ code: 'wrong_state', message: `application is ${rows[0].status}` });

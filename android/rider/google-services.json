@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "411469711015",
+    "project_id": "jaride-11222",
+    "storage_bucket": "jaride-11222.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:411469711015:android:1ae7d4953a9c9b8ea77d82",
+        "android_client_info": {
+          "package_name": "com.ninejaride.driver"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCIb6Hyu2vo9GqndHnIw_QKQBCFpL7nn8c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:411469711015:android:b8d3e5cbb13a6e23a77d82",
+        "android_client_info": {
+          "package_name": "com.ninejaride.rider"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCIb6Hyu2vo9GqndHnIw_QKQBCFpL7nn8c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

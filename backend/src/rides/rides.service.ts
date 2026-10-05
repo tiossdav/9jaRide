@@ -171,7 +171,8 @@ export class RidesService {
     const active = "('SCHEDULED','REQUESTED','SEARCHING_DRIVER','DRIVER_ASSIGNED','DRIVER_ARRIVED','TRIP_STARTED')";
     const { rows } = await this.pool.query(
       `SELECT r.id, r.short_code, r.status, r.payment_method, r.category, r.created_at, r.scheduled_for, r.schedule_id,
-              r.pickup_address, r.dropoff_address, f.total_kobo, q.low_kobo, q.high_kobo
+              r.pickup_address, r.dropoff_address, f.total_kobo, q.low_kobo, q.high_kobo,
+              ST_Y(r.dropoff::geometry) AS dlat, ST_X(r.dropoff::geometry) AS dlng
          FROM rides r
          LEFT JOIN ride_fares f ON f.ride_id = r.id
          LEFT JOIN fare_quotes q ON q.id = r.fare_quote_id
@@ -191,6 +192,7 @@ export class RidesService {
       scheduleId: r.schedule_id as string | null,
       pickupAddress: r.pickup_address as string | null,
       dropoffAddress: r.dropoff_address as string | null,
+      dropoff: r.dlat == null ? null : { lat: Number(r.dlat), lng: Number(r.dlng) },
       fareKobo: r.total_kobo == null ? null : Number(r.total_kobo),
       estimate: r.low_kobo == null ? null : { lowKobo: Number(r.low_kobo), highKobo: Number(r.high_kobo) },
     }));

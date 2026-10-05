@@ -71,7 +71,6 @@ fun SplashScreen() {
                 style = type(46f, 800, Color.White).copy(textAlign = TextAlign.Center),
             )
         }
-        Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 28.dp)) { Txt("Powered by Nexenno", 12.5f, 500, C.OnGreenMuted) }
     }
 }
 

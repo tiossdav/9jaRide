@@ -160,3 +160,17 @@ Use the **real GPS** of the driver's phone: the driver physically moves, the rid
 
 ## Rider home content
 Admin portal, Setup, **Rider home content**: the cards in the rider's "For you", "Ride announcements" and "Safety tips" rows, including the **Invite & Earn** reward amount (write {amount} in the title). Only an admin edits; riders get changes the next time the home screen opens.
+
+## Mapbox (maps, routes, search)
+Both apps and the admin live map use **Mapbox** when a public token is set (`mapboxToken=` in `android/local.properties`, and `VITE_MAPBOX_TOKEN` in `admin/.env.local` and on Render for the portal; GitHub refuses tokens in committed files); without one they fall back to the free OpenStreetMap services.
+- Routes and ETAs use Mapbox driving directions with live traffic.
+- Address search asks Mapbox (streets and addresses) and OpenStreetMap (landmarks such as malls, airports and shops) together and shows both.
+- The maps use the Mapbox street style, and its dark style at night.
+In the Mapbox account, restrict the token to the apps and the portal address so nobody else can use it.
+
+## Push notifications (Firebase)
+The apps register their phone with the server after sign-in. Once the server has the Firebase key:
+- a **new booking** rings the driver's phone even when the app is closed (only while they are online);
+- the **rider** is told when a driver accepts, arrives, starts and ends the trip, or cancels, or no driver is found;
+- the **driver** is told when their application is approved, needs an update, or is not approved.
+To switch it on: Firebase console, Project settings, Service accounts, **Generate new private key**. On Render, open the API service, Environment, add `FIREBASE_SERVICE_ACCOUNT` and paste the whole JSON file as the value. Locally, put `FIREBASE_SERVICE_ACCOUNT_FILE=C:\path\to\the-key.json` in `backend/.env`. Never commit the key. The server log says "push notifications are on" when it works.

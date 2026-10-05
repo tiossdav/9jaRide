@@ -75,14 +75,16 @@ val CATEGORIES: List<String> get() = CATEGORY_NAMES.keys.toList()
 val LAGOS: ZoneId = ZoneId.of("Africa/Lagos")
 
 fun categoryLabel(c: String) = CATEGORY_NAMES[c] ?: c.replace('_', ' ').replaceFirstChar { it.uppercase() }
-
+
 /** Shown until the server's cards arrive, or when they cannot be fetched. Same wording as the server's starting set. */
 val DEFAULT_HOME_CARDS = listOf(
-    com.ninejaride.rider.data.HomeCard("d-invite", "invite", "Invite & Earn", "Invite your friends to 9jaRide and earn rewards when they complete their first eligible ride."),
+    com.ninejaride.rider.data.HomeCard("d-invite", "invite", "Invite & Earn ₦1,000", "Invite your friends to 9jaRide and earn rewards when they complete their first eligible ride."),
     com.ninejaride.rider.data.HomeCard("d-note", "announcement", "Welcome to 9jaRide", "Safe, fairly priced rides across Lagos. Book now or schedule ahead."),
     com.ninejaride.rider.data.HomeCard("d-safe1", "safety", "Check before you ride", "Verify your driver's name, photo and vehicle plate before you get in."),
     com.ninejaride.rider.data.HomeCard("d-safe2", "safety", "Share your trip", "Let someone you trust know where you are going, and keep the SOS button within reach."),
     com.ninejaride.rider.data.HomeCard("d-feat", "feature", "Schedule ahead", "Book a ride for later, or set it to repeat every week."),
+    com.ninejaride.rider.data.HomeCard("d-feat2", "feature", "Pay your way", "Pay from your wallet or in cash. Top up your wallet in a few taps."),
+    com.ninejaride.rider.data.HomeCard("d-safe3", "safety", "Use SOS if you need help", "The SOS button on your trip screen alerts our safety team with your location."),
 )
 
 class RiderViewModel(app: Application) : AndroidViewModel(app) {
@@ -228,6 +230,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun afterSignIn() {
         loadCategories()
+        viewModelScope.launch { com.ninejaride.core.data.Push.register(getApplication(), client) } // so trip updates reach this phone
         viewModelScope.launch { profile = runCatching { api.profile() }.getOrNull() }
         refreshWallet()
         refreshTrips()
@@ -309,7 +312,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         if (text.trim().length < 3) { suggestions = emptyList(); searching = false; return }
         searching = true
         searchJob = viewModelScope.launch {
-            delay(800) // let the person pause: the free search service does not allow search-as-you-type
+            delay(if (Geocoding.fast) 600 else 800) // a short pause after typing; the OpenStreetMap half of the search allows about one request a second
             suggestions = Geocoding.search(text.trim(), location.point)
             searching = false
         }
@@ -701,6 +704,26 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ trips
     val history = mutableStateListOf<RideListItem>()
+
+    /** The last few different places the rider went, newest first, for one-tap booking from the home screen. */
+    val recentPlaces: List<Place>
+        get() = history.filter { it.status == "TRIP_COMPLETED" && it.dropoff != null && !it.dropoffAddress.isNullOrBlank() }
+            .distinctBy { it.dropoffAddress!!.substringBefore(',').trim().lowercase() }
+            .take(3).map { Place(it.dropoffAddress!!, it.dropoff!!) }
+
+    /** Books to a place picked on the home screen: straight to the ride options when the pickup is known, else to "Plan your ride". */
+    fun bookTo(place: Place) {
+        prepareBooking()
+        activeField = 1
+        dropoff = place; dropoffText = place.address
+        if (pickup != null) goToRideSelection() else { activeField = 0; push(Dest.WhereTo) }
+    }
+
+    /** A quick action: start booking with this kind of ride already chosen. */
+    fun bookCategory(code: String) {
+        selectedCategory = code
+        prepareBooking(); push(Dest.WhereTo)
+    }
     val schedules = mutableStateListOf<ScheduleView>()
     var historyLoaded by mutableStateOf(false)
     var tripsTab by mutableIntStateOf(0) // 0 history, 1 scheduled

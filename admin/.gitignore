@@ -3,3 +3,6 @@ dist
 playwright-report
 test-results
 coverage
+
+# local settings (Mapbox token and the like)
+*.local

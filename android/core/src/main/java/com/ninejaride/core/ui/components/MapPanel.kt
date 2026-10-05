@@ -38,6 +38,23 @@ private class StaticMapView(context: Context) : MapView(context) {
 
 private var osmReady = false
 
+private val MAPBOX_TOKEN = com.ninejaride.core.BuildConfig.MAPBOX_TOKEN
+
+/** Mapbox map tiles (streets, or dark at night), drawn by the same map view. */
+private class MapboxTiles(style: String, private val token: String) : org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase(
+    "mapbox-$style", 1, 20, 256, "", arrayOf("https://api.mapbox.com/styles/v1/mapbox/$style/tiles/256/"), "© Mapbox © OpenStreetMap",
+) {
+    override fun getTileURLString(index: Long): String =
+        baseUrl + org.osmdroid.util.MapTileIndex.getZoom(index) + "/" + org.osmdroid.util.MapTileIndex.getX(index) + "/" + org.osmdroid.util.MapTileIndex.getY(index) + "@2x?access_token=" + token
+}
+
+private val mapboxLight by lazy { MapboxTiles("streets-v12", MAPBOX_TOKEN) }
+private val mapboxDark by lazy { MapboxTiles("dark-v11", MAPBOX_TOKEN) }
+
+/** The tiles to draw: Mapbox when a token is set, OpenStreetMap otherwise. */
+private fun tilesFor(dark: Boolean): org.osmdroid.tileprovider.tilesource.ITileSource =
+    if (MAPBOX_TOKEN.isBlank()) TileSourceFactory.MAPNIK else if (dark) mapboxDark else mapboxLight
+
 private fun configureOsm(context: Context) {
     if (osmReady) return
     val cfg = Configuration.getInstance()
@@ -105,7 +122,7 @@ fun MapPanel(
     val view = remember(interactive) {
         configureOsm(context)
         (if (interactive) MapView(context) else StaticMapView(context)).apply {
-            setTileSource(TileSourceFactory.MAPNIK)
+            setTileSource(tilesFor(com.ninejaride.core.ui.theme.C.dark))
             setMultiTouchControls(interactive)
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
             isTilesScaledToDpi = true
@@ -138,9 +155,18 @@ fun MapPanel(
         modifier = modifier,
         factory = { view },
         update = { v ->
-            // The map tiles are light; in dark mode they are inverted so the map does not glare.
-            v.overlayManager.tilesOverlay.setColorFilter(if (com.ninejaride.core.ui.theme.C.dark) org.osmdroid.views.overlay.TilesOverlay.INVERT_COLORS else null)
+            val dark = com.ninejaride.core.ui.theme.C.dark
+            if (MAPBOX_TOKEN.isNotBlank()) {
+                // Mapbox has a dark style of its own
+                val want = tilesFor(dark)
+                if (v.tileProvider.tileSource.name() != want.name()) v.setTileSource(want)
+                v.overlayManager.tilesOverlay.setColorFilter(null)
+            } else {
+                // The OpenStreetMap tiles are light; in dark mode they are inverted so the map does not glare.
+                v.overlayManager.tilesOverlay.setColorFilter(if (dark) org.osmdroid.views.overlay.TilesOverlay.INVERT_COLORS else null)
+            }
             v.overlays.clear()
+            if (MAPBOX_TOKEN.isNotBlank()) v.overlays.add(org.osmdroid.views.overlay.CopyrightOverlay(v.context).apply { setTextSize(9) }) // the credit Mapbox asks for
             if (route.size >= 2) {
                 v.overlays.add(Polyline(v).apply {
                     setPoints(route.map { GeoPoint(it) })
