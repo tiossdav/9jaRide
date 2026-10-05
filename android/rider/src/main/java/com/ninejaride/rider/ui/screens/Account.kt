@@ -75,7 +75,7 @@ fun AccountTab(vm: RiderViewModel) {
                 MenuRow(Ic.Logout, "Log out", null, { vm.dialog = Dialog.Logout }, tint = C.RedText, titleColor = C.RedText, showChevron = false)
                 MenuRow(Ic.Trash, "Delete account", null, { vm.push(Dest.DeleteAccount) }, tint = C.RedText, titleColor = C.RedText, showChevron = false)
             }
-            Txt("9jaRide 0.1.0  -  Powered by Nexenno", 11.5f, 500, C.Faint, Modifier.padding(top = 8.dp))
+            Txt("9jaRide 0.1.0", 11.5f, 500, C.Faint, Modifier.padding(top = 8.dp))
         }
     }
     when (vm.dialog) {
