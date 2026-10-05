@@ -31,7 +31,9 @@ class ServerOffer(
 /** The ride the driver is on, so the app can pick up where it left off. */
 class ServerRide(val rideId: String, val code: String, val status: String, val category: String, val paymentMethod: String,
                  val pickup: com.ninejaride.core.data.MapPoint, val pickupAddress: String?, val dropoff: com.ninejaride.core.data.MapPoint, val dropoffAddress: String?,
-                 val expectedKobo: Long?, val riderName: String)
+                 val expectedKobo: Long?, val riderName: String,
+                 /** Metres the server has counted from this phone's GPS: on the way to the pickup, and with the rider. */
+                 val pickupTravelledM: Int = 0, val tripTravelledM: Int = 0)
 
 class ServerFare(val lines: List<Pair<String, Long>>, val totalKobo: Long, val commissionKobo: Long, val driverEarnKobo: Long, val taxKobo: Long, val vehicleDeductionKobo: Long = 0)
 
@@ -237,6 +239,7 @@ class Api(context: Context) {
         return ServerRide(
             o.str("rideId")!!, o.str("code") ?: "", o.str("status") ?: "", o.str("category") ?: "Ride", o.str("paymentMethod") ?: "cash",
             pt(o.obj("pickup")), o.obj("pickup")?.str("address"), pt(o.obj("dropoff")), o.obj("dropoff")?.str("address"), o.lng("expectedKobo"), o.obj("rider")?.str("name") ?: "Rider",
+            (o.obj("tracking")?.lng("pickupTravelledM") ?: 0).toInt(), (o.obj("tracking")?.lng("tripTravelledM") ?: 0).toInt(),
         )
     }
 

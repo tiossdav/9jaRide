@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -145,12 +146,9 @@ fun HomeTab(vm: RiderViewModel) {
     }
 }
 
-/** One card in the strip under the booking box. */
-private class Promo(val title: String, val text: String, val tint: Color, val accent: Color, val action: () -> Unit)
-
 /**
- * Things worth knowing, in a row that scrolls sideways. Kept below booking so it never gets in the way. The cards are written
- * into the app for now; offers set up in the admin portal can fill this strip later.
+ * Things worth knowing, under the booking box, in rows that swipe sideways with dots to show where you are. The words come from
+ * the server (staff change them in the admin portal); a built-in set is shown until they arrive. Booking stays first on the screen.
  */
 @Composable
 private fun PromoCarousel(vm: RiderViewModel) {
@@ -161,23 +159,56 @@ private fun PromoCarousel(vm: RiderViewModel) {
         runCatching { ctx.startActivity(android.content.Intent.createChooser(send, "Invite friends").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
         Unit
     }
-    val cards = listOf(
-        Promo("Invite & Earn", "Share 9jaRide with friends and family. Reward details are coming soon.", C.GreenTint, C.GreenAccent, invite),
-        Promo("Promo codes", "Got a code? Enter it when you book to take money off the fare.", Color(0xFFFFF3E0), C.Orange) { vm.prepareBooking(); vm.push(Dest.WhereTo) },
-        Promo("Plan ahead", "Schedule a ride for later, or set it to repeat every week.", Color(0xFFE8F0FE), Color(0xFF2F5FD0), vm::openSchedule),
-        Promo("Safety tip", "Check the plate and driver photo before you get in, and keep the SOS button within reach.", Color(0xFFFDECEC), C.RedText) {},
-        Promo("Pay your way", "Pay from your wallet or in cash. Top up your wallet in a few taps.", C.Raised, C.Ink) {},
-    )
+    val cards = vm.homeCards
+    val forYou = cards.filter { it.kind == "invite" || it.kind == "promo" || it.kind == "feature" }
+    val notes = cards.filter { it.kind == "announcement" }
+    val tips = cards.filter { it.kind == "safety" }
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        CardRow("For you", forYou, vm, invite)
+        CardRow("Ride announcements", notes, vm, invite)
+        CardRow("Safety tips", tips, vm, invite)
+        // more content is on its way; this keeps the end of the screen from looking unfinished
+        Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).border(1.dp, C.Border, RoundedCornerShape(16.dp)).padding(16.dp)) {
+            Txt("More offers and updates will appear here soon.", 12.5f, 500, C.Muted)
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun CardRow(heading: String, items: List<com.ninejaride.rider.data.HomeCard>, vm: RiderViewModel, onInvite: () -> Unit) {
+    if (items.isEmpty()) return
+    val pager = androidx.compose.foundation.pager.rememberPagerState(pageCount = { items.size })
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Txt("For you", 15f, 800, modifier = Modifier.padding(horizontal = 16.dp))
-        Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            cards.forEach { c ->
-                Column(
-                    Modifier.width(232.dp).height(118.dp).clip(RoundedCornerShape(16.dp)).background(c.tint).tap(c.action, c.title).padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Txt(c.title, 15f, 800, c.accent)
-                    Txt(c.text, 12.5f, 500, C.Ink, maxLines = 4)
+        Txt(heading, 15f, 800, modifier = Modifier.padding(horizontal = 16.dp))
+        androidx.compose.foundation.pager.HorizontalPager(
+            state = pager, contentPadding = PaddingValues(horizontal = 16.dp), pageSpacing = 10.dp, modifier = Modifier.fillMaxWidth(),
+        ) { page ->
+            val c = items[page]
+            val (tint, accent) = when (c.kind) {
+                "invite" -> C.GreenTint to C.GreenAccent
+                "safety" -> Color(0xFFFDECEC) to C.RedText
+                "announcement" -> Color(0xFFE8F0FE) to Color(0xFF2F5FD0)
+                "promo" -> Color(0xFFFFF3E0) to C.Orange
+                else -> C.Raised to C.Ink
+            }
+            val action: () -> Unit = when (c.kind) {
+                "invite" -> onInvite
+                "feature" -> { { vm.openSchedule() } }
+                else -> { {} }
+            }
+            Column(
+                Modifier.fillMaxWidth().height(118.dp).clip(RoundedCornerShape(16.dp)).background(tint).tap(action, c.title).padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Txt(c.title, 15.5f, 800, accent, maxLines = 2)
+                Txt(c.body, 12.5f, 500, C.Ink, maxLines = 4)
+            }
+        }
+        if (items.size > 1) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                items.indices.forEach { i ->
+                    Box(Modifier.padding(horizontal = 3.dp).size(if (i == pager.currentPage) 8.dp else 6.dp).clip(CircleShape).background(if (i == pager.currentPage) C.GreenAccent else C.Border))
                 }
             }
         }

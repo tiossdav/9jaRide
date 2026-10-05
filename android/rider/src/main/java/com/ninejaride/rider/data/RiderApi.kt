@@ -55,7 +55,16 @@ data class RideView(
     val createdAt: String?,
     val cancelReason: String?,
     val driver: DriverView?,
+    /** Distance the driver really drove (from their GPS), apart for the way to the pickup and the trip. Final once the trip is done. */
+    val pickupTravelledM: Int = 0,
+    val tripTravelledM: Int = 0,
 )
+
+/** One card of the "For you" strip. */
+class HomeCard(val id: String, val kind: String, val title: String, val body: String)
+
+/** Where the driver is, when that was reported, and how far they have driven. */
+class CarFix(val point: MapPoint, val atMs: Long, val pickupTravelledM: Int, val tripTravelledM: Int)
 
 data class RideListItem(
     val id: String,
@@ -118,6 +127,7 @@ private fun ride(o: JsonObject): RideView {
         estimate = estimate(o.obj("estimate")), fareKobo = o.long("fareKobo"), discountKobo = o.long("discountKobo") ?: 0, payableKobo = o.long("payableKobo"), promoCode = o.str("promoCode"), distanceM = o.int("distanceM"), durationS = o.int("durationS"),
         myRating = o.int("myRating"), scheduledFor = o.str("scheduledFor"), statusChangedAt = o.str("statusChangedAt"),
         createdAt = o.str("createdAt"), cancelReason = o.str("cancelReason"),
+        pickupTravelledM = o.obj("tracking")?.int("pickupTravelledM") ?: 0, tripTravelledM = o.obj("tracking")?.int("tripTravelledM") ?: 0,
         driver = d?.let { DriverView(it.str("name") ?: "Driver", it.dbl("rating"), it.str("phone"), v?.str("make") ?: "", v?.str("colour") ?: "", com.ninejaride.core.format.formatPlate(v?.str("plate") ?: "")) },
     )
 }
@@ -179,10 +189,10 @@ class RiderApi(private val client: ApiClient) {
         )
     }
 
-    suspend fun driverLocation(rideId: String): MapPoint? {
+    suspend fun driverLocation(rideId: String): CarFix? {
         val o = client.call("GET", "/rides/$rideId/driver-location", auth = true)
         val lat = o.dbl("lat") ?: return null
-        return MapPoint(lat, o.dbl("lng") ?: return null)
+        return CarFix(MapPoint(lat, o.dbl("lng") ?: return null), o.long("at") ?: System.currentTimeMillis(), o.int("pickupTravelledM") ?: 0, o.int("tripTravelledM") ?: 0)
     }
 
     suspend fun cancel(rideId: String, reason: String?) {
@@ -206,6 +216,8 @@ class RiderApi(private val client: ApiClient) {
     }
 
     // ---- wallet
+    suspend fun homeCards(): List<HomeCard> = client.call("GET", "/app/home-cards", auth = true).items().map { HomeCard(it.str("id") ?: "", it.str("kind") ?: "announcement", it.str("title") ?: "", it.str("body") ?: "") }
+
     suspend fun wallet(): Wallet = client.call("GET", "/wallet", auth = true).let { Wallet(it.long("balanceKobo") ?: 0, it.long("availableKobo") ?: 0) }
 
     suspend fun walletTransactions(): List<WalletTx> = client.call("GET", "/wallet/transactions", auth = true).items().map {

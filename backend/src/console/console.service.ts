@@ -228,7 +228,9 @@ export class ConsoleService {
     if (!r) throw new NotFoundException('trip not found');
     const lines = await this.q(`SELECT kind, label, amount_kobo FROM ride_fare_lines WHERE ride_id = $1 ORDER BY position`, [id]);
     const history = await this.q(`SELECT to_status, reason, created_at FROM ride_status_history WHERE ride_id = $1 ORDER BY created_at, id`, [id]);
+    const [trk] = await this.q(`SELECT pickup_leg_m, trip_m, accepted_points, ignored_points, finished_at FROM ride_tracking WHERE ride_id = $1`, [id]);
     return {
+      tracking: trk ? { pickupLegM: trk.pickup_leg_m, tripM: trk.trip_m, acceptedPoints: trk.accepted_points, ignoredPoints: trk.ignored_points, final: trk.finished_at != null } : null,
       id: r.id, code: r.short_code, status: r.status, paymentStatus: r.payment_status, method: r.payment_method, category: r.category,
       createdAt: r.created_at, scheduledFor: r.scheduled_for,
       pickup: { lat: r.plat, lng: r.plng, address: r.pickup_address }, dropoff: { lat: r.dlat, lng: r.dlng, address: r.dropoff_address },

@@ -891,6 +891,13 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     var waitingSeconds by mutableIntStateOf(0)
     var tripSeconds by mutableIntStateOf(0)
     var tripKm by mutableStateOf(0.0)
+    /** Live figures for the ride in progress (null in the demo): minutes and metres left to the pickup or drop-off, and what the server has counted as driven. */
+    var etaMin by mutableStateOf<Int?>(null)
+    var remainingM by mutableStateOf<Int?>(null)
+    var pickupTravelledM by mutableStateOf(0)
+    var tripTravelledM by mutableStateOf(0)
+    /** Within reach of the drop-off: the screen tells the driver they have arrived, and they end the trip. */
+    val atDestination: Boolean get() = phase == Phase.InTrip && (remainingM ?: Int.MAX_VALUE) <= 80
     var stopReason by mutableStateOf<String?>(null)
     var rating by mutableIntStateOf(5)
     var ratingTags by mutableStateOf(setOf<String>())
@@ -970,7 +977,25 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         phase = Phase.ToPickup
         deviceLocation?.let { from -> viewModelScope.launch { routeToPickup = Routing.route(from, demoPickup) } }
         rideJob?.cancel()
-        rideJob = viewModelScope.launch { while (phase == Phase.ToPickup) { carPoint = deviceLocation ?: carPoint; delay(1000) } }
+        etaMin = null; remainingM = null; pickupTravelledM = 0; tripTravelledM = 0
+        rideJob = viewModelScope.launch { var tick = 0; while (phase == Phase.ToPickup) { carPoint = deviceLocation ?: carPoint; if (!demo && tick % 8 == 0) refreshProgress(); tick++; delay(1000) } }
+    }
+
+    /**
+     * Asks the server how far this phone has driven (it keeps the count from the GPS readings, ignoring wild ones) and works out
+     * the time and distance left to wherever the driver is heading. If the server noticed the arrival at the pickup, the screen follows.
+     */
+    private suspend fun refreshProgress() {
+        val ride = runCatching { api.activeRide() }.getOrNull()
+        if (ride != null) {
+            pickupTravelledM = ride.pickupTravelledM; tripTravelledM = ride.tripTravelledM
+            if (phase == Phase.InTrip && ride.tripTravelledM > 0) tripKm = ride.tripTravelledM / 1000.0 // the server's count is the one used
+            if (phase == Phase.ToPickup && ride.status == "DRIVER_ARRIVED") { beginWaiting(); return }
+        }
+        val me = deviceLocation ?: return
+        val info = runCatching { Routing.routeInfo(me, if (phase == Phase.ToPickup) demoPickup else demoDropoff) }.getOrNull() ?: return
+        etaMin = (info.durationS / 60).coerceAtLeast(1); remainingM = info.distanceM
+        if (phase == Phase.ToPickup) routeToPickup = info.points else routeTrip = info.points
     }
 
     private fun beginWaiting() {
@@ -981,21 +1006,24 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun beginTripLeg() {
-        tripSeconds = 0; tripKm = 0.0; stopReason = null
+        tripSeconds = 0; tripKm = 0.0; stopReason = null; etaMin = null; remainingM = null
         tripStartedPoint = deviceLocation
         phase = Phase.InTrip
         rideJob?.cancel()
         rideJob = viewModelScope.launch {
             var last = deviceLocation
+            var tick = 0
             while (phase == Phase.InTrip) {
                 delay(1000)
                 tripSeconds++
                 val now = deviceLocation
                 if (now != null) {
-                    // distance really driven, from the phone's own readings; tiny jumps are GPS noise
-                    if (last != null) { val d = Routing.haversineKm(last, now); if (d > 0.008) { tripKm += d; last = now } } else last = now
+                    // distance really driven, from the phone's own readings; tiny moves are GPS noise and a sudden leap is not a car
+                    if (last != null) { val d = Routing.haversineKm(last, now); if (d > 0.008 && d < 0.2) { tripKm += d; last = now } else if (d >= 0.2) last = now } else last = now
                     carPoint = now
                 }
+                if (!demo && tick % 8 == 0) refreshProgress()
+                tick++
             }
         }
     }

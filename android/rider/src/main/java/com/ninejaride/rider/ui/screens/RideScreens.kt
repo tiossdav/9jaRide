@@ -75,7 +75,7 @@ fun RideOverlay(vm: RiderViewModel) {
         MapPanel(
             // the map keeps clear of the card below so the pins and the car are never hidden behind it
             Modifier.fillMaxSize().padding(bottom = if (searching) 300.dp else 420.dp), markers = markers,
-            route = if (r.status == "TRIP_STARTED") vm.tripRoute else emptyList(),
+            route = when (r.status) { "TRIP_STARTED" -> vm.tripRoute; "DRIVER_ASSIGNED" -> vm.pickupRoute; else -> emptyList() },
             fit = !searching, center = r.pickup, zoom = 15.0, interactive = false, fitBorderDp = 60,
         )
         if (r.status == "TRIP_STARTED" || r.status == "DRIVER_ASSIGNED" || r.status == "DRIVER_ARRIVED") {
@@ -84,9 +84,9 @@ fun RideOverlay(vm: RiderViewModel) {
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp).navigationBarsPadding()) {
             when (r.status) {
                 "REQUESTED", "SEARCHING_DRIVER" -> SearchingCard(vm, r)
-                "DRIVER_ASSIGNED" -> DriverCard(vm, r, "Your driver is on the way", vm.driverEtaMin?.let { "Arriving in about $it min" } ?: "Arriving shortly", canCancel = true)
-                "DRIVER_ARRIVED" -> DriverCard(vm, r, "Your driver has arrived", "Meet them at the pickup point", canCancel = true)
-                "TRIP_STARTED" -> DriverCard(vm, r, "On your way", vm.tripEtaMin?.let { "About $it min to go" } ?: "Enjoy the ride", canCancel = false)
+                "DRIVER_ASSIGNED" -> DriverCard(vm, r, "Your driver is on the way", vm.driverEtaMin?.let { "Arriving in about $it min" } ?: "Arriving shortly", canCancel = true, progress = pickupProgress(vm))
+                "DRIVER_ARRIVED" -> DriverCard(vm, r, "Your driver has arrived", "Meet them at the pickup point", canCancel = true, progress = null)
+                "TRIP_STARTED" -> DriverCard(vm, r, "On your way", vm.tripEtaMin?.let { "About $it min to go" } ?: "Enjoy the ride", canCancel = false, progress = tripProgress(vm))
             }
         }
         if (vm.sosOpen) SosOverlay(vm)
@@ -144,12 +144,20 @@ private fun SearchingCard(vm: RiderViewModel, r: RideView) {
 }
 
 @Composable
-private fun DriverCard(vm: RiderViewModel, r: RideView, title: String, subtitle: String, canCancel: Boolean) {
+private fun DriverCard(vm: RiderViewModel, r: RideView, title: String, subtitle: String, canCancel: Boolean, progress: List<Pair<String, String>>? = null) {
     val d = r.driver
     val ctx = LocalContext.current
     Card {
         Txt(title, 17f, 800)
         Txt(subtitle, 13f, 500, C.Muted)
+        if (progress != null) {
+            Gap(10.dp)
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.GreenTint).padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                progress.forEach { (label, value) -> Column(Modifier.weight(1f)) { Txt(value, 14.5f, 800, C.GreenAccent); Txt(label, 11f, 500, C.Muted) } }
+            }
+            Gap(6.dp)
+            LiveBadge(vm)
+        }
         Gap(12.dp)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Avatar((d?.name ?: "D").take(1).uppercase(), 48.dp, 18f)
@@ -177,6 +185,26 @@ private fun DriverCard(vm: RiderViewModel, r: RideView, title: String, subtitle:
         if (canCancel) { Gap(12.dp); Btn("Cancel ride", vm::askCancel, Modifier.fillMaxWidth(), kind = BtnKind.Outline) }
     }
 }
+
+/** Whether the car on the map is where the driver is now, or where it was a while ago (no signal). */
+@Composable
+private fun LiveBadge(vm: RiderViewModel) {
+    val live = vm.carLive
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.size(8.dp).clip(CircleShape).background(if (live) C.GreenAccent else C.OrangeIcon))
+        Txt(if (live) "Live location" else if (vm.carAtMs > 0) "Last seen ${com.ninejaride.core.format.ageText((vm.nowMs - vm.carAtMs) / 1000)}. Waiting for the driver's signal" else "Waiting for the driver's location", 11.5f, 600, if (live) C.GreenAccent else C.OrangeIcon)
+    }
+}
+
+private fun pickupProgress(vm: RiderViewModel): List<Pair<String, String>> = listOfNotNull(
+    vm.toPickupM?.let { "Distance to you" to com.ninejaride.core.format.distanceText(it) },
+    "Driven so far" to com.ninejaride.core.format.distanceText(vm.pickupTravelledM),
+)
+
+private fun tripProgress(vm: RiderViewModel): List<Pair<String, String>> = listOfNotNull(
+    "Travelled" to com.ninejaride.core.format.distanceText(vm.tripTravelledM),
+    vm.toDropM?.let { "Remaining" to com.ninejaride.core.format.distanceText(it) },
+)
 
 @Composable
 private fun CancelSheet(vm: RiderViewModel) {
@@ -220,6 +248,10 @@ private fun TripCompleteScreen(vm: RiderViewModel, r: RideView) {
             if (r.discountKobo > 0) Txt("${r.promoCode ?: "Promo"} saved you ${naira(r.discountKobo)}", 13.5f, 700, C.GreenAccent)
             Txt(if (r.paymentMethod == "wallet") "Paid from your wallet" else "Pay your driver in cash", 13.5f, 600, C.Muted)
             Card(Modifier.fillMaxWidth()) { com.ninejaride.core.ui.components.RouteBlock(r.pickupAddress ?: "Pickup", r.dropoffAddress ?: "Drop-off") }
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Raised).padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f)) { Txt(com.ninejaride.core.format.distanceText(if (r.tripTravelledM > 0) r.tripTravelledM else r.distanceM ?: 0), 16f, 800); Txt("Trip distance", 11.5f, 500, C.Muted) }
+                r.durationS?.let { Column(Modifier.weight(1f)) { Txt("${(it / 60).coerceAtLeast(1)} min", 16f, 800); Txt("Trip duration", 11.5f, 500, C.Muted) } }
+            }
             if (vm.feedbackThanks) FeedbackThanks()
             else if (r.myRating == null) {
                 Txt("How was ${r.driver?.name?.substringBefore(' ') ?: "your driver"}?", 16f, 800)

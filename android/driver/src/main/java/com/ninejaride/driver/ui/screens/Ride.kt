@@ -187,8 +187,8 @@ fun ToPickupScreen(vm: DriverViewModel) {
         BottomSheetCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Txt("Pickup in ${o.pickupMin} min", 20f, 800)
-                    Txt("${o.pickupKm} km away", 13f, 500, C.Muted)
+                    Txt("Pickup in ${vm.etaMin ?: o.pickupMin} min", 20f, 800)
+                    Txt(vm.remainingM?.let { "${com.ninejaride.core.format.distanceText(it)} away  ·  ${com.ninejaride.core.format.distanceText(vm.pickupTravelledM)} driven" } ?: "${o.pickupKm} km away", 13f, 500, C.Muted)
                 }
                 Box(Modifier.clip(RoundedCornerShape(10.dp)).background(C.Bg).border(1.5.dp, C.Border, RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 7.dp)) {
                     Txt("Trip ${o.code}", 14f, 700, letterSpacing = 0.5f)
@@ -263,12 +263,13 @@ fun InTripScreen(vm: DriverViewModel) {
         BottomSheetCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Txt("${maxOf(1, 9 - vm.tripSeconds / 60)} min", 24f, 800)
-                    Txt("to ${o.dropoff.substringBefore(',')}, Ibadan", 13f, 500, C.Muted)
+                    Txt(if (vm.atDestination) "You have arrived" else "${vm.etaMin ?: maxOf(1, 9 - vm.tripSeconds / 60)} min", 24f, 800, if (vm.atDestination) C.GreenAccent else C.Ink)
+                    Txt(if (vm.atDestination) "Tap End trip when the rider is out" else "to ${o.dropoff.substringBefore(',')}", 13f, 500, C.Muted)
                 }
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Txt("Distance", 12f, 500, C.Muted)
+                    Txt("Travelled", 12f, 500, C.Muted)
                     Txt("%.2f km".format(vm.tripKm), 16f, 700)
+                    vm.remainingM?.let { Txt("${com.ninejaride.core.format.distanceText(it)} left", 12f, 600, C.Muted) }
                 }
             }
             Column(

@@ -145,3 +145,18 @@ The base amount of a fare is the **Booking Fee** (older receipts that said "Serv
 
 ## SOS counter in the admin portal
 Top right, always: **SOS Alerts: N**, the alerts that are not resolved (new or acknowledged). It never resets at midnight and falls only when an alert is resolved. Click it to open the Safety Center.
+
+## Live tracking, ETA and distance (two phones)
+Use the **real GPS** of the driver's phone: the driver physically moves, the rider watches.
+- **Driver to pickup:** the rider sees the car, the road to the pickup, "Arriving in about N min", the distance still to go and the distance the driver has driven so far. When the driver is within about 60 m of the pickup the booking becomes **Arrived** by itself (the driver can still tap "I've arrived").
+- **Trip:** after "Start trip" the rider sees the road left to the destination, the time and distance remaining, and the distance travelled. The driver sees the same, and "You have arrived" once within about 80 m of the drop-off; they end the trip.
+- **Live or not:** the rider's card says "Live location" or "Last seen 2 min ago" when the driver's phone has stopped reporting. The car slides between readings instead of jumping.
+- **Distance rules:** the server adds up the distance between consecutive GPS readings, separately for the way to the pickup and the trip. It ignores readings less precise than 50 m, movement under 8 m (noise), duplicates, and impossible jumps (faster than 160 km/h); three odd readings in a row are taken as the real new place. Change with `TRACK_MAX_ACCURACY_M`, `TRACK_MIN_MOVE_M`, `TRACK_MAX_SPEED_KMH`, `TRACK_JUMPS_BEFORE_RESET`, `TRACK_ARRIVE_RADIUS_M`, `TRACK_DESTINATION_RADIUS_M`.
+- Admin Trip detail shows both GPS distances next to the charged distance, and how many readings were used or ignored. The fare still uses the distance the driver app sends, checked against the recorded route.
+
+## Verification: Check status and "what to fix"
+- **Check status** shows "Profile Under Verification" while pending, and "Congratulations!" with Continue once approved.
+- When staff **Request changes** they tick the parts that need fixing (About you, Next of kin, Vehicle, the photo, or a single document). The driver sees what looks good and what needs an update, is taken straight to those steps only, and everything else stays filled in. A flagged document must be replaced with a new photo. After resubmitting the application is back in review.
+
+## Rider home content
+Admin portal, Setup, **Rider home content**: the cards in the rider's "For you", "Ride announcements" and "Safety tips" rows, including the **Invite & Earn** reward amount (write {amount} in the title). Only an admin edits; riders get changes the next time the home screen opens.

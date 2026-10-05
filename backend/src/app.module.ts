@@ -22,9 +22,10 @@ import { LedgerModule } from './ledger/ledger.module';
 import { PaymentsModule } from './payments/payments.module';
 import { RidesModule } from './rides/rides.module';
 import { SafetyModule } from './safety/safety.module';
+import { HomeContentModule } from './home-content/home-content.module';
 
 @Module({
   controllers: [HealthController],
-  imports: [ScheduleModule.forRoot(), InfraModule, SettingsModule, CatalogModule, AuthModule, LedgerModule, FareModule, PaymentsModule, DispatchModule, RidesModule, SafetyModule, AdminModule, ConsoleModule, FilesModule, FleetModule, DriverProfileModule, VehiclePlansModule, TeamModule, StakeholdersModule, PromoModule, SupportModule, AppConfigModule],
+  imports: [ScheduleModule.forRoot(), InfraModule, SettingsModule, CatalogModule, AuthModule, LedgerModule, FareModule, PaymentsModule, DispatchModule, RidesModule, SafetyModule, AdminModule, ConsoleModule, FilesModule, FleetModule, DriverProfileModule, VehiclePlansModule, TeamModule, StakeholdersModule, PromoModule, SupportModule, AppConfigModule, HomeContentModule],
 })
 export class AppModule {}

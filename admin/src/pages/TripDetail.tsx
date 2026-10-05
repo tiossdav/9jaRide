@@ -9,6 +9,7 @@ interface Trip {
   pickup: { address: string | null }; dropoff: { address: string | null };
   rider: { id: string; name: string; phone: string };
   driver: { id: string; name: string; phone: string; vehicle: string | null } | null;
+  tracking: { pickupLegM: number; tripM: number; acceptedPoints: number; ignoredPoints: number; final: boolean } | null;
   fare: { totalKobo: number; distanceM: number; durationS: number; waitingS: number; outsideEstimate: boolean; lines: { kind: string; label: string; amountKobo: number }[]; rates: { category: string; effectiveFrom: string } | null } | null;
   estimate: { lowKobo: number; highKobo: number } | null;
   timeline: { status: string; reason: string | null; at: string }[];
@@ -32,7 +33,8 @@ export default function TripDetail() {
           <div className="card"><h3>Route</h3>
             <div className="line"><span className="note">Pickup</span><span>{t.pickup.address ?? 'Coordinates only'}</span></div>
             <div className="line"><span className="note">Drop-off</span><span>{t.dropoff.address ?? 'Coordinates only'}</span></div>
-            {t.fare && <div className="line"><span className="note">Distance</span><span>{(t.fare.distanceM / 1000).toFixed(1)} km</span></div>}</div>
+            {t.fare && <div className="line"><span className="note">Distance (charged)</span><span>{(t.fare.distanceM / 1000).toFixed(1)} km</span></div>}
+            {t.tracking && <><div className="line"><span className="note">Driver to pickup (GPS)</span><span>{(t.tracking.pickupLegM / 1000).toFixed(1)} km</span></div><div className="line"><span className="note">Trip distance (GPS){t.tracking.final ? '' : ', so far'}</span><span>{(t.tracking.tripM / 1000).toFixed(1)} km</span></div><div className="line"><span className="note">GPS readings used / ignored</span><span>{t.tracking.acceptedPoints} / {t.tracking.ignoredPoints}</span></div></>}</div>
           <div className="card"><h3>People</h3>
             <div className="line"><span className="note">Rider</span><span><Link to={`/people/${t.rider.id}`} style={{ color: 'var(--accent)' }}>{t.rider.name}</Link> · {t.rider.phone}</span></div>
             <div className="line"><span className="note">Driver</span><span>{t.driver ? <><Link to={`/people/${t.driver.id}`} style={{ color: 'var(--accent)' }}>{t.driver.name}</Link> · {t.driver.phone}</> : 'Not assigned'}</span></div>

@@ -75,6 +75,15 @@ val CATEGORIES: List<String> get() = CATEGORY_NAMES.keys.toList()
 val LAGOS: ZoneId = ZoneId.of("Africa/Lagos")
 
 fun categoryLabel(c: String) = CATEGORY_NAMES[c] ?: c.replace('_', ' ').replaceFirstChar { it.uppercase() }
+
+/** Shown until the server's cards arrive, or when they cannot be fetched. Same wording as the server's starting set. */
+val DEFAULT_HOME_CARDS = listOf(
+    com.ninejaride.rider.data.HomeCard("d-invite", "invite", "Invite & Earn", "Invite your friends to 9jaRide and earn rewards when they complete their first eligible ride."),
+    com.ninejaride.rider.data.HomeCard("d-note", "announcement", "Welcome to 9jaRide", "Safe, fairly priced rides across Lagos. Book now or schedule ahead."),
+    com.ninejaride.rider.data.HomeCard("d-safe1", "safety", "Check before you ride", "Verify your driver's name, photo and vehicle plate before you get in."),
+    com.ninejaride.rider.data.HomeCard("d-safe2", "safety", "Share your trip", "Let someone you trust know where you are going, and keep the SOS button within reach."),
+    com.ninejaride.rider.data.HomeCard("d-feat", "feature", "Schedule ahead", "Book a ride for later, or set it to repeat every week."),
+)
 
 class RiderViewModel(app: Application) : AndroidViewModel(app) {
     private val client = ApiClient(app, BuildConfig.API_BASE_URL, BuildConfig.VERSION_NAME)
@@ -430,7 +439,19 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     var driverPoint by mutableStateOf<MapPoint?>(null)
     var driverEtaMin by mutableStateOf<Int?>(null)
     var tripEtaMin by mutableStateOf<Int?>(null)
-    var tripRoute by mutableStateOf<List<MapPoint>>(emptyList()) // the road from pickup to drop-off, drawn once the trip starts
+    var tripRoute by mutableStateOf<List<MapPoint>>(emptyList()) // the road still to go to the drop-off, from where the driver is now
+    var pickupRoute by mutableStateOf<List<MapPoint>>(emptyList()) // the road from the driver to the pickup
+    /** Metres of road left to the pickup / the drop-off, from the latest route. */
+    var toPickupM by mutableStateOf<Int?>(null)
+    var toDropM by mutableStateOf<Int?>(null)
+    /** Metres the driver has really driven (from their GPS): to the pickup, and with the rider. */
+    var pickupTravelledM by mutableStateOf(0)
+    var tripTravelledM by mutableStateOf(0)
+    /** When the driver's phone last reported, and the clock the screen compares it with. A reading older than 30 s is shown as not live. */
+    var carAtMs by mutableStateOf(0L)
+    var nowMs by mutableStateOf(System.currentTimeMillis())
+    val carLive: Boolean get() = carAtMs > 0 && nowMs - carAtMs <= 30_000
+    private var carAnim: Job? = null
     private var tripRouteFor: String? = null
     var searchSeconds by mutableIntStateOf(0)
     var rating by mutableIntStateOf(5)
@@ -456,8 +477,19 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     private var clockJob: Job? = null
     private val watchedStatuses = setOf("DRIVER_ASSIGNED", "DRIVER_ARRIVED", "TRIP_STARTED")
 
+    /** The "For you" cards. Starts with a built-in set so the home screen is never bare, and is replaced by what staff have set up. */
+    var homeCards by mutableStateOf(DEFAULT_HOME_CARDS)
+    private var homeCardsAt = 0L
+
+    private fun loadHomeCards() {
+        if (api.session == null || System.currentTimeMillis() - homeCardsAt < 120_000) return
+        homeCardsAt = System.currentTimeMillis()
+        viewModelScope.launch { runCatching { api.homeCards() }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { homeCards = it } }
+    }
+
     fun onVisible(v: Boolean) {
         visible = v
+        if (v) loadHomeCards()
         if (v) { if (api.session != null && location.hasPermission()) location.start() } else location.stop()
     }
 
@@ -499,7 +531,11 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
             while (true) {
                 val r = ride
                 if (visible && r != null && r.status in watchedStatuses) {
-                    runCatching { api.driverLocation(id) }.getOrNull()?.let { driverPoint = it }
+                    runCatching { api.driverLocation(id) }.getOrNull()?.let { fix ->
+                        pickupTravelledM = fix.pickupTravelledM; tripTravelledM = fix.tripTravelledM; carAtMs = fix.atMs
+                        moveCarTo(fix.point)
+                    }
+                    nowMs = System.currentTimeMillis()
                     runCatching { updateEtas(r) }
                 }
                 delay(if (r == null) 1_000 else if (r.status == "DRIVER_ARRIVED") 10_000 else 5_000)
@@ -520,11 +556,35 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         val now = System.currentTimeMillis()
         if (now - etaAt < 15_000) return
         etaAt = now
-        val d = driverPoint
-        if (r.status == "DRIVER_ASSIGNED" && d != null) driverEtaMin = (Routing.routeInfo(d, r.pickup).durationS / 60).coerceAtLeast(1)
+        val d = carTarget ?: driverPoint
+        // the time and distance left come from the road between where the driver is now and where they are going, so they change as the driver moves
+        if (r.status == "DRIVER_ASSIGNED" && d != null) {
+            val info = Routing.routeInfo(d, r.pickup)
+            driverEtaMin = (info.durationS / 60).coerceAtLeast(1); toPickupM = info.distanceM; pickupRoute = info.points
+        }
+        if (r.status == "DRIVER_ARRIVED") { driverEtaMin = null; toPickupM = null; pickupRoute = emptyList() }
         if (r.status == "TRIP_STARTED") {
-            tripEtaMin = (Routing.routeInfo(d ?: r.pickup, r.dropoff).durationS / 60).coerceAtLeast(1)
-            if (tripRouteFor != r.id) { tripRouteFor = r.id; tripRoute = Routing.route(r.pickup, r.dropoff) }
+            val info = Routing.routeInfo(d ?: r.pickup, r.dropoff)
+            tripEtaMin = (info.durationS / 60).coerceAtLeast(1); toDropM = info.distanceM; tripRoute = info.points; tripRouteFor = r.id
+            pickupRoute = emptyList()
+        }
+    }
+
+    private var carTarget: MapPoint? = null
+
+    /** Slides the car to its new place over a few seconds instead of jumping, unless it is far away or has not been shown yet. */
+    private fun moveCarTo(to: MapPoint) {
+        carTarget = to
+        val from = driverPoint
+        carAnim?.cancel()
+        if (from == null || Routing.haversineKm(from, to) > 0.5) { driverPoint = to; return }
+        carAnim = viewModelScope.launch {
+            val steps = 10
+            for (i in 1..steps) {
+                val t = i / steps.toDouble()
+                driverPoint = MapPoint(from.lat + (to.lat - from.lat) * t, from.lng + (to.lng - from.lng) * t)
+                delay(400)
+            }
         }
     }
 
@@ -562,6 +622,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     fun endRide() {
         pollJob?.cancel()
         ride = null; tripDone = null; driverPoint = null; driverEtaMin = null; tripEtaMin = null; tripRoute = emptyList(); tripRouteFor = null
+        pickupRoute = emptyList(); toPickupM = null; toDropM = null; pickupTravelledM = 0; tripTravelledM = 0; carAtMs = 0; carTarget = null; carAnim?.cancel()
         rating = 5; ratingTags = emptySet(); ratingComment = ""; feedbackThanks = false; ratingSent = false; sosOpen = false; sosSteps = 0; cancelReason = null
         clearBooking()
         if (dialog == Dialog.CancelRide || dialog == Dialog.NoDriver) dialog = null
