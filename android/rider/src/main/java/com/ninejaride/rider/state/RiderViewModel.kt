@@ -448,35 +448,68 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { runCatching { api.activeRideId() }.getOrNull()?.let { startWatching(it) } }
     }
 
-    /** Follows a ride every few seconds until it ends. Survives the screen changing; stops on a terminal state. */
+    /** Whether the app is on screen. The phone's GPS and the live position of the car are only used while it is. */
+    var visible by mutableStateOf(true)
+    private var carJob: Job? = null
+    private var clockJob: Job? = null
+    private val watchedStatuses = setOf("DRIVER_ASSIGNED", "DRIVER_ARRIVED", "TRIP_STARTED")
+
+    fun onVisible(v: Boolean) {
+        visible = v
+        if (v) { if (api.session != null && location.hasPermission()) location.start() } else location.stop()
+    }
+
+    /**
+     * Follows a ride until it ends. Three light jobs instead of one busy one:
+     *  - the ride's status is asked for with the server holding the answer until it changes (about three requests a minute,
+     *    and a change such as "driver arrived" is heard at once);
+     *  - the car's position is fetched every 5 s, only while the app is on screen and the car is on its way;
+     *  - the search clock counts in memory, with no network at all.
+     * It survives the screen changing and stops on a terminal state.
+     */
     fun startWatching(id: String) {
-        pollJob?.cancel()
+        pollJob?.cancel(); carJob?.cancel(); clockJob?.cancel()
         searchSeconds = 0
+        fun stopHelpers() { carJob?.cancel(); clockJob?.cancel() }
         pollJob = viewModelScope.launch {
-            var tick = 0
+            var seen: String? = null
             while (true) {
                 try {
-                    val r = api.ride(id)
+                    val r = api.ride(id, waitFor = seen, waitSeconds = 20)
                     ride = r
+                    seen = r.status
                     when (r.status) {
-                        "DRIVER_ASSIGNED", "DRIVER_ARRIVED", "TRIP_STARTED" -> {
-                            api.driverLocation(id)?.let { driverPoint = it }
-                            updateEtas(r)
-                        }
-                        "TRIP_COMPLETED" -> { tripDone = r; ratingSent = r.myRating != null; refreshWallet(); refreshTrips(); return@launch }
-                        "NO_DRIVER_FOUND" -> { dialog = Dialog.NoDriver; refreshTrips(); return@launch }
+                        "TRIP_COMPLETED" -> { stopHelpers(); tripDone = r; ratingSent = r.myRating != null; refreshWallet(); refreshTrips(); return@launch }
+                        "NO_DRIVER_FOUND" -> { stopHelpers(); dialog = Dialog.NoDriver; refreshTrips(); return@launch }
                         "CANCELLED_BY_RIDER", "CANCELLED_BY_DRIVER", "CANCELLED_BY_SYSTEM" -> {
+                            stopHelpers()
                             if (r.status != "CANCELLED_BY_RIDER") say(if (r.status == "CANCELLED_BY_DRIVER") "Your driver cancelled this ride." else "This ride was cancelled.")
                             endRide(); refreshTrips(); return@launch
                         }
                     }
                 } catch (e: ApiException) {
-                    if (e.status == 404) { endRide(); return@launch }
-                    // A dropped connection is not the end of the ride: keep trying.
+                    if (e.status == 404) { stopHelpers(); endRide(); return@launch }
+                    delay(5_000) // a dropped connection is not the end of the ride: try again shortly
                 }
-                if (ride?.status == "SEARCHING_DRIVER" || ride?.status == "REQUESTED") searchSeconds = ((System.currentTimeMillis() - (ride?.createdAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() } ?: System.currentTimeMillis())) / 1000).toInt()
-                tick++
-                delay(3000)
+            }
+        }
+        carJob = viewModelScope.launch {
+            while (true) {
+                val r = ride
+                if (visible && r != null && r.status in watchedStatuses) {
+                    runCatching { api.driverLocation(id) }.getOrNull()?.let { driverPoint = it }
+                    runCatching { updateEtas(r) }
+                }
+                delay(if (r == null) 1_000 else if (r.status == "DRIVER_ARRIVED") 10_000 else 5_000)
+            }
+        }
+        clockJob = viewModelScope.launch {
+            while (true) {
+                val r = ride
+                if (visible && (r?.status == "SEARCHING_DRIVER" || r?.status == "REQUESTED")) {
+                    searchSeconds = ((System.currentTimeMillis() - (r.createdAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() } ?: System.currentTimeMillis())) / 1000).toInt()
+                }
+                delay(1_000)
             }
         }
     }

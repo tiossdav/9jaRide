@@ -118,4 +118,44 @@ suite('the driver side of a real order', () => {
     await h.http().post(`/driver/rides/${second}/start`).set(h.auth(driver.token)).expect(204);
     await h.http().post(`/driver/rides/${second}/cancel`).set(h.auth(driver.token)).send({}).expect(409);
   });
+
+  it('holds a request open until something happens, so phones need not ask every few seconds', async () => {
+    const { rider, driver, ping, book, offered } = await setup();
+    await ping();
+
+    // a driver waiting for work: nothing arrives, the answer comes back empty after the wait
+    const t0 = Date.now();
+    expect((await h.http().get('/driver/offer').query({ wait: 2 }).set(h.auth(driver.token)).expect(200)).body.offer).toBeNull();
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(1500);
+
+    // ...and when a booking arrives meanwhile, the held request is answered at once
+    const waiting = h.http().get('/driver/offer').query({ wait: 20 }).set(h.auth(driver.token)).then((r) => ({ at: Date.now(), body: r.body }));
+    await new Promise((r) => setTimeout(r, 400));
+    const rideId = await book();
+    const asked = Date.now();
+    await offered(rideId);
+    const got = await waiting;
+    expect(got.body.offer).toMatchObject({ rideId });
+    expect(got.at - asked).toBeLessThan(8000);
+
+    // a rider watching the ride: held while nothing changes, answered when the driver moves it on
+    await h.http().post(`/driver/rides/${rideId}/accept`).set(h.auth(driver.token)).expect(200);
+    const quiet = Date.now();
+    expect((await h.http().get(`/rides/${rideId}`).query({ waitFor: 'DRIVER_ASSIGNED', wait: 2 }).set(h.auth(rider.token)).expect(200)).body.status).toBe('DRIVER_ASSIGNED');
+    expect(Date.now() - quiet).toBeGreaterThanOrEqual(1500);
+    const watching = h.http().get(`/rides/${rideId}`).query({ waitFor: 'DRIVER_ASSIGNED', wait: 20 }).set(h.auth(rider.token)).then((r) => ({ at: Date.now(), body: r.body }));
+    await new Promise((r) => setTimeout(r, 500));
+    const moved = Date.now();
+    await h.http().post(`/driver/rides/${rideId}/arrive`).set(h.auth(driver.token)).expect(204);
+    const seen = await watching;
+    expect(seen.body.status).toBe('DRIVER_ARRIVED');
+    expect(seen.at - moved).toBeLessThan(4000);
+    // asking with a status the ride is not in answers straight away
+    const now = Date.now();
+    expect((await h.http().get(`/rides/${rideId}`).query({ waitFor: 'DRIVER_ASSIGNED', wait: 20 }).set(h.auth(rider.token)).expect(200)).body.status).toBe('DRIVER_ARRIVED');
+    expect(Date.now() - now).toBeLessThan(1500);
+    // nobody else can watch it, and the wait is capped
+    await h.http().get(`/rides/${rideId}`).query({ waitFor: 'DRIVER_ARRIVED', wait: 2 }).set(h.auth((await h.login('rider')).token)).expect(404);
+    await h.http().get('/driver/offer').query({ wait: 60 }).set(h.auth(driver.token)).expect(400);
+  });
 });

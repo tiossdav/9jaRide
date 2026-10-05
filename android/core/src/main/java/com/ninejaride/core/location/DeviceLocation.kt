@@ -48,7 +48,8 @@ class DeviceLocation(private val context: Context) {
             for (provider in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
                 if (!lm.isProviderEnabled(provider)) continue
                 lm.getLastKnownLocation(provider)?.let { if (point == null) point = MapPoint(it.latitude, it.longitude) }
-                lm.requestLocationUpdates(provider, 5_000L, 10f, l, Looper.getMainLooper())
+                // Gentle: a position every 10 s (GPS) or 30 s (network), and only after the phone has moved 15 m or more
+                lm.requestLocationUpdates(provider, if (provider == LocationManager.GPS_PROVIDER) 10_000L else 30_000L, 15f, l, Looper.getMainLooper())
             }
             listener = l
         } catch (e: SecurityException) {

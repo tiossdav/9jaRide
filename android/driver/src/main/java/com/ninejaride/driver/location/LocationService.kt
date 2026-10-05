@@ -44,6 +44,8 @@ object LocationStatus {
     var lastUploadAtMillis by mutableStateOf<Long?>(null)
     /** A plain-words reason sharing is not working right now, or null when all is well. */
     var problem by mutableStateOf<String?>(null)
+    /** The newest good position, so the screens need not ask the phone for one of their own while the service is running. */
+    var last by mutableStateOf<com.ninejaride.core.data.MapPoint?>(null)
 }
 
 /**
@@ -61,6 +63,9 @@ class LocationService : Service() {
     private var offerJob: Job? = null
     private var listener: LocationListener? = null
     private var lastFix: Long = 0
+    /** Waiting for a booking (false) or on a trip (true). A trip needs a fast, exact position; waiting does not. */
+    @Volatile private var tripMode = false
+    private var lastGood: Fix? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -77,6 +82,12 @@ class LocationService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        if (intent?.action == ACTION_MODE) {
+            val wasTrip = tripMode
+            tripMode = isTrip(this)
+            if (tripMode != wasTrip && listener != null) restartListening()
+            return START_STICKY
+        }
         // Started with startForegroundService, so Android requires the notification within seconds, even if we then stop.
         startInForeground()
         if (!isOnline(this)) {
@@ -88,6 +99,7 @@ class LocationService : Service() {
             LocationStatus.problem = "Location permission is off. Allow it in the phone settings."
             return START_STICKY
         }
+        tripMode = isTrip(this)
         startListening()
         if (uploadJob == null) uploadJob = scope.launch { uploadLoop() }
         if (offerJob == null) offerJob = scope.launch { watchOffers() }
@@ -128,14 +140,24 @@ class LocationService : Service() {
         }
         try {
             if (!lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) LocationStatus.problem = "GPS is off. Turn on location to receive trips."
-            // GPS about every 4 seconds; the network provider fills in when there is no sky view.
-            for (provider in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
-                if (lm.allProviders.contains(provider)) lm.requestLocationUpdates(provider, 4_000L, 0f, l, Looper.getMainLooper())
-            }
+            // How often the phone is asked depends on what the driver is doing. Waiting for a booking, the GPS is asked every
+            // 10 s and only reports when the car has moved 15 m (a parked car costs almost nothing; the upload loop keeps it
+            // "online" with a heartbeat). On a trip the rider is watching, so it is every 3 s. The network position is the
+            // fallback when there is no view of the sky, and is asked far less often.
+            val gps = if (tripMode) Triple(3_000L, 0f, true) else Triple(10_000L, 15f, true)
+            val net = if (tripMode) Triple(15_000L, 0f, true) else Triple(30_000L, 50f, true)
+            if (lm.allProviders.contains(LocationManager.GPS_PROVIDER)) lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, gps.first, gps.second, l, Looper.getMainLooper())
+            if (lm.allProviders.contains(LocationManager.NETWORK_PROVIDER)) lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, net.first, net.second, l, Looper.getMainLooper())
             listener = l
         } catch (e: SecurityException) {
             LocationStatus.problem = "Location permission is off. Allow it in the phone settings."
         }
+    }
+
+    private fun restartListening() {
+        listener?.let { getSystemService(LocationManager::class.java)?.removeUpdates(it) }
+        listener = null
+        startListening()
     }
 
     private fun onFix(loc: Location) {
@@ -145,35 +167,40 @@ class LocationService : Service() {
         if (loc.hasAccuracy() && loc.accuracy > MAX_ACCURACY_M) return
         if (loc.provider == LocationManager.GPS_PROVIDER) lastFix = now
         val mock = if (Build.VERSION.SDK_INT >= 31) loc.isMock else @Suppress("DEPRECATION") loc.isFromMockProvider
-        queue.add(
-            Fix(
-                lat = loc.latitude, lng = loc.longitude,
-                accuracyM = if (loc.hasAccuracy()) loc.accuracy else null,
-                speedKmh = if (loc.hasSpeed()) loc.speed * 3.6f else null,
-                mock = mock,
-                recordedAtMillis = if (loc.time > 0) loc.time else now,
-            ),
+        val fix = Fix(
+            lat = loc.latitude, lng = loc.longitude,
+            accuracyM = if (loc.hasAccuracy()) loc.accuracy else null,
+            speedKmh = if (loc.hasSpeed()) loc.speed * 3.6f else null,
+            mock = mock,
+            recordedAtMillis = if (loc.time > 0) loc.time else now,
         )
+        if (!mock) { lastGood = fix; LocationStatus.last = com.ninejaride.core.data.MapPoint(fix.lat, fix.lng) }
+        queue.add(fix)
         LocationStatus.pending = queue.size()
     }
 
     /**
-     * Asks for a waiting booking every few seconds while the driver is online. This runs in the foreground service, so it
-     * carries on when the app is behind another app or the screen is off; when an offer appears the booking alert rings.
+     * Waits for a booking while the driver is online. The server holds each request open until an offer arrives (or 20 seconds
+     * pass), so the phone makes about three requests a minute instead of twenty, and still hears of a booking at once. This runs
+     * in the foreground service, so it carries on with the app behind another app or the screen off; the booking alert rings.
      */
     private suspend fun watchOffers() {
         while (true) {
-            delay(3_000)
+            if (tripMode) { delay(10_000); continue } // on a trip there are no new offers to wait for
             try {
-                val offer = api.call("GET", "/driver/offer", auth = true)["offer"] as? kotlinx.serialization.json.JsonObject
-                val id = (offer?.get("rideId") as? kotlinx.serialization.json.JsonPrimitive)?.content
-                if (offer != null && id != null) {
-                    val rider = ((offer["rider"] as? kotlinx.serialization.json.JsonObject)?.get("name") as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "A rider"
-                    val pickup = ((offer["pickup"] as? kotlinx.serialization.json.JsonObject)?.get("address") as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "the pickup point"
-                    val left = (offer["secondsLeft"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() ?: 15
-                    com.ninejaride.driver.alert.BookingAlert.start(this, id, rider, pickup, left)
-                } else com.ninejaride.driver.alert.BookingAlert.stop(this)
-            } catch (e: Exception) { /* offline for a moment: try again at the next beat */ }
+                val started = System.currentTimeMillis()
+                val offer = com.ninejaride.driver.data.parseOffer(api.call("GET", "/driver/offer?wait=20", auth = true, patient = true))
+                com.ninejaride.driver.alert.OfferFeed.offer.value = offer
+                if (offer != null) {
+                    com.ninejaride.driver.alert.BookingAlert.start(this, offer.rideId, offer.riderName, offer.pickupAddress ?: "the pickup point", offer.secondsLeft)
+                    delay(2_000) // an offer is there already, so the server answers at once: look again in a moment, not in a tight loop
+                } else {
+                    com.ninejaride.driver.alert.BookingAlert.stop(this)
+                    if (System.currentTimeMillis() - started < 1_000) delay(2_000) // the server answered instantly with nothing: do not spin
+                }
+            } catch (e: Exception) {
+                delay(8_000) // offline for a moment: try again shortly
+            }
         }
     }
 
@@ -181,7 +208,9 @@ class LocationService : Service() {
     private suspend fun uploadLoop() {
         var failures = 0
         while (true) {
-            delay(if (failures == 0) UPLOAD_EVERY_MS else minOf(UPLOAD_EVERY_MS * (1L shl minOf(failures, 3)), 120_000L))
+            val every = if (tripMode) TRIP_UPLOAD_EVERY_MS else IDLE_UPLOAD_EVERY_MS
+            delay(if (failures == 0) every else minOf(every * (1L shl minOf(failures, 3)), 120_000L))
+            heartbeat()
             try {
                 flush()
                 failures = 0
@@ -196,6 +225,20 @@ class LocationService : Service() {
                 }
             }
         }
+    }
+
+    /**
+     * A car parked at the kerb reports nothing new, but the server must still see the driver as online. When nothing is
+     * queued and the last good position is fresh enough to trust, it is sent again with the time now. After three minutes
+     * without a real fix it stops, so a driver whose GPS has died does not look online.
+     */
+    private fun heartbeat() {
+        val g = lastGood ?: return
+        if (queue.size() > 0) return
+        val now = System.currentTimeMillis()
+        if (now - g.recordedAtMillis > 180_000L) return
+        queue.add(g.copy(recordedAtMillis = now))
+        LocationStatus.pending = queue.size()
     }
 
     private suspend fun flush() {
@@ -236,7 +279,9 @@ class LocationService : Service() {
         private const val CHANNEL = "online"
         private const val NOTIFICATION_ID = 41
         private const val ACTION_STOP = "com.ninejaride.driver.STOP_LOCATION"
-        private const val UPLOAD_EVERY_MS = 10_000L
+        private const val IDLE_UPLOAD_EVERY_MS = 15_000L // waiting for a booking: the server counts a driver online for 45 s after a report
+        private const val TRIP_UPLOAD_EVERY_MS = 5_000L  // on a trip: the rider is watching the car move
+        private const val ACTION_MODE = "com.ninejaride.driver.LOCATION_MODE"
         private const val BATCH = 100
         private const val MAX_ACCURACY_M = 100f
         private const val PREFS = "driver_state"
@@ -244,6 +289,15 @@ class LocationService : Service() {
         fun hasLocationPermission(context: Context) =
             listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
                 .any { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
+
+        fun isTrip(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("on_trip", false)
+
+        /** Tells the service whether the driver is on a trip (fast, exact position) or waiting (slow, cheap). */
+        fun setTrip(context: Context, on: Boolean) {
+            if (isTrip(context) == on) return
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("on_trip", on).apply()
+            if (isOnline(context)) context.startService(Intent(context, LocationService::class.java).setAction(ACTION_MODE))
+        }
 
         fun isOnline(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("online", false)
 

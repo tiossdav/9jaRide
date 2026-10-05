@@ -32,6 +32,7 @@ import com.ninejaride.driver.data.BatteryGuidance
 import com.ninejaride.driver.data.ServerApplication
 import com.ninejaride.driver.data.BatteryTip
 import com.ninejaride.driver.location.LocationService
+import com.ninejaride.driver.location.LocationStatus
 import android.os.PowerManager
 import com.ninejaride.core.data.MapPoint
 import com.ninejaride.core.data.Routing
@@ -694,6 +695,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     private var offerJob: Job? = null
 
     private var watchingAlerts = false
+    private var lastOfferShown: String? = null
 
     /** Started from boot (not from the constructor, so the state it reads exists). */
     private fun watchAlerts() {
@@ -705,7 +707,20 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                 val app = getApplication<Application>()
                 if (p == Phase.Offer) com.ninejaride.driver.alert.BookingAlert.start(app, offer.rideId.ifEmpty { offer.code }, offer.rider.name, offer.pickup, offerSeconds)
                 else com.ninejaride.driver.alert.BookingAlert.stop(app)
+                // On a trip the position is asked for fast and exactly (the rider watches the car); otherwise slowly and cheaply.
+                if (!demo) LocationService.setTrip(app, p == Phase.ToPickup || p == Phase.Waiting || p == Phase.InTrip)
             }
+        }
+        // The background service is the only thing asking the server for offers; they arrive here.
+        viewModelScope.launch {
+            com.ninejaride.driver.alert.OfferFeed.offer.collect { o ->
+                if (o == null) { lastOfferShown = null; return@collect }
+                if (!demo && online && phase == Phase.None && o.rideId != lastOfferShown) { lastOfferShown = o.rideId; showRealOffer(o) }
+            }
+        }
+        // While online the service already follows the phone, so the Home map borrows its position instead of running a second listener.
+        viewModelScope.launch {
+            androidx.compose.runtime.snapshotFlow { LocationStatus.last }.collect { p -> if (p != null && online) deviceLocation = p }
         }
     }
 
@@ -730,6 +745,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             // With a real server, "online" means the service is sharing the phone's position. No permission, no online.
             if (on && !LocationService.start(getApplication())) { online = false; dialog = Dialog.LocationDenied; return }
             if (!on) LocationService.stop(getApplication())
+            if (on) stopDeviceLocation()
         }
         online = on
         if (on && demo) scheduleOffer(6)
@@ -787,7 +803,8 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             for (provider in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
                 if (!lm.isProviderEnabled(provider)) continue
                 lm.getLastKnownLocation(provider)?.let { deviceLocation = deviceLocation ?: MapPoint(it.latitude, it.longitude) }
-                lm.requestLocationUpdates(provider, 5_000L, 10f, listener, Looper.getMainLooper())
+                // Only used for the map before the driver goes online (online, the service supplies the position): slow and sparse.
+                lm.requestLocationUpdates(provider, if (provider == LocationManager.GPS_PROVIDER) 15_000L else 45_000L, 25f, listener, Looper.getMainLooper())
             }
             locationListener = listener
         } catch (e: SecurityException) {
@@ -795,8 +812,18 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    override fun onCleared() {
+    private fun stopDeviceLocation() {
         locationListener?.let { l -> getApplication<Application>().getSystemService(LocationManager::class.java)?.removeUpdates(l) }
+        locationListener = null
+    }
+
+    /** The app came to the front or went behind another. Nothing here needs the GPS while the screen is not being looked at. */
+    fun setVisible(visible: Boolean) {
+        if (visible) { if (!online && current == Dest.Main) startDeviceLocation() } else stopDeviceLocation()
+    }
+
+    override fun onCleared() {
+        stopDeviceLocation()
         super.onCleared()
     }
 
@@ -834,7 +861,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             while (true) {
                 try {
                     when (phase) {
-                        Phase.None -> if (online) api.offer()?.let { showRealOffer(it) }
+                        Phase.None -> {} // offers arrive from the background service
                         Phase.ToPickup, Phase.Waiting -> if (api.activeRide() == null) {
                             // The rider cancelled (or the ride ended some other way): nothing left to do here.
                             rideJob?.cancel(); clearRide(); realRideId = null; phase = Phase.None
@@ -845,7 +872,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                 } catch (e: ApiException) {
                     if (e.status == 401 || e.status == 403) return@launch // signed out or suspended: stop asking
                 }
-                delay(3000)
+                delay(if (phase == Phase.None) 30_000 else 6_000) // only a ride in progress needs watching, and not every few seconds
             }
         }
     }

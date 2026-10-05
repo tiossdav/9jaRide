@@ -166,7 +166,9 @@ class RiderApi(private val client: ApiClient) {
         return client.call("POST", "/rides", body, auth = true, headers = mapOf("Idempotency-Key" to key))["rideId"]!!.jsonPrimitive.content
     }
 
-    suspend fun ride(id: String): RideView = ride(client.call("GET", "/rides/$id", auth = true))
+    /** With [waitFor] (the status the screen already shows) the server holds the answer until the status changes, up to [waitSeconds]. */
+    suspend fun ride(id: String, waitFor: String? = null, waitSeconds: Int = 20): RideView =
+        ride(if (waitFor == null) client.call("GET", "/rides/$id", auth = true) else client.call("GET", "/rides/$id?waitFor=$waitFor&wait=$waitSeconds", auth = true, patient = true))
 
     suspend fun activeRideId(): String? = client.call("GET", "/rides/active", auth = true).str("rideId")
 

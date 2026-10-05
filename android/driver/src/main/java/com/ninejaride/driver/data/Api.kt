@@ -223,20 +223,9 @@ class Api(context: Context) {
         com.ninejaride.core.ui.components.MyReport(o["code"]?.jsonPrimitive?.contentOrNull ?: "", o["topic"]?.jsonPrimitive?.contentOrNull ?: "", o["message"]?.jsonPrimitive?.contentOrNull ?: "", o["status"]?.jsonPrimitive?.contentOrNull ?: "OPEN", o["resolution"]?.jsonPrimitive?.contentOrNull)
     } ?: emptyList()
 
-    private fun JsonObject.str(k: String) = (this[k] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.contentOrNull
-    private fun JsonObject.lng(k: String) = (this[k] as? JsonPrimitive)?.longOrNull
-    private fun JsonObject.dbl(k: String) = (this[k] as? JsonPrimitive)?.doubleOrNull
-    private fun JsonObject.obj(k: String) = this[k] as? JsonObject
-    private fun pt(o: JsonObject?) = com.ninejaride.core.data.MapPoint(o?.dbl("lat") ?: 0.0, o?.dbl("lng") ?: 0.0)
 
-    suspend fun offer(): ServerOffer? {
-        val o = client.call("GET", "/driver/offer", auth = true).obj("offer") ?: return null
-        return ServerOffer(
-            o.str("rideId")!!, o.str("code") ?: "", (o.lng("secondsLeft") ?: 0).toInt(), o.str("category") ?: "Ride", o.str("paymentMethod") ?: "cash",
-            pt(o.obj("pickup")), o.obj("pickup")?.str("address"), pt(o.obj("dropoff")), o.obj("dropoff")?.str("address"),
-            o.dbl("pickupKm"), o.obj("estimate")?.lng("expectedKobo"), o.obj("rider")?.str("name") ?: "Rider", o.obj("rider")?.dbl("rating"),
-        )
-    }
+    /** With [waitSeconds] the server holds the answer until an offer arrives, so this is one request in place of many. */
+    suspend fun offer(waitSeconds: Int = 0): ServerOffer? = parseOffer(client.call("GET", if (waitSeconds > 0) "/driver/offer?wait=$waitSeconds" else "/driver/offer", auth = true, patient = waitSeconds > 0))
 
     suspend fun activeRide(): ServerRide? {
         val o = client.call("GET", "/driver/rides/active", auth = true).obj("ride") ?: return null
@@ -267,3 +256,20 @@ class Api(context: Context) {
 
     suspend fun logout() = client.logout()
 }
+
+internal fun JsonObject.str(k: String) = (this[k] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.contentOrNull
+internal fun JsonObject.lng(k: String) = (this[k] as? JsonPrimitive)?.longOrNull
+internal fun JsonObject.dbl(k: String) = (this[k] as? JsonPrimitive)?.doubleOrNull
+internal fun JsonObject.obj(k: String) = this[k] as? JsonObject
+internal fun pt(o: JsonObject?) = com.ninejaride.core.data.MapPoint(o?.dbl("lat") ?: 0.0, o?.dbl("lng") ?: 0.0)
+
+/** Reads the answer of GET /driver/offer; null when there is no offer. */
+fun parseOffer(json: JsonObject): ServerOffer? {
+    val o = json.obj("offer") ?: return null
+    return ServerOffer(
+        o.str("rideId")!!, o.str("code") ?: "", (o.lng("secondsLeft") ?: 0).toInt(), o.str("category") ?: "Ride", o.str("paymentMethod") ?: "cash",
+        pt(o.obj("pickup")), o.obj("pickup")?.str("address"), pt(o.obj("dropoff")), o.obj("dropoff")?.str("address"),
+        o.dbl("pickupKm"), o.obj("estimate")?.lng("expectedKobo"), o.obj("rider")?.str("name") ?: "Rider", o.obj("rider")?.dbl("rating"),
+    )
+}
+

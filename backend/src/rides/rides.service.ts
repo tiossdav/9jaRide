@@ -280,6 +280,27 @@ export class RidesService {
 
   // ------------------------------------------------------------------ what the driver app shows
 
+  /** Holds until a ride's status is no longer [was], or the time is up. True when it changed. Checks once a second, cheaply. */
+  async waitForStatusChange(rideId: string, was: string, seconds: number): Promise<boolean> {
+    const until = Date.now() + Math.min(seconds, 25) * 1000;
+    while (Date.now() < until) {
+      const { rows } = await this.pool.query(`SELECT status FROM rides WHERE id = $1`, [rideId]);
+      if (!rows[0] || rows[0].status !== was) return true;
+      await new Promise((r) => setTimeout(r, Math.min(1000, Math.max(0, until - Date.now()))));
+    }
+    return false;
+  }
+
+  /** The driver's offer, as soon as there is one, or null once [seconds] have passed. Looks at the cache twice a second. */
+  async waitForDriverOffer(driverId: string, seconds: number) {
+    const until = Date.now() + Math.min(seconds, 25) * 1000;
+    for (;;) {
+      const offer = await this.driverOffer(driverId);
+      if (offer || Date.now() >= until) return offer;
+      await new Promise((r) => setTimeout(r, Math.min(500, Math.max(0, until - Date.now()))));
+    }
+  }
+
   /** The offer waiting for this driver, if any: where to, how far, what it pays, and how long is left. */
   async driverOffer(driverId: string) {
     const rideId = await this.redis.get(keys.driverOffer(driverId));

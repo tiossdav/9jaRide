@@ -42,6 +42,8 @@ class ApiClient(context: Context, private val baseUrl: String, private val appVe
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
     private val jsonType = "application/json".toMediaType()
+    /** For requests the server holds open on purpose (it answers when something happens, up to 25 s), so the phone asks far less often. */
+    private val patientHttp: OkHttpClient by lazy { http.newBuilder().readTimeout(40, TimeUnit.SECONDS).build() }
     private val prefs = context.applicationContext.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
     private val refreshLock = Mutex()
 
@@ -54,7 +56,7 @@ class ApiClient(context: Context, private val baseUrl: String, private val appVe
             }.apply()
         }
 
-    private fun rawCall(method: String, path: String, body: String?, token: String?, extraHeaders: Map<String, String>, multipart: okhttp3.RequestBody? = null): Pair<Int, JsonObject> {
+    private fun rawCall(method: String, path: String, body: String?, token: String?, extraHeaders: Map<String, String>, multipart: okhttp3.RequestBody? = null, patient: Boolean = false): Pair<Int, JsonObject> {
         val req = Request.Builder().url(baseUrl + path)
             .header("X-App-Platform", "android")
             .header("X-App-Version", appVersion)
@@ -62,7 +64,7 @@ class ApiClient(context: Context, private val baseUrl: String, private val appVe
             .method(method, multipart ?: if (method == "GET" || method == "HEAD") null else (body ?: "").toRequestBody(jsonType))
             .build()
         try {
-            http.newCall(req).execute().use { res ->
+            (if (patient) patientHttp else http).newCall(req).execute().use { res ->
                 val text = res.body?.string().orEmpty()
                 val obj = runCatching { json.parseToJsonElement(text) }.getOrNull()
                 // Some routes answer with a list; callers that need one read it from "items".
@@ -121,21 +123,21 @@ class ApiClient(context: Context, private val baseUrl: String, private val appVe
     }
 
     /** One request; if the phone cannot reach the server it wakes it (at most once every two minutes) and tries again. */
-    private fun send(method: String, path: String, body: String?, token: String?, headers: Map<String, String>): Pair<Int, JsonObject> =
-        try { rawCall(method, path, body, token, headers) } catch (e: ApiException) {
+    private fun send(method: String, path: String, body: String?, token: String?, headers: Map<String, String>, patient: Boolean = false): Pair<Int, JsonObject> =
+        try { rawCall(method, path, body, token, headers, null, patient) } catch (e: ApiException) {
             if (!e.isNetwork || System.currentTimeMillis() - lastWake < 120_000L) throw e
             lastWake = System.currentTimeMillis()
             if (!wake()) throw ApiException(0, null, "Cannot reach the server. Check your internet connection and try again.")
-            rawCall(method, path, body, token, headers)
+            rawCall(method, path, body, token, headers, null, patient)
         }
 
     /** Calls the API. With [auth], a 401 triggers one token refresh and one retry. */
-    suspend fun call(method: String, path: String, body: String? = null, auth: Boolean = false, headers: Map<String, String> = emptyMap()): JsonObject =
+    suspend fun call(method: String, path: String, body: String? = null, auth: Boolean = false, headers: Map<String, String> = emptyMap(), patient: Boolean = false): JsonObject =
         withContext(Dispatchers.IO) {
             val before = if (auth) session else null
-            var (status, obj) = send(method, path, body, before?.accessToken, headers)
+            var (status, obj) = send(method, path, body, before?.accessToken, headers, patient)
             if (auth && status == 401 && before != null && refresh(before)) {
-                val r = rawCall(method, path, body, session?.accessToken, headers)
+                val r = rawCall(method, path, body, session?.accessToken, headers, null, patient)
                 status = r.first; obj = r.second
             }
             if (status !in 200..299) throw failure(status, obj)

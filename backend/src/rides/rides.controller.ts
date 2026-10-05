@@ -94,6 +94,12 @@ class CompleteDto {
   @IsInt() @Min(0) @Max(86_400) waitingS!: number;
 }
 
+class WaitQuery {
+  @IsOptional() @IsString() @MaxLength(40) waitFor?: string;
+  /** How long the server may hold the answer, in seconds. Capped at 25 so connections never sit open for long. */
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(25) wait?: number;
+}
+
 @Controller()
 export class RidesController {
   constructor(
@@ -168,9 +174,17 @@ export class RidesController {
     return this.rides.rate(me.id, id, dto.stars, dto.tags ?? []);
   }
 
+  /**
+   * One ride. With waitFor=<the status the app already shows> the answer is held (up to `wait` seconds) until the status
+   * changes, so a phone watching a ride makes one request every twenty seconds or so instead of one every few seconds, and still
+   * hears of a change at once. Without waitFor it answers immediately, as before.
+   */
   @Get('rides/:id')
-  get(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string) {
-    return this.rides.get(me, id);
+  async get(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Query() q: WaitQuery) {
+    const first = await this.rides.get(me, id); // also checks this person may see the ride
+    if (!q.waitFor || first.status !== q.waitFor) return first;
+    const changed = await this.rides.waitForStatusChange(id, q.waitFor, q.wait ?? 20);
+    return changed ? this.rides.get(me, id) : first;
   }
 
   @Roles('rider') @Get('rides/:id/driver-location')
@@ -198,8 +212,9 @@ export class RidesController {
 
   /** The offer waiting for this driver. The app asks every few seconds while the driver is online. */
   @Roles('driver') @Get('driver/offer')
-  async myOffer(@CurrentUser() me: Principal) {
-    return { offer: await this.rides.driverOffer(me.id) };
+  async myOffer(@CurrentUser() me: Principal, @Query() q: WaitQuery) {
+    // With wait=<seconds> the answer is held until an offer arrives (or the time runs out): one request in place of many.
+    return { offer: q.wait ? await this.rides.waitForDriverOffer(me.id, q.wait) : await this.rides.driverOffer(me.id) };
   }
 
   @Roles('driver') @Get('driver/rides/active')

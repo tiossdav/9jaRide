@@ -50,6 +50,15 @@ import com.ninejaride.core.ui.theme.C
 @Composable
 fun App(vm: DriverViewModel = viewModel()) {
     LaunchedEffect(Unit) { vm.boot() }
+    val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.DisposableEffect(lifecycle) {
+        val watcher = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_START) vm.setVisible(true)
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_STOP) vm.setVisible(false)
+        }
+        lifecycle.addObserver(watcher)
+        onDispose { lifecycle.removeObserver(watcher) }
+    }
     LaunchedEffect(vm.toast) { if (vm.toast != null) { kotlinx.coroutines.delay(3000); vm.toast = null } }
     LaunchedEffect(vm.phase) { vm.pendingConfirm = null } // an offer that times out takes its question with it
 

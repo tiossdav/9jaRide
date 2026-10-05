@@ -59,6 +59,15 @@ private val NAV = listOf(NavItem("Home", Ic.Home), NavItem("Trips", Ic.Clock), N
 @Composable
 fun App(vm: RiderViewModel = viewModel()) {
     LaunchedEffect(Unit) { vm.boot() }
+    val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.DisposableEffect(lifecycle) {
+        val watcher = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_START) vm.onVisible(true)
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_STOP) vm.onVisible(false)
+        }
+        lifecycle.addObserver(watcher)
+        onDispose { lifecycle.removeObserver(watcher) }
+    }
     LaunchedEffect(vm.toast) { if (vm.toast != null) { kotlinx.coroutines.delay(3000); vm.toast = null } }
 
     // Light, dark, or whatever the phone is set to.
