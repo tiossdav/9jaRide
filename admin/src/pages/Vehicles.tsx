@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Pager, SearchBox } from '../bits';
-import { Loading, Stat, arrangementLabel, title, useLoad } from '../ui';
+import { arrangementLabel, formatPlate, Loading, Stat, title, useLoad } from '../ui';
 
 interface List {
   total: number; page: number; pageSize: number; counts: { total: number; active: number; online: number };
@@ -29,7 +29,7 @@ export default function Vehicles() {
               <table><thead><tr><th>Plate</th><th>Vehicle</th><th>Category</th><th>Arrangement</th><th>Driver</th><th>State</th></tr></thead><tbody>
                 {d.items.map((v) => (
                   <tr key={v.id} className="link" onClick={() => nav(`/vehicles/${v.id}`)}>
-                    <td><b>{v.plate}</b></td><td>{v.colour} {v.make}</td><td>{title(v.category)}</td><td>{arrangementLabel(v.arrangement)}</td><td>{v.driver}</td>
+                    <td><b>{formatPlate(v.plate)}</b></td><td>{v.colour} {v.make}</td><td>{title(v.category)}</td><td>{arrangementLabel(v.arrangement)}</td><td>{v.driver}</td>
                     <td>{!v.active ? <span className="chip grey">Retired</span> : v.suspended ? <span className="chip red">Suspended</span> : v.driverStatus === 'suspended' ? <span className="chip red">Driver suspended</span> : v.online ? <span className="chip blue">Online</span> : <span className="chip">Offline</span>}</td>
                   </tr>
                 ))}

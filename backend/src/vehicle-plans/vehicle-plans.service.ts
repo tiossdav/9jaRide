@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
 import { PG_POOL } from '../common/infra.module';
+import { plateLike } from '../common/plate';
 
 export const FREQUENCIES = ['daily', 'weekly', 'monthly'] as const;
 export type Frequency = (typeof FREQUENCIES)[number];
@@ -101,7 +102,7 @@ export class VehiclePlansService {
     const where: string[] = [];
     const args: unknown[] = [];
     if (opts.status && opts.status !== 'all') { args.push(opts.status); where.push(`pl.status = $${args.length}`); }
-    if (opts.search?.trim()) { args.push(`%${opts.search.trim()}%`); where.push(`(u.full_name ILIKE $${args.length} OR u.phone ILIKE $${args.length} OR v.plate ILIKE $${args.length})`); }
+    if (opts.search?.trim()) { args.push(`%${opts.search.trim()}%`, plateLike(opts.search)); where.push(`(u.full_name ILIKE $${args.length - 1} OR u.phone ILIKE $${args.length - 1} OR ($${args.length} <> '' AND v.plate LIKE $${args.length}))`); }
     const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const total = (await this.pool.query(`SELECT count(*)::int AS n ${this.FROM} ${w}`, args)).rows[0].n;
     const { rows } = await this.pool.query(

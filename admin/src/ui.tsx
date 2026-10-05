@@ -20,6 +20,14 @@ export const moneyInput = (typed: string): string => {
   const grouped = whole.replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return rest.length ? `${grouped}.${rest.join('').slice(0, 2)}` : grouped;
 };
+/** A plate as people read it: KJA482AB shows as KJA-482AB. The stored value stays plain capitals and digits. */
+export const formatPlate = (stored?: string | null): string => {
+  const p = (stored ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return p.length <= 3 ? p : `${p.slice(0, 3)}-${p.slice(3)}`;
+};
+/** What a person typed into a plate box, reduced to what is stored. */
+export const plateInput = (typed: string): string => typed.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+
 /** Naira typed into a money box, as kobo. */
 export const toKobo = (typed: string): number => Math.round(Number(typed.replace(/,/g, '')) * 100);
 

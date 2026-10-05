@@ -55,6 +55,9 @@ class ApplicationForm(
     val documents: List<ServerDoc>,
 )
 
+/** The settlement page: where the driver is paid, and how the vehicle is paid for. */
+class ServerSettlement(val done: Boolean, val bank: String, val number: String, val holder: String, val vehicle: String, val terms: String)
+
 class AppConfig(val forceUpdate: Boolean, val updateUrl: String?, val batteryTips: List<BatteryTip>)
 
 /** The calls the driver app makes, on top of the shared client. */
@@ -125,7 +128,7 @@ class Api(context: Context) {
         return com.ninejaride.driver.state.DriverProfile(
             name = com.ninejaride.core.format.properName(o.str("name") ?: ""), phone = o.str("phone")?.let { if (it.startsWith("+234")) "0" + it.drop(4) else it } ?: "", email = p?.str("email") ?: "", emailVerified = true,
             gender = "", nin = p?.str("nin"), rating = 0, active = o.str("status") == "active",
-            vehicle = v?.let { com.ninejaride.driver.state.Vehicle("", it.str("make") ?: "", 0, it.str("plate") ?: "", it.str("colour") ?: "", it.str("categoryLabel") ?: it.str("category") ?: "", it.str("arrangement") ?: "", it.obj("owner")?.str("name") ?: "", it.obj("owner")?.str("phone") ?: "") },
+            vehicle = v?.let { com.ninejaride.driver.state.Vehicle("", it.str("make") ?: "", 0, com.ninejaride.core.format.formatPlate(it.str("plate") ?: ""), it.str("colour") ?: "", it.str("categoryLabel") ?: it.str("category") ?: "", it.str("arrangement") ?: "", it.obj("owner")?.str("name") ?: "", it.obj("owner")?.str("phone") ?: "") },
             bank = null, photoId = o.str("photoFileId"), dateOfBirth = dob, lassdri = p?.str("lassdri") ?: "", address = p?.str("address") ?: "",
             kinName = kin?.str("name") ?: "", kinPhone = kin?.str("phone")?.let { if (it.startsWith("+234")) "0" + it.drop(4) else it } ?: "", kinRelationship = kin?.str("relationship") ?: "", kinAddress = kin?.str("address") ?: "",
             contactPreference = p?.str("contactPreference") ?: "", ratingAverage = o.dbl2("rating"),
@@ -167,6 +170,24 @@ class Api(context: Context) {
         val amount = t.lng("amountKobo") ?: 0
         com.ninejaride.driver.state.WalletTx(t.str("memo") ?: (t.str("kind") ?: "Wallet").replace('_', ' ').replaceFirstChar { c -> c.uppercase() }, t.str("at")?.take(10) ?: "", Math.abs(amount), if (amount >= 0) com.ninejaride.driver.state.TxDirection.In else com.ninejaride.driver.state.TxDirection.Out)
     } ?: emptyList()
+
+    suspend fun settlement(): ServerSettlement {
+        val o = client.call("GET", "/driver/settlement", auth = true)
+        val a = o.obj("account"); val v = o.obj("vehicle"); val pl = o.obj("plan"); val t = o.obj("terms")
+        val vehicle = v?.let { listOfNotNull(it.str("make"), it.str("colour"), com.ninejaride.core.format.formatPlate(it.str("plate") ?: "").ifBlank { null }).joinToString(" · ") } ?: ""
+        val terms = when (t?.str("kind")) {
+            "payment_plan" -> "You are paying for this vehicle through 9jaRide in instalments." +
+                (pl?.let { " Paid so far " + com.ninejaride.core.format.naira(it.lng("paidKobo") ?: 0) + " of " + com.ninejaride.core.format.naira(it.lng("totalKobo") ?: 0) + "." } ?: "") +
+                " These terms were set by 9jaRide and you cannot change them here."
+            "owner" -> "You drive a car that belongs to someone else."
+            else -> "You drive your own vehicle. Nothing is deducted from your earnings for it."
+        }
+        return ServerSettlement(o["done"]?.jsonPrimitive?.booleanOrNull == true, a?.str("bankName") ?: "", a?.str("accountNumber") ?: "", a?.str("accountName") ?: "", vehicle, terms)
+    }
+    suspend fun saveAccount(bank: String, number: String, holder: String) {
+        client.call("POST", "/driver/settlement/account", buildJsonObject { put("bankName", bank); put("accountNumber", number); put("accountName", holder) }.toString(), auth = true)
+    }
+    suspend fun completeSettlement() { client.call("POST", "/driver/settlement/complete", "{}", auth = true) }
 
     suspend fun appConfig(): AppConfig {
         val o = client.call("GET", "/app/config")

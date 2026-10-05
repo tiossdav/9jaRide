@@ -74,6 +74,7 @@ fun App(vm: DriverViewModel = viewModel()) {
             Dest.SignUp -> com.ninejaride.driver.ui.screens.SignUpScreen(vm)
             Dest.Apply -> com.ninejaride.driver.ui.screens.ApplyScreen(vm)
             Dest.ApplicationStatus -> com.ninejaride.driver.ui.screens.ApplicationStatusScreen(vm)
+            Dest.Settlement -> com.ninejaride.driver.ui.screens.SettlementScreen(vm)
             Dest.Otp -> OtpScreen(vm)
             Dest.LocationPermission -> LocationPermissionScreen(vm)
             Dest.UpdateRequired -> UpdateRequiredScreen(vm)

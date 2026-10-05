@@ -6,8 +6,10 @@ import { ACCESS_TOKEN_SECONDS } from '../auth/auth.types';
 import { normalisePhone } from '../auth/phone';
 import { TokensService } from '../auth/tokens.service';
 import { PG_POOL, REDIS } from '../common/infra.module';
+import { normalisePlate } from '../common/plate';
 import { keys } from '../dispatch/dispatch.types';
 import { FilesService } from '../files/files.service';
+import { NinService } from '../nin/nin.service';
 import { PlanTerms, VehiclePlansService } from '../vehicle-plans/vehicle-plans.service';
 
 export const DOCUMENT_KINDS = ['drivers_licence', 'nin', 'lassdri', 'vehicle_papers', 'insurance', 'inspection_certificate', 'vehicle_photo', 'road_worthiness', 'selfie', 'owner_consent'] as const;
@@ -20,7 +22,8 @@ export const REQUESTABLE_CATEGORIES = ['regular', 'comfort'];
  * the driver only proves who they are; a car owned by someone else also needs that owner's permission.
  */
 export function requiredDocuments(arrangement: string): DocumentKind[] {
-  const person: DocumentKind[] = ['drivers_licence', 'nin', 'lassdri'];
+  // the NIN is checked by a verification service, so no photo of it is asked for
+  const person: DocumentKind[] = ['drivers_licence', 'lassdri'];
   if (arrangement === 'platform_plan') return person;
   const car: DocumentKind[] = [...person, 'vehicle_photo', 'insurance', 'inspection_certificate'];
   return arrangement === 'third_party' ? [...car, 'owner_consent'] : car;
@@ -47,7 +50,6 @@ export interface ApplicationInput {
   documents: { kind: DocumentKind; number?: string; fileId: string; expiresOn?: string }[];
 }
 
-const normalisePlate = (p: string) => p.toUpperCase().replace(/[\s-]/g, '');
 
 /** What staff supply when approving a platform vehicle: which car the driver gets and on what terms. */
 export interface Assignment {
@@ -63,6 +65,7 @@ export class DriverApplicationsService {
     private readonly tokens: TokensService,
     private readonly plans: VehiclePlansService,
     private readonly files: FilesService,
+    private readonly nin: NinService,
   ) {}
 
   /** The ways a driver can come by a car, for the sign-up screen. */
@@ -117,6 +120,11 @@ export class DriverApplicationsService {
     }
     if (!(await this.files.ownedBy(driverId, input.documents.map((d) => d.fileId)))) throw new BadRequestException('one of the uploaded files is not yours or does not exist');
 
+    // The NIN is checked before anything is saved: a wrong number is the driver's to fix now, not a reviewer's to chase later.
+    const who = (await this.pool.query(`SELECT full_name FROM users WHERE id = $1`, [driverId])).rows[0]?.full_name ?? '';
+    const ninCheck = await this.nin.check({ nin: p.nin.trim(), fullName: who, dateOfBirth: p.dateOfBirth });
+    if (ninCheck.status === 'failed') throw new BadRequestException({ code: 'nin_failed', message: ninCheck.reason ?? 'We could not verify that NIN.' });
+
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -131,6 +139,7 @@ export class DriverApplicationsService {
         input.vehicle.category, make, colour, plate, arr.code, ownerName, ownerPhone,
         email, p.contactPreference, p.dateOfBirth ?? null, p.nin.trim(), p.lassdri.trim().toUpperCase(), p.address.trim(),
         p.nextOfKin.name.trim(), kinPhone, p.nextOfKin.relationship?.trim() || null, p.nextOfKin.address.trim(),
+        ninCheck.status, ninCheck.reason ?? null, ninCheck.reference ?? null,
       ];
       let id: string;
       if (open.rows[0]) {
@@ -139,7 +148,7 @@ export class DriverApplicationsService {
         await client.query(
           `UPDATE driver_applications SET status = 'SUBMITTED', vehicle_category = $2, vehicle_make = $3, vehicle_colour = $4, vehicle_plate = $5, arrangement = $6,
                   owner_name = $7, owner_phone = $8, email = $9, contact_preference = $10, date_of_birth = $11, nin = $12, lassdri_number = $13, address = $14,
-                  next_of_kin_name = $15, next_of_kin_phone = $16, next_of_kin_relationship = $17, next_of_kin_address = $18, submitted_at = now(), updated_at = now()
+                  next_of_kin_name = $15, next_of_kin_phone = $16, next_of_kin_relationship = $17, next_of_kin_address = $18, nin_status = $19, nin_reason = $20, nin_reference = $21, nin_checked_at = now(), submitted_at = now(), updated_at = now()
             WHERE id = $1`,
           [id, ...cols],
         );
@@ -147,8 +156,9 @@ export class DriverApplicationsService {
       } else {
         const created = await client.query(
           `INSERT INTO driver_applications (driver_id, vehicle_category, vehicle_make, vehicle_colour, vehicle_plate, arrangement, owner_name, owner_phone,
-                  email, contact_preference, date_of_birth, nin, lassdri_number, address, next_of_kin_name, next_of_kin_phone, next_of_kin_relationship, next_of_kin_address)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id`,
+                  email, contact_preference, date_of_birth, nin, lassdri_number, address, next_of_kin_name, next_of_kin_phone, next_of_kin_relationship, next_of_kin_address,
+                  nin_status, nin_reason, nin_reference, nin_checked_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, now()) RETURNING id`,
           [driverId, ...cols],
         );
         id = created.rows[0].id;
@@ -191,6 +201,7 @@ export class DriverApplicationsService {
       owner: r.owner_name ? { name: r.owner_name, phone: r.owner_phone } : null,
       vehicle: { category: r.vehicle_category, make: r.vehicle_make, colour: r.vehicle_colour, plate: r.vehicle_plate },
       approvedCategory: r.approved_category,
+      ninCheck: { status: r.nin_status, reason: r.nin_reason },
       personal: {
         email: r.email, contactPreference: r.contact_preference, dateOfBirth: r.date_of_birth, nin: r.nin, lassdri: r.lassdri_number, address: r.address,
         nextOfKin: { name: r.next_of_kin_name, phone: r.next_of_kin_phone, relationship: r.next_of_kin_relationship, address: r.next_of_kin_address },
@@ -255,6 +266,16 @@ export class DriverApplicationsService {
       ];
       if (problems.length) throw new ConflictException({ code: 'documents_not_ready', message: problems.join('; ') });
 
+      // The NIN must have passed. A check still pending (or never run, for older applications) is asked again now.
+      if (app.nin_status !== 'verified') {
+        const owner = (await client.query(`SELECT full_name FROM users WHERE id = $1`, [app.driver_id])).rows[0]?.full_name ?? '';
+        const again = await this.nin.check({ nin: app.nin, fullName: owner, dateOfBirth: app.date_of_birth });
+        await client.query(`UPDATE driver_applications SET nin_status = $2, nin_reason = $3, nin_reference = COALESCE($4, nin_reference), nin_checked_at = now() WHERE id = $1`, [id, again.status, again.reason ?? null, again.reference ?? null]);
+        if (again.status !== 'verified') {
+          await client.query('COMMIT');
+          throw new ConflictException({ code: 'nin_not_verified', message: again.status === 'pending' ? 'The NIN check has not finished. Try again in a minute, or accept it by hand.' : (again.reason ?? 'The NIN could not be verified.') });
+        }
+      }
       const arr = (await client.query(`SELECT needs_plan FROM vehicle_arrangements WHERE code = $1`, [app.arrangement])).rows[0];
       if (arr.needs_plan && !assignment) throw new BadRequestException('choose the vehicle to give this driver and set up the payment plan');
       // the car: what the driver declared, or what staff assign for a platform vehicle
@@ -292,6 +313,15 @@ export class DriverApplicationsService {
     } finally {
       client.release();
     }
+  }
+
+  /** An admin accepts a NIN by hand, for example when the provider cannot find a real person. The reason is kept. */
+  async acceptNinByHand(id: string, staffId: string, note: string): Promise<void> {
+    const res = await this.pool.query(
+      `UPDATE driver_applications SET nin_status = 'verified', nin_reason = $2, nin_checked_at = now() WHERE id = $1 AND status = 'SUBMITTED'`,
+      [id, `Accepted by hand (${staffId}): ${note}`],
+    );
+    if (!res.rowCount) throw new ConflictException({ code: 'wrong_state', message: 'only an application waiting for review can be changed' });
   }
 
   private async decide(id: string, staffId: string, status: 'REJECTED' | 'CHANGES_REQUESTED', note: string) {

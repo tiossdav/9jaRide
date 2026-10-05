@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { post } from '../api';
-import { ReasonModal, Toast, go, useConfirm } from '../bits';
-import { Loading, Modal, Pill, arrangementLabel, dateTime, naira, title, useLoad } from '../ui';
+import { ReasonModal, Toast, go, useConfirm, PlateInput } from '../bits';
+import { arrangementLabel, dateTime, formatPlate, Loading, Modal, naira, Pill, title, useLoad } from '../ui';
 import { Plan, statusPill } from './VehiclePlans';
 
 interface Vehicle {
@@ -22,7 +22,7 @@ export default function VehicleDetail() {
   return (
     <>
       <div className="head">
-        <div><Link to="/vehicles" className="note">← Vehicles</Link><h1>{v.plate}</h1><div className="sub">{v.colour} {v.make} · {title(v.category === 'package' ? 'send package' : v.category)}</div></div>
+        <div><Link to="/vehicles" className="note">← Vehicles</Link><h1>{formatPlate(v.plate)}</h1><div className="sub">{v.colour} {v.make} · {title(v.category === 'package' ? 'send package' : v.category)}</div></div>
         <div className="grow" />
         {suspended ? <span className="chip red">Suspended</span> : v.inUse ? <span className="chip">In use</span> : <span className="chip grey">Retired</span>}
         {v.inUse && (suspended
@@ -32,7 +32,7 @@ export default function VehicleDetail() {
       {suspended && <div className="banner" role="status">This vehicle is suspended, so <b>&nbsp;{v.driver.name}&nbsp;</b> cannot go online until it is reinstated{v.suspendedReason ? `. Reason: ${v.suspendedReason}` : ''}. A trip already under way is not interrupted.</div>}
       <div className="grid g2">
         <div className="card"><h3>Vehicle</h3>
-          <div className="line"><span className="note">Plate</span><span>{v.plate}</span></div><div className="line"><span className="note">Make</span><span>{v.make}</span></div>
+          <div className="line"><span className="note">Plate</span><span>{formatPlate(v.plate)}</span></div><div className="line"><span className="note">Make</span><span>{v.make}</span></div>
           <div className="line"><span className="note">Colour</span><span>{v.colour}</span></div><div className="line"><span className="note">Category</span><span>{title(v.category)}</span></div>
           <div className="line"><span className="note">Arrangement</span><span>{arrangementLabel(v.arrangement)}</span></div>
           {v.owner && <div className="line"><span className="note">Owner</span><span>{v.owner.name} · {v.owner.phone}</span></div>}</div>
@@ -52,9 +52,9 @@ export default function VehicleDetail() {
             <div className="tl" key={i}><span className="note">{dateTime(h.at)}</span><span><b>{title(h.status)}</b> · {h.reason}</span><span className="note">{h.by ?? 'System'}</span></div>))}</div>
         )}
       </div>
-      {ask === 'suspend' && <ReasonModal title={`Suspend ${v.plate}?`} text={`${v.driver.name} is taken offline and cannot go online until this vehicle is reinstated.`} confirm="Suspend vehicle" danger onClose={() => setAsk(null)}
+      {ask === 'suspend' && <ReasonModal title={`Suspend ${formatPlate(v.plate)}?`} text={`${v.driver.name} is taken offline and cannot go online until this vehicle is reinstated.`} confirm="Suspend vehicle" danger onClose={() => setAsk(null)}
         onSubmit={async (reason) => { await post(`/admin/console/vehicles/${v.id}/suspend`, { reason }); setToast('Vehicle suspended'); reload(); }} />}
-      {ask === 'reinstate' && <ReasonModal title={`Reinstate ${v.plate}?`} text={`${v.driver.name} can go online again.`} confirm="Reinstate" onClose={() => setAsk(null)}
+      {ask === 'reinstate' && <ReasonModal title={`Reinstate ${formatPlate(v.plate)}?`} text={`${v.driver.name} can go online again.`} confirm="Reinstate" onClose={() => setAsk(null)}
         onSubmit={async (reason) => { await post(`/admin/console/vehicles/${v.id}/reinstate`, { reason }); setToast('Vehicle reinstated'); reload(); }} />}
       {toast && <Toast text={toast} onDone={() => setToast(null)} />}
     </>
@@ -82,10 +82,10 @@ function AddVehicleForm({ driverId, driverName, onClose, onDone }: { driverId: s
         <div className="field"><label htmlFor="vm">Make and model</label><input id="vm" className="input" placeholder="Toyota Corolla" value={make} onChange={(e) => setMake(e.target.value)} /></div>
         <div className="field"><label htmlFor="vo">Colour</label><input id="vo" className="input" placeholder="Silver" value={colour} onChange={(e) => setColour(e.target.value)} /></div>
       </div>
-      <div className="field"><label htmlFor="vp">Plate number</label><input id="vp" className="input" placeholder="KJA-482AB" value={plate} onChange={(e) => setPlate(e.target.value.toUpperCase())} /></div>
+      <div className="field"><label htmlFor="vp">Plate number</label><PlateInput id="vp" value={plate} onChange={setPlate} /></div>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <button className="btn ghost" onClick={onClose}>Cancel</button>
-        <button className="btn" disabled={!ok} onClick={() => confirm.ask({ title: `Add ${plate}?`, text: `It becomes ${driverName}'s vehicle and the old one is retired.`, confirm: 'Yes, add vehicle' }, () => go(() => post('/admin/console/vehicles', { driverId, category, make, colour, plate }), () => { onDone(); onClose(); }))}>Add vehicle</button>
+        <button className="btn" disabled={!ok} onClick={() => confirm.ask({ title: `Add ${formatPlate(plate)}?`, text: `It becomes ${driverName}'s vehicle and the old one is retired.`, confirm: 'Yes, add vehicle' }, () => go(() => post('/admin/console/vehicles', { driverId, category, make, colour, plate }), () => { onDone(); onClose(); }))}>Add vehicle</button>
       </div>
       {confirm.node}
     </Modal>

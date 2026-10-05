@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { post } from '../api';
 import { Pager, ReasonModal, SearchBox, Segmented, Toast, go, kv, useConfirm } from '../bits';
-import { Loading, Modal, Pill, Stat, dateTime, initials, moneyInput, naira, title, toKobo, useLoad } from '../ui';
+import { dateTime, formatPlate, initials, Loading, Modal, moneyInput, naira, Pill, Stat, title, toKobo, useLoad } from '../ui';
 
 export interface Plan {
   id: string; status: string; collection: string;
@@ -48,7 +48,7 @@ export function VehiclePlans() {
                 {d.items.map((p) => (
                   <tr key={p.id} className="link" onClick={() => nav(`/finances/vehicle-plans/${p.id}`)}>
                     <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><div className="avatar">{initials(p.driver.name)}</div><div>{p.driver.name}<div className="note">{p.driver.phone}</div></div></div></td>
-                    <td><b>{p.vehicle.plate}</b><div className="note">{p.vehicle.colour} {p.vehicle.make}</div></td>
+                    <td><b>{formatPlate(p.vehicle.plate)}</b><div className="note">{p.vehicle.colour} {p.vehicle.make}</div></td>
                     <td className="num">{naira(p.paidKobo)}</td><td className="num">{naira(p.outstandingKobo)}</td>
                     <td>{p.nextDueOn ? p.nextDueOn.slice(0, 10) : '-'}{p.overdueKobo > 0 && p.status !== 'cancelled' && <div className="note" style={{ color: 'var(--amber, #b7791f)' }}>{naira(p.overdueKobo)} behind</div>}</td>
                     <td>{statusPill(p.status)}</td>
@@ -77,7 +77,7 @@ export function VehiclePlanDetail() {
   return (
     <>
       <div className="head">
-        <div><Link to="/finances/vehicle-plans" className="note">← Vehicle plans</Link><h1>{p.vehicle.plate} · {p.driver.name}</h1><div className="sub">{p.vehicle.colour} {p.vehicle.make} · started {p.terms.startsOn.slice(0, 10)}</div></div>
+        <div><Link to="/finances/vehicle-plans" className="note">← Vehicle plans</Link><h1>{formatPlate(p.vehicle.plate)} · {p.driver.name}</h1><div className="sub">{p.vehicle.colour} {p.vehicle.make} · started {p.terms.startsOn.slice(0, 10)}</div></div>
         <div className="grow" />{statusPill(p.status)}
         {live && <button className="btn" onClick={() => setPaying(true)}>Record payment</button>}
       </div>
@@ -95,7 +95,7 @@ export function VehiclePlanDetail() {
             {p.terms.notes && <div className="note" style={{ marginTop: 8, whiteSpace: 'pre-line' }}>{p.terms.notes}</div>}</div>
           <div className="card"><h3>Driver and vehicle</h3>
             {kv('Driver', <Link to={`/people/${p.driver.id}`} style={{ color: 'var(--accent)' }}>{p.driver.name}</Link>)}{kv('Phone', p.driver.phone)}
-            {kv('Vehicle', <Link to={`/vehicles/${p.vehicle.id}`} style={{ color: 'var(--accent)' }}>{p.vehicle.plate}</Link>)}{kv('Category', title(p.vehicle.category))}</div>
+            {kv('Vehicle', <Link to={`/vehicles/${p.vehicle.id}`} style={{ color: 'var(--accent)' }}>{formatPlate(p.vehicle.plate)}</Link>)}{kv('Category', title(p.vehicle.category))}</div>
           {live && <div className="card" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             {p.status === 'active' && <button className="btn ghost" onClick={() => setAsk('defaulted')}>Mark as defaulted</button>}
             {p.status === 'defaulted' && <button className="btn ghost" onClick={() => setAsk('active')}>Back to running</button>}

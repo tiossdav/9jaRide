@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { openFile, post } from '../api';
 import { ReasonModal, Toast, go, kv, useAction, useConfirm } from '../bits';
-import { Loading, Modal, Pill, arrangementLabel, dateTime, title, useLoad } from '../ui';
+import { arrangementLabel, dateTime, formatPlate, Loading, Modal, Pill, title, useLoad } from '../ui';
 import { AssignModal } from './AssignVehicle';
 
 interface App {
@@ -10,6 +10,7 @@ interface App {
   arrangement: string; owner: { name: string; phone: string } | null;
   vehicle: { category: string; make: string | null; colour: string | null; plate: string | null };
   approvedCategory: string | null;
+  ninCheck: { status: 'not_checked' | 'pending' | 'verified' | 'failed'; reason: string | null };
   personal: {
     email: string | null; contactPreference: string | null; dateOfBirth: string | null; nin: string | null; lassdri: string | null; address: string | null;
     nextOfKin: { name: string | null; phone: string | null; relationship: string | null; address: string | null };
@@ -26,7 +27,8 @@ export default function OnboardingDetail() {
   const { id } = useParams();
   const nav = useNavigate();
   const { data: a, error, reload } = useLoad<App>(`/admin/driver-applications/${id}`);
-  const [ask, setAsk] = useState<'changes' | 'reject' | null>(null);
+  const [ask, setAsk] = useState<'changes' | 'reject' | 'nin' | null>(null);
+  const { me } = useOutletContext<{ me: { role: string } | null }>();
   const [assigning, setAssigning] = useState(false);
   const [approving, setApproving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -48,13 +50,13 @@ export default function OnboardingDetail() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="card"><h3>Personal information</h3>
             {kv('Name', a.driverName)}{kv('Phone number', a.phone)}{kv('Email', p.email ?? '-')}{kv('Contact by', p.contactPreference ? title(p.contactPreference) : '-')}
-            {kv('Date of birth', p.dateOfBirth ? p.dateOfBirth.slice(0, 10) : '-')}{kv('NIN', p.nin ?? '-')}{kv('LASSDRI number', p.lassdri ?? '-')}{kv('Address', p.address ?? '-')}</div>
+            {kv('Date of birth', p.dateOfBirth ? p.dateOfBirth.slice(0, 10) : '-')}{kv('NIN', <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>{p.nin ?? '-'}{a.ninCheck.status === 'verified' ? <span className="chip">Verified</span> : a.ninCheck.status === 'failed' ? <span className="chip red">Failed</span> : <span className="chip grey">{a.ninCheck.status === 'pending' ? 'Checking' : 'Not checked'}</span>}{open && a.ninCheck.status !== 'verified' && me?.role === 'admin' && <button className="btn ghost" style={{ height: 26, padding: '0 10px' }} onClick={() => setAsk('nin')}>Accept by hand</button>}</span>)}{a.ninCheck.reason && a.ninCheck.status !== 'verified' && <div className="note" style={{ marginBottom: 6 }}>{a.ninCheck.reason}</div>}{kv('LASSDRI number', p.lassdri ?? '-')}{kv('Address', p.address ?? '-')}</div>
           <div className="card"><h3>Next of kin</h3>
             {kv('Name', p.nextOfKin.name ?? '-')}{kv('Phone number', p.nextOfKin.phone ?? '-')}{kv('Relationship', p.nextOfKin.relationship ?? '-')}{kv('Address', p.nextOfKin.address ?? '-')}</div>
           <div className="card"><h3>Vehicle</h3>
             {kv('Arrangement', arrangementLabel(a.arrangement))}
             {platform ? <div className="note" style={{ margin: '6px 0' }}>The driver asked for a platform vehicle. Choose the car and set the payment plan when you approve.</div>
-              : <>{kv('Plate number', a.vehicle.plate)}{kv('Model', a.vehicle.make)}{kv('Colour', a.vehicle.colour)}{kv('Owner', a.owner ? `${a.owner.name} · ${a.owner.phone}` : `${a.driverName} (the driver)`)}</>}
+              : <>{kv('Plate number', formatPlate(a.vehicle.plate))}{kv('Model', a.vehicle.make)}{kv('Colour', a.vehicle.colour)}{kv('Owner', a.owner ? `${a.owner.name} · ${a.owner.phone}` : `${a.driverName} (the driver)`)}</>}
             {kv('Category asked for', label(a.vehicle.category))}
             {a.approvedCategory && kv('Category confirmed', <b>{label(a.approvedCategory)}</b>)}</div>
         </div>
@@ -78,6 +80,7 @@ export default function OnboardingDetail() {
         </div>
       </div>
       {ask === 'changes' && <ReasonModal title="Request changes" text="The driver sees this note and can fix and resubmit." confirm="Send request" onClose={() => setAsk(null)} onSubmit={async (note) => { await post(`/admin/driver-applications/${a.id}/request-changes`, { note }); reload(); }} />}
+      {ask === 'nin' && <ReasonModal title="Accept this NIN by hand?" text="Use this only after you have seen the card or another proof. Your reason is kept with the application." confirm="Accept NIN" onClose={() => setAsk(null)} onSubmit={async (note) => { await post(`/admin/driver-applications/${a.id}/accept-nin`, { note }); reload(); }} />}
       {ask === 'reject' && <ReasonModal title="Reject application" confirm="Reject" danger onClose={() => setAsk(null)} onSubmit={async (reason) => { await post(`/admin/driver-applications/${a.id}/reject`, { reason }); nav('/drivers'); }} />}
       {assigning && <AssignModal app={a} onClose={() => setAssigning(false)} onDone={() => { setToast('Driver approved and vehicle assigned'); reload(); }} />}
       {approving && <InspectModal app={a} onClose={() => setApproving(false)} onDone={() => { setToast('Driver approved'); reload(); }} />}
@@ -94,7 +97,7 @@ function InspectModal({ app, onClose, onDone }: { app: App; onClose: () => void;
   return (
     <Modal onClose={onClose}>
       <h3 style={{ fontSize: 16, fontWeight: 700 }}>Inspect and approve {app.driverName}</h3>
-      <div className="note">{app.vehicle.colour} {app.vehicle.make} · {app.vehicle.plate}. The driver asked for <b>{label(app.vehicle.category)}</b>. Confirm the category after you have looked at the vehicle, its photo and its inspection certificate.</div>
+      <div className="note">{app.vehicle.colour} {app.vehicle.make} · {formatPlate(app.vehicle.plate)}. The driver asked for <b>{label(app.vehicle.category)}</b>. Confirm the category after you have looked at the vehicle, its photo and its inspection certificate.</div>
       <div className="field"><label htmlFor="ic">Confirmed category</label>
         <select id="ic" className="select" value={category} onChange={(e) => setCategory(e.target.value)}>{CATEGORIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
       {category !== app.vehicle.category && <div className="banner" role="status">This is different from what the driver asked for. Trips and fares for this driver will follow {label(category)}.</div>}

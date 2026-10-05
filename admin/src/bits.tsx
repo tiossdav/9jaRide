@@ -1,6 +1,6 @@
-import { ReactNode, useEffect, useRef, useState } from 'react';
+import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ApiError } from './api';
-import { Modal, useAnyLoading } from './ui';
+import { Modal, formatPlate, plateInput, useAnyLoading } from './ui';
 
 /** Page n of m with Previous and Next, and the "Showing 1 to 20 of 62 results" line from the design. */
 export function Pager({ page, pageSize, total, onPage }: { page: number; pageSize: number; total: number; onPage: (p: number) => void }) {
@@ -114,3 +114,40 @@ export function useConfirm() {
 }
 
 export const kv =(label: string, value: ReactNode) => <div className="line"><span className="note">{label}</span><span>{value}</span></div>;
+
+/**
+ * A number plate box. The state holds plain capitals and digits (KJA482AB) and the box shows the dash (KJA-482AB). After
+ * every change the cursor is put back where the person was typing, counted in letters and digits, so typing in the
+ * middle, deleting and pasting never throw it to the end.
+ */
+export function PlateInput({ id, value, onChange, placeholder = 'KJA-482AB' }: { id?: string; value: string; onChange: (plain: string) => void; placeholder?: string }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const caret = useRef<number | null>(null); // letters and digits before the cursor
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || caret.current === null) return;
+    const shown = formatPlate(value);
+    let seen = 0; let pos = 0;
+    while (pos < shown.length && seen < caret.current) { if (shown[pos] !== '-') seen++; pos++; }
+    el.setSelectionRange(pos, pos);
+    caret.current = null;
+  });
+  return (
+    <input id={id} ref={ref} className="input" placeholder={placeholder} autoCapitalize="characters" spellCheck={false} value={formatPlate(value)}
+      onKeyDown={(e) => {
+        // Backspace right after the dash removes the letter before it (the dash is only for show, so deleting it would do nothing)
+        const el = e.currentTarget;
+        if (e.key === 'Backspace' && el.selectionStart === 4 && el.selectionEnd === 4 && formatPlate(value)[3] === '-') {
+          e.preventDefault();
+          caret.current = 2;
+          onChange(value.slice(0, 2) + value.slice(3));
+        }
+      }}
+      onChange={(e) => {
+        const typed = e.target.value;
+        const at = e.target.selectionStart ?? typed.length;
+        caret.current = plateInput(typed.slice(0, at)).length;
+        onChange(plateInput(typed));
+      }} />
+  );
+}

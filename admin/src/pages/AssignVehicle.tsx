@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { post } from '../api';
-import { go, useConfirm } from '../bits';
-import { Modal, moneyInput, naira, toKobo } from '../ui';
+import { go, useConfirm, PlateInput } from '../bits';
+import { Modal, moneyInput, naira, toKobo, formatPlate } from '../ui';
 
 const todayPlus = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 
@@ -24,7 +24,7 @@ export function AssignModal({ app, onClose, onDone }: { app: { id: string; drive
       <div className="grid g2">
         <div className="field"><label htmlFor="av-cat">Category</label><select id="av-cat" className="select" value={category} onChange={(e) => setCategory(e.target.value)}>
           <option value="regular">Regular</option><option value="comfort">Comfort</option><option value="package">Send Package</option></select></div>
-        <div className="field"><label htmlFor="av-plate">Plate number</label><input id="av-plate" className="input" placeholder="KJA-482AB" value={plate} onChange={(e) => setPlate(e.target.value.toUpperCase())} /></div>
+        <div className="field"><label htmlFor="av-plate">Plate number</label><PlateInput id="av-plate" value={plate} onChange={setPlate} /></div>
         <div className="field"><label htmlFor="av-make">Make and model</label><input id="av-make" className="input" placeholder="Toyota Corolla" value={make} onChange={(e) => setMake(e.target.value)} /></div>
         <div className="field"><label htmlFor="av-col">Colour</label><input id="av-col" className="input" placeholder="Silver" value={colour} onChange={(e) => setColour(e.target.value)} /></div>
       </div>
@@ -40,7 +40,7 @@ export function AssignModal({ app, onClose, onDone }: { app: { id: string; drive
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <button className="btn ghost" onClick={onClose}>Cancel</button>
         <button className="btn" disabled={!ok} onClick={() => confirm.ask(
-          { title: `Approve ${app.driverName} and assign ${plate || 'this vehicle'}?`, text: `${naira(k(total))} paid as ${naira(k(instalment))} ${frequency}, after a ${naira(k(deposit))} deposit. They can go online straight away.`, confirm: 'Yes, approve' },
+          { title: `Approve ${app.driverName} and assign ${formatPlate(plate) || 'this vehicle'}?`, text: `${naira(k(total))} paid as ${naira(k(instalment))} ${frequency}, after a ${naira(k(deposit))} deposit. They can go online straight away.`, confirm: 'Yes, approve' },
           () => go(() => post(`/admin/driver-applications/${app.id}/approve`, { assignment: { vehicle: { category, make: make.trim(), colour: colour.trim(), plate: plate.trim() }, plan: { totalKobo: k(total), depositKobo: k(deposit), instalmentKobo: k(instalment), frequency, startsOn, ...(notes.trim() ? { notes: notes.trim() } : {}) } } }), () => { onDone(); onClose(); }),
         )}>Approve and assign</button>
       </div>

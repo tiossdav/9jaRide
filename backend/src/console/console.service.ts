@@ -2,6 +2,7 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import Redis from 'ioredis';
 import { Pool } from 'pg';
 import { PG_POOL, REDIS } from '../common/infra.module';
+import { displayPlate, plateLike } from '../common/plate';
 import { VehiclePlansService } from '../vehicle-plans/vehicle-plans.service';
 
 const TZ = `'Africa/Lagos'`;
@@ -232,7 +233,7 @@ export class ConsoleService {
       createdAt: r.created_at, scheduledFor: r.scheduled_for,
       pickup: { lat: r.plat, lng: r.plng, address: r.pickup_address }, dropoff: { lat: r.dlat, lng: r.dlng, address: r.dropoff_address },
       rider: { id: r.rider_id, name: r.rider_name, phone: r.rider_phone },
-      driver: r.driver_name ? { id: r.driver_id, name: r.driver_name, phone: r.driver_phone, vehicle: r.plate ? `${r.colour} ${r.make} ${r.plate}` : null } : null,
+      driver: r.driver_name ? { id: r.driver_id, name: r.driver_name, phone: r.driver_phone, vehicle: r.plate ? `${r.colour} ${r.make} ${displayPlate(r.plate)}` : null } : null,
       fare: r.total_kobo == null ? null : {
         totalKobo: Number(r.total_kobo), distanceM: r.f_distance, durationS: r.f_duration, waitingS: r.waiting_s, outsideEstimate: r.outside_quote_range,
         lines: lines.map((l) => ({ kind: l.kind, label: l.label, amountKobo: Number(l.amount_kobo) })),
@@ -352,7 +353,7 @@ export class ConsoleService {
     const params: unknown[] = [];
     let where = `u.role = 'driver'`;
     if (q.status === 'active' || q.status === 'suspended') { params.push(q.status); where += ` AND u.status = $${params.length}`; }
-    if (q.search?.trim()) { params.push(`%${q.search.trim()}%`); where += ` AND (u.full_name ILIKE $${params.length} OR u.phone ILIKE $${params.length} OR v.plate ILIKE $${params.length})`; }
+    if (q.search?.trim()) { params.push(`%${q.search.trim()}%`, plateLike(q.search)); where += ` AND (u.full_name ILIKE $${params.length - 1} OR u.phone ILIKE $${params.length - 1} OR ($${params.length} <> '' AND v.plate LIKE $${params.length}))`; }
     const [count] = await this.q(`SELECT count(*)::int AS n FROM users u LEFT JOIN vehicles v ON v.driver_id = u.id AND v.active WHERE ${where}`, params);
     const { limit, offset } = this.pageArgs(q.page, q.pageSize);
     params.push(limit, offset);
@@ -417,7 +418,7 @@ export class ConsoleService {
     const online = new Set((await this.onlineDrivers()).map((d) => d.id));
     const params: unknown[] = [];
     let where = 'TRUE';
-    if (q.search?.trim()) { params.push(`%${q.search.trim()}%`); where = `(v.plate ILIKE $1 OR v.make ILIKE $1 OR u.full_name ILIKE $1)`; }
+    if (q.search?.trim()) { params.push(`%${q.search.trim()}%`, plateLike(q.search)); where = `(($2 <> '' AND v.plate LIKE $2) OR v.make ILIKE $1 OR u.full_name ILIKE $1)`; }
     const [count] = await this.q(`SELECT count(*)::int AS n FROM vehicles v JOIN users u ON u.id = v.driver_id WHERE ${where}`, params);
     const [k] = await this.q(`SELECT count(*)::int AS total, count(*) FILTER (WHERE active)::int AS active FROM vehicles`);
     const { limit, offset } = this.pageArgs(q.page, q.pageSize);

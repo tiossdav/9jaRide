@@ -118,7 +118,7 @@ private fun ride(o: JsonObject): RideView {
         estimate = estimate(o.obj("estimate")), fareKobo = o.long("fareKobo"), discountKobo = o.long("discountKobo") ?: 0, payableKobo = o.long("payableKobo"), promoCode = o.str("promoCode"), distanceM = o.int("distanceM"), durationS = o.int("durationS"),
         myRating = o.int("myRating"), scheduledFor = o.str("scheduledFor"), statusChangedAt = o.str("statusChangedAt"),
         createdAt = o.str("createdAt"), cancelReason = o.str("cancelReason"),
-        driver = d?.let { DriverView(it.str("name") ?: "Driver", it.dbl("rating"), it.str("phone"), v?.str("make") ?: "", v?.str("colour") ?: "", v?.str("plate") ?: "") },
+        driver = d?.let { DriverView(it.str("name") ?: "Driver", it.dbl("rating"), it.str("phone"), v?.str("make") ?: "", v?.str("colour") ?: "", com.ninejaride.core.format.formatPlate(v?.str("plate") ?: "")) },
     )
 }
 

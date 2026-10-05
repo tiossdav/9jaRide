@@ -2,6 +2,7 @@ import { ConflictException, Inject, Injectable, NotFoundException } from '@nestj
 import Redis from 'ioredis';
 import { Pool } from 'pg';
 import { PG_POOL, REDIS } from '../common/infra.module';
+import { normalisePlate } from '../common/plate';
 import { VehiclePlansService } from '../vehicle-plans/vehicle-plans.service';
 
 /**
@@ -68,7 +69,7 @@ export class VehiclesAdminService {
       for (const o of old) await client.query(`INSERT INTO vehicle_status_events (vehicle_id, status, reason, actor_id) VALUES ($1, 'retired', 'replaced by a new vehicle', $2)`, [o.id, staffId]);
       let created;
       try {
-        created = (await client.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, $2, $3, $4, $5) RETURNING id`, [input.driverId, input.category, input.make.trim(), input.colour.trim(), input.plate.trim().toUpperCase()])).rows[0];
+        created = (await client.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, $2, $3, $4, $5) RETURNING id`, [input.driverId, input.category, input.make.trim(), input.colour.trim(), normalisePlate(input.plate)])).rows[0];
       } catch (e: any) {
         if (e?.code === '23505') throw new ConflictException('that plate number is already registered');
         throw e;

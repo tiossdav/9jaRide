@@ -79,4 +79,40 @@ export class DriverProfileService {
       },
     };
   }
+
+  // ------------------------------------------------------------------ settlement (the step after approval)
+
+  /** What the settlement page shows: the payout account, the vehicle and how it is paid for, and whether the step is finished. */
+  async settlement(driverId: string) {
+    const acct = (await this.pool.query(`SELECT bank_name, account_number, account_name FROM driver_payout_accounts WHERE driver_id = $1`, [driverId])).rows[0];
+    const done = (await this.pool.query(`SELECT settlement_done_at FROM users WHERE id = $1`, [driverId])).rows[0]?.settlement_done_at;
+    const me = await this.profile(driverId);
+    return {
+      done: done != null,
+      account: acct ? { bankName: acct.bank_name, accountNumber: acct.account_number, accountName: acct.account_name } : null,
+      vehicle: me.vehicle,
+      plan: me.plan,
+      // how the vehicle is paid for, in words for the driver: who set it, and whether they can change it
+      terms: me.vehicle?.arrangement === 'platform_plan' && me.plan
+        ? { kind: 'payment_plan', setBy: 'platform', canChange: false }
+        : me.vehicle?.arrangement === 'third_party' ? { kind: 'owner', setBy: 'driver', canChange: true } : { kind: 'own', setBy: 'driver', canChange: false },
+    };
+  }
+
+  async saveAccount(driverId: string, a: { bankName: string; accountNumber: string; accountName: string }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO driver_payout_accounts (driver_id, bank_name, account_number, account_name) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (driver_id) DO UPDATE SET bank_name = $2, account_number = $3, account_name = $4, updated_at = now()`,
+      [driverId, a.bankName.trim(), a.accountNumber, a.accountName.trim()],
+    );
+  }
+
+  /** Finishes the step. A driver who is not approved yet, or who has not given a payout account, cannot. */
+  async completeSettlement(driverId: string): Promise<void> {
+    const ok = await this.pool.query(
+      `SELECT 1 FROM driver_applications a JOIN driver_payout_accounts p ON p.driver_id = a.driver_id WHERE a.driver_id = $1 AND a.status = 'APPROVED'`, [driverId],
+    );
+    if (!ok.rowCount) throw new BadRequestException('add your payout account first, once your profile is approved');
+    await this.pool.query(`UPDATE users SET settlement_done_at = COALESCE(settlement_done_at, now()) WHERE id = $1`, [driverId]);
+  }
 }

@@ -23,6 +23,7 @@ import com.ninejaride.driver.BuildConfig
 import com.ninejaride.driver.data.Api
 import com.ninejaride.core.data.ApiException
 import androidx.compose.ui.graphics.asImageBitmap
+import com.ninejaride.core.format.properName
 import com.ninejaride.driver.data.ApplicationForm
 import com.ninejaride.driver.data.Arrangement
 import com.ninejaride.driver.data.ServerDoc
@@ -44,6 +45,7 @@ sealed interface Dest {
     data object SignUp : Dest
     data object Apply : Dest
     data object ApplicationStatus : Dest
+    data object Settlement : Dest
     data object Otp : Dest
     data object LocationPermission : Dest
     data object Main : Dest
@@ -63,7 +65,7 @@ sealed interface Dest {
     data class TripDetails(val code: String) : Dest
 }
 
-enum class Dialog { OtpMethod, SignedIn, GoOnline, GoOffline, Sos, Logout, DateFilter, NotRegistered, LocationDenied, Battery }
+enum class Dialog { Verifying, Approved, OtpMethod, SignedIn, GoOnline, GoOffline, Sos, Logout, DateFilter, NotRegistered, LocationDenied, Battery }
 
 /** The sheet that asks "are you sure?" before an action runs. */
 enum class Phase { None, Offer, ToPickup, Waiting, InTrip, Collect, Rate, SosSent }
@@ -248,7 +250,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     fun neededDocuments(): List<String> {
         val a = chosen ?: return emptyList()
         return buildList {
-            add("drivers_licence"); add("nin"); add("lassdri")
+            add("drivers_licence"); add("lassdri") // the NIN is checked by a service, so no photo of it is asked for
             if (a.asksForVehicle) { add("vehicle_photo"); add("insurance"); add("inspection_certificate") }
             if (a.asksForOwner) add("owner_consent")
         }
@@ -260,7 +262,8 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         application = app
         when {
             app == null -> openApplication()
-            app.status == "APPROVED" -> { loadAccount(); reset(reset) }
+            // approved: the settlement step comes first (once); a driver who finished it goes straight in
+            app.status == "APPROVED" -> if (settlementDone()) { loadAccount(); reset(reset) } else { reset(Dest.ApplicationStatus); dialog = Dialog.Approved }
             else -> reset(Dest.ApplicationStatus)
         }
         return true
@@ -295,11 +298,58 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Asks the server where the application stands. Approval shows the congratulations box; it never moves on by itself. */
     fun refreshApplication() {
         viewModelScope.launch {
             val app = runCatching { api.application() }.getOrNull() ?: return@launch
             application = app
-            if (app.status == "APPROVED") { toast = "You are approved" to "Welcome aboard. Turn on location to start."; reset(Dest.LocationPermission) }
+            if (app.status == "APPROVED" && dialog != Dialog.Approved) dialog = Dialog.Approved
+        }
+    }
+
+    private suspend fun settlementDone(): Boolean = runCatching { api.settlement().done }.getOrDefault(false)
+
+    /** "Continue" in the congratulations box: on to settlement, or past it if it was already finished. */
+    fun continueAfterApproval() {
+        dialog = null
+        viewModelScope.launch {
+            if (settlementDone()) { loadAccount(); reset(Dest.LocationPermission) } else openSettlement()
+        }
+    }
+
+    // ---- settlement: where the driver is paid
+    var bankName by mutableStateOf("")
+    var accountNumber by mutableStateOf("")
+    var accountName by mutableStateOf("")
+    var settlementVehicle by mutableStateOf("")
+    var settlementTerms by mutableStateOf("")
+    var settling by mutableStateOf(false)
+    var settleError by mutableStateOf<String?>(null)
+
+    private suspend fun openSettlement() {
+        runCatching { api.settlement() }.getOrNull()?.let {
+            bankName = it.bank; accountNumber = it.number; accountName = it.holder.ifBlank { properName(runCatching { api.profile().name }.getOrDefault(fullName)).uppercase() }
+            settlementVehicle = it.vehicle; settlementTerms = it.terms
+        }
+        settleError = null
+        reset(Dest.Settlement)
+    }
+
+    fun finishSettlement() {
+        when {
+            bankName.trim().length < 2 -> { settleError = "Enter your bank's name."; return }
+            accountNumber.length != 10 -> { settleError = "An account number has 10 digits."; return }
+            accountName.trim().length < 2 -> { settleError = "Enter the name on the account."; return }
+        }
+        viewModelScope.launch {
+            settling = true; settleError = null
+            try {
+                api.saveAccount(bankName.trim(), accountNumber, accountName.trim())
+                api.completeSettlement()
+                toast = "You are all set" to "Your payout account is saved."
+                loadAccount()
+                reset(Dest.LocationPermission)
+            } catch (e: ApiException) { settleError = if (e.status >= 500) "We could not save that. Please try again." else e.message } finally { settling = false }
         }
     }
 
@@ -318,11 +368,11 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         return when (applyStep) {
             0 -> null
             1 -> when {
-                !emailOk -> "Enter a valid email address."
-                dateOrNull(dateOfBirth, future = false) == null -> "Enter your date of birth as DD/MM/YYYY. You must be at least 18."
+                dateOrNull(dateOfBirth, future = false) == null -> "Choose your date of birth. You must be at least 18."
+                address.trim().length < 5 -> "Enter your home address."
                 nin.filter { it.isDigit() }.length != 11 -> "Your NIN is 11 digits."
                 lassdri.trim().length < 4 -> "Enter your LASSDRI number."
-                address.trim().length < 5 -> "Enter your home address."
+                !emailOk -> "Enter a valid email address."
                 else -> null
             }
             2 -> when {
@@ -340,10 +390,10 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             }
             else -> when {
                 licenceNumber.trim().length < 4 -> "Enter your driver's licence number."
-                dateOrNull(licenceExpiry) == null -> "Enter the licence expiry date as DD/MM/YYYY. It must be in the future."
+                dateOrNull(licenceExpiry) == null -> "Choose when your licence expires. It must be in the future."
                 a.asksForVehicle && insuranceNumber.trim().length < 3 -> "Enter the insurance policy number."
-                a.asksForVehicle && dateOrNull(insuranceExpiry) == null -> "Enter the insurance expiry date as DD/MM/YYYY. It must be in the future."
-                a.asksForVehicle && dateOrNull(inspectionExpiry) == null -> "Enter the date the inspection certificate expires, as DD/MM/YYYY."
+                a.asksForVehicle && dateOrNull(insuranceExpiry) == null -> "Choose when the insurance expires. It must be in the future."
+                a.asksForVehicle && dateOrNull(inspectionExpiry) == null -> "Choose when the inspection certificate expires."
                 neededDocuments().any { uploads[it] == null } -> "Upload a photo for: " + neededDocuments().filter { uploads[it] == null }.joinToString(", ") { documentLabel(it) } + "."
                 else -> null
             }
@@ -405,6 +455,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                 api.submitApplication(form)
                 application = api.application()
                 reset(Dest.ApplicationStatus)
+                dialog = Dialog.Verifying
             } catch (e: ApiException) { applyError = if (e.status >= 500) "We could not send that. Please try again." else e.message } finally { applying = false }
         }
     }

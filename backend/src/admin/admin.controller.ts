@@ -148,6 +148,12 @@ export class AdminDriversController {
     await this.applications.approve(id, me.id, { assignment: dto.assignment, category: dto.category });
   }
 
+  /** Admin only: accept the NIN of an application by hand when the check could not settle it. */
+  @Roles('admin') @Post('driver-applications/:id/accept-nin') @HttpCode(204)
+  async acceptNin(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() dto: NoteDto) {
+    await this.applications.acceptNinByHand(id, me.id, dto.note);
+  }
+
   @Post('driver-applications/:id/request-changes') @HttpCode(204)
   async changes(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() dto: NoteDto) {
     await this.applications.requestChanges(id, me.id, dto.note);

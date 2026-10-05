@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Pager, SearchBox, Segmented } from '../bits';
 import { RatingsTab } from './Insights';
-import { Loading, Pill, Stat, arrangementLabel, dateTime, initials, title, useLoad } from '../ui';
+import { arrangementLabel, dateTime, formatPlate, initials, Loading, Pill, Stat, title, useLoad } from '../ui';
 
 interface DriverList {
   counts: { total: number; active: number; suspended: number; pendingApplications: number };
@@ -41,7 +41,7 @@ function Overview() {
               <tr key={r.id} className="link" onClick={() => nav(`/people/${r.id}`)}>
                 <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><div className="avatar">{initials(r.name)}</div>{r.name}</div></td>
                 <td>{r.phone}</td>
-                <td>{r.vehicle ? <>{r.vehicle.plate}<div className="note">{r.vehicle.colour} {r.vehicle.make} · {title(r.vehicle.category)}</div></> : <span className="note">No vehicle</span>}</td>
+                <td>{r.vehicle ? <>{formatPlate(r.vehicle.plate)}<div className="note">{r.vehicle.colour} {r.vehicle.make} · {title(r.vehicle.category)}</div></> : <span className="note">No vehicle</span>}</td>
                 <td>{arrangementLabel(r.arrangement)}</td>
                 <td className="num">{r.trips}</td><td className="num">{r.rating ?? '-'}</td><td>{dateTime(r.joinedAt)}</td>
                 <td>{r.status === 'suspended' ? <span className="chip red">Suspended</span> : <span className="chip">Active</span>}</td>
@@ -69,7 +69,7 @@ function Onboarding() {
               {data.map((a) => (
                 <tr key={a.id} className="link" onClick={() => nav(`/onboarding/${a.id}`)}>
                   <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><div className="avatar">{initials(a.driverName)}</div>{a.driverName}</div></td>
-                  <td>{a.phone}</td><td>{a.vehicle.plate}<div className="note">{a.vehicle.colour} {a.vehicle.make} · {title(a.vehicle.category)}</div></td>
+                  <td>{a.phone}</td><td>{formatPlate(a.vehicle.plate)}<div className="note">{a.vehicle.colour} {a.vehicle.make} · {title(a.vehicle.category)}</div></td>
                   <td>{dateTime(a.submittedAt)}</td>
                   <td><Pill tone={a.status === 'APPROVED' ? 'green' : a.status === 'REJECTED' ? 'red' : 'amber'}>{title(a.status)}</Pill></td>
                 </tr>
