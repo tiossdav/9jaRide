@@ -54,7 +54,7 @@ import com.ninejaride.rider.ui.screens.WelcomeScreen
 import com.ninejaride.rider.ui.screens.WhereToScreen
 import com.ninejaride.rider.ui.screens.rideIsLive
 
-private val NAV = listOf(NavItem("Home", Ic.Home), NavItem("Trips", Ic.Clock), NavItem("Account", Ic.User))
+private val NAV = listOf(NavItem("Home", Ic.Home), NavItem("Trips", Ic.Route), NavItem("Account", Ic.User))
 
 @Composable
 fun App(vm: RiderViewModel = viewModel()) {
