@@ -462,6 +462,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ start-up
     fun boot() {
+        watchAlerts()
         // a hosted server that went to sleep starts now, while the splash screen is showing
         if (!demo) viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { runCatching { api.client.wake() } }
         viewModelScope.launch {
@@ -628,6 +629,14 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             out += if (walletKobo >= 0) Check(true, "Wallet is clear", "Balance ${naira(walletKobo)}")
             else Check(false, "Wallet balance is ${naira(walletKobo)}", "Top up at least ${naira(-walletKobo)} to continue", "Top up")
             if (walletKobo < 0 && !profile.emailVerified) out += Check(false, "Email not verified", "Needed to fund your wallet", "Verify")
+            // Booking alerts. These do not stop you going online, but without them a booking can be missed.
+            checksTick
+            val app = getApplication<Application>()
+            if (!demo) {
+                if (!com.ninejaride.driver.alert.BookingAlert.notificationsAllowed(app)) out += Check(false, "Booking alerts are off", "Allow notifications so new bookings can ring", "Allow", soft = true, fix = "notifications")
+                if (!com.ninejaride.driver.alert.BookingAlert.fullScreenAllowed(app)) out += Check(false, "Bookings cannot open the screen", "Allow full-screen alerts so a booking shows over other apps", "Allow", soft = true, fix = "fullscreen")
+                if (com.ninejaride.driver.alert.BookingAlert.needsDndAccess(app)) out += Check(false, "Bookings may stay silent in Do Not Disturb", "Allow Do Not Disturb access so the booking ring is heard", "Allow", soft = true, fix = "dnd")
+            }
             return out
         }
 
@@ -639,6 +648,36 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     fun confirmGoOffline() { dialog = null; wentOnline(false) }
 
     private var offerJob: Job? = null
+
+    private var watchingAlerts = false
+
+    /** Started from boot (not from the constructor, so the state it reads exists). */
+    private fun watchAlerts() {
+        if (watchingAlerts) return
+        watchingAlerts = true
+        // The alert rings for as long as an offer is on screen, and stops the moment it is answered or runs out.
+        viewModelScope.launch {
+            androidx.compose.runtime.snapshotFlow { phase }.collect { p ->
+                val app = getApplication<Application>()
+                if (p == Phase.Offer) com.ninejaride.driver.alert.BookingAlert.start(app, offer.rideId.ifEmpty { offer.code }, offer.rider.name, offer.pickup, offerSeconds)
+                else com.ninejaride.driver.alert.BookingAlert.stop(app)
+            }
+        }
+    }
+
+    /** Bumped when the driver comes back from a settings page, so the checks are read again. */
+    var checksTick by mutableIntStateOf(0)
+
+    /** Opens the phone setting that fixes a booking-alert check. */
+    fun openAlertSetting(kind: String) {
+        val app = getApplication<Application>()
+        val intent = when (kind) {
+            "notifications" -> android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, app.packageName)
+            "fullscreen" -> if (android.os.Build.VERSION.SDK_INT >= 34) android.content.Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, android.net.Uri.parse("package:${app.packageName}")) else null
+            else -> android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+        } ?: return
+        runCatching { app.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    }
 
     private fun wentOnline(on: Boolean) {
         offerJob?.cancel()

@@ -241,6 +241,13 @@ fun HomeDialogs(vm: DriverViewModel) {
 
 @Composable
 fun GoOnlineChecksScreen(vm: DriverViewModel) {
+    // coming back from a phone settings page re-reads what is now allowed
+    val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.DisposableEffect(lifecycle) {
+        val watcher = androidx.lifecycle.LifecycleEventObserver { _, e -> if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) vm.checksTick++ }
+        lifecycle.addObserver(watcher)
+        onDispose { lifecycle.removeObserver(watcher) }
+    }
     val checks = vm.goOnlineChecks
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         ScreenHeader("Before you go online", "Complete these to start receiving trips", vm::pop)
@@ -259,13 +266,13 @@ fun GoOnlineChecksScreen(vm: DriverViewModel) {
                         Txt(c.detail, 12.5f, 500, C.Muted)
                     }
                     if (c.action != null) {
-                        Btn(c.action, { vm.push(Dest.FundWallet) }, Modifier.width(84.dp), height = 38.dp, size = 13.5f)
+                        Btn(c.action, { if (c.fix != null) vm.openAlertSetting(c.fix) else vm.push(Dest.FundWallet) }, Modifier.width(84.dp), height = 38.dp, size = 13.5f)
                     }
                 }
             }
         }
         Column(Modifier.padding(horizontal = 20.dp).navigationBarsPadding().padding(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Btn("Go online", { vm.pop(); vm.dialog = Dialog.GoOnline }, Modifier.fillMaxWidth(), enabled = checks.all { it.ok })
+            Btn("Go online", { vm.pop(); vm.dialog = Dialog.GoOnline }, Modifier.fillMaxWidth(), enabled = checks.filter { !it.soft }.all { it.ok })
             Txt("Your wallet goes below zero when 9jaRide Pro service charges on cash trips are taken.", 12.5f, 500, C.Muted, align = TextAlign.Center)
         }
     }

@@ -58,6 +58,7 @@ class LocationService : Service() {
     private lateinit var api: ApiClient
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var uploadJob: Job? = null
+    private var offerJob: Job? = null
     private var listener: LocationListener? = null
     private var lastFix: Long = 0
 
@@ -89,6 +90,7 @@ class LocationService : Service() {
         }
         startListening()
         if (uploadJob == null) uploadJob = scope.launch { uploadLoop() }
+        if (offerJob == null) offerJob = scope.launch { watchOffers() }
         LocationStatus.running = true
         return START_STICKY
     }
@@ -155,6 +157,26 @@ class LocationService : Service() {
         LocationStatus.pending = queue.size()
     }
 
+    /**
+     * Asks for a waiting booking every few seconds while the driver is online. This runs in the foreground service, so it
+     * carries on when the app is behind another app or the screen is off; when an offer appears the booking alert rings.
+     */
+    private suspend fun watchOffers() {
+        while (true) {
+            delay(3_000)
+            try {
+                val offer = api.call("GET", "/driver/offer", auth = true)["offer"] as? kotlinx.serialization.json.JsonObject
+                val id = (offer?.get("rideId") as? kotlinx.serialization.json.JsonPrimitive)?.content
+                if (offer != null && id != null) {
+                    val rider = ((offer["rider"] as? kotlinx.serialization.json.JsonObject)?.get("name") as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "A rider"
+                    val pickup = ((offer["pickup"] as? kotlinx.serialization.json.JsonObject)?.get("address") as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "the pickup point"
+                    val left = (offer["secondsLeft"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() ?: 15
+                    com.ninejaride.driver.alert.BookingAlert.start(this, id, rider, pickup, left)
+                } else com.ninejaride.driver.alert.BookingAlert.stop(this)
+            } catch (e: Exception) { /* offline for a moment: try again at the next beat */ }
+        }
+    }
+
     /** Sends what is queued. Never gives up: a network error just waits and tries again. */
     private suspend fun uploadLoop() {
         var failures = 0
@@ -205,6 +227,7 @@ class LocationService : Service() {
         listener?.let { getSystemService(LocationManager::class.java)?.removeUpdates(it) }
         listener = null
         scope.cancel()
+        com.ninejaride.driver.alert.BookingAlert.stop(this)
         LocationStatus.running = false
         super.onDestroy()
     }

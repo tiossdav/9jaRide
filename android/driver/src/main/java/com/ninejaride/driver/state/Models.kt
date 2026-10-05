@@ -82,7 +82,8 @@ data class WalletTx(val title: String, val whenText: String, val amount: Kobo, v
 data class PayoutRecord(val whenText: String, val amount: Kobo, val status: String)
 
 /** One row of "Before you go online". */
-data class Check(val ok: Boolean, val title: String, val detail: String, val action: String? = null)
+/** [soft] checks are advice: they do not stop the driver going online. [fix] names the phone setting the button opens. */
+data class Check(val ok: Boolean, val title: String, val detail: String, val action: String? = null, val soft: Boolean = false, val fix: String? = null)
 
 val DEMO_PROFILE = DriverProfile(
     name = "Victor Taiwo",
