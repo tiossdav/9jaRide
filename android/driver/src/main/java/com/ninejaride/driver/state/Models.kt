@@ -7,6 +7,9 @@ data class Vehicle(
     val category: String = "", val arrangement: String = "", val ownerName: String = "", val ownerPhone: String = "",
 )
 
+/** The share of earnings that goes toward the vehicle, who chose it, and whether the driver may change it. */
+data class VehicleTerms(val percent: Double, val setByOwner: Boolean, val canChange: Boolean, val ownerName: String, val targetKobo: Long?, val paidKobo: Long, val remainingKobo: Long?)
+
 /** Where a driver stands on a vehicle payment plan. */
 data class PlanSummary(val status: String, val totalKobo: Long, val paidKobo: Long, val outstandingKobo: Long, val overdueKobo: Long, val nextDueOn: String?)
 
@@ -35,6 +38,7 @@ data class DriverProfile(
     val contactPreference: String = "",
     val ratingAverage: Double? = null,
     val plan: PlanSummary? = null,
+    val arrangement: String = "",
 ) {
     val ratingText: String get() = ratingAverage?.let { "%.1f".format(it) } ?: if (rating > 0) "$rating" else "New"
 }
@@ -61,7 +65,7 @@ data class RideOffer(
 /** The receipt lines as the server prices them. The fare is the sum of the lines; rounding is its own line. */
 data class FareLine(val label: String, val amount: Kobo, val signed: Boolean = false)
 
-data class FareReceipt(val lines: List<FareLine>, val total: Kobo, val serviceCharge: Kobo, val earn: Kobo, val serviceRatePercent: Int = 12)
+data class FareReceipt(val lines: List<FareLine>, val total: Kobo, val serviceCharge: Kobo, val earn: Kobo, val serviceRatePercent: Int = 12, val vehicleDeduction: Kobo = 0, val vehicleSharePercent: Int = 0)
 
 data class TripRecord(
     val code: String,

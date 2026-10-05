@@ -308,6 +308,11 @@ fun ReceiptCard(r: FareReceipt, paymentIsCash: Boolean) {
             MoneyLine("9jaRide Pro service charge · ${r.serviceRatePercent}%", nairaMinus(r.serviceCharge), amountColor = C.RedText, labelColor = C.RedText)
         }
         Box(Modifier.padding(vertical = 9.dp)) { MoneyLine("You earn", naira(r.earn, true), bold = false, labelColor = C.Ink) }
+        if (r.vehicleDeduction > 0) {
+            Box(Modifier.padding(vertical = 9.dp)) { MoneyLine("Vehicle payment" + (if (r.vehicleSharePercent > 0) " · ${r.vehicleSharePercent}%" else ""), nairaMinus(r.vehicleDeduction), amountColor = C.RedText, labelColor = C.RedText) }
+            Divider()
+            Box(Modifier.padding(vertical = 9.dp)) { MoneyLine("You keep", naira(r.earn - r.vehicleDeduction, true), bold = true, labelColor = C.Ink) }
+        }
     }
 }
 
@@ -326,7 +331,7 @@ fun CollectFareScreen(vm: DriverViewModel) {
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Icon24(Ic.Wallet, C.Muted, 20.dp)
-            Txt("The ${naira(r.serviceCharge, true)} service charge is taken from your wallet for cash trips.", 12.5f, 500, C.Muted, Modifier.weight(1f))
+            Txt(if (r.vehicleDeduction > 0) "The ${naira(r.serviceCharge, true)} service charge and ${naira(r.vehicleDeduction, true)} for your vehicle are taken from your wallet for cash trips." else "The ${naira(r.serviceCharge, true)} service charge is taken from your wallet for cash trips.", 12.5f, 500, C.Muted, Modifier.weight(1f))
         }
         Btn("Cash collected", { vm.confirm("Have you collected the cash?", "Confirm only after the rider has paid you the full fare.", "Yes, collected", false, vm::cashCollected) }, Modifier.fillMaxWidth())
         Btn("Report a problem", { vm.push(com.ninejaride.driver.state.Dest.Help) }, Modifier.fillMaxWidth(), kind = BtnKind.Outline, height = 46.dp)
@@ -343,7 +348,7 @@ fun RateRiderScreen(vm: DriverViewModel) {
                 Icon24(Ic.Check, Color.White, 30.dp, 2.6f)
             }
             Txt("Trip complete", 22f, 800)
-            Txt("You earned ${naira(vm.receipt.earn, true)}", 14f, 500, C.Muted)
+            Txt("You earned ${naira(vm.receipt.earn - vm.receipt.vehicleDeduction, true)}", 14f, 500, C.Muted)
         }
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(18.dp),

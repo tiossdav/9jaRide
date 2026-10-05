@@ -2,18 +2,10 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
 import { PG_POOL } from '../common/infra.module';
 import { assertKobo } from '../common/money';
-import {
-  Posting,
-  assertBalanced,
-  planBonus,
-  planCashTrip,
-  planTopUp,
-  planWalletTrip,
-  walletCode,
-} from './postings';
+import {Posting, assertBalanced, planBonus, planCashTrip, planTopUp, planWalletTrip, walletCode, OwnerDeduction} from './postings';
 
 /** The revenue rules in force when the trip began. Left out, the long-standing defaults apply. */
-export interface TripRules { commissionBps?: number; taxCommissionable?: boolean; discountKobo?: number }
+export interface TripRules { commissionBps?: number; taxCommissionable?: boolean; discountKobo?: number; deduction?: OwnerDeduction }
 
 export class InsufficientFundsError extends Error {
   constructor(public readonly account: string, public readonly availableKobo: number, public readonly neededKobo: number) {
@@ -170,7 +162,7 @@ export class LedgerService {
         kind: 'trip_wallet',
         reference: rideId,
         idempotencyKey: `trip:${rideId}`,
-        postings: planWalletTrip(riderId, driverId, fare, tax, rules.commissionBps, rules.taxCommissionable, rules.discountKobo),
+        postings: planWalletTrip(riderId, driverId, fare, tax, rules.commissionBps, rules.taxCommissionable, rules.discountKobo, rules.deduction),
       },
       { ignoreHolds: true },
     );
@@ -191,7 +183,7 @@ export class LedgerService {
         kind: 'trip_cash',
         reference: rideId,
         idempotencyKey: `trip:${rideId}`,
-        postings: planCashTrip(driverId, fare, tax, rules.commissionBps, rules.taxCommissionable, rules.discountKobo),
+        postings: planCashTrip(driverId, fare, tax, rules.commissionBps, rules.taxCommissionable, rules.discountKobo, rules.deduction),
       },
       { allowNegative: [walletCode(driverId)] },
     );

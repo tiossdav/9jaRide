@@ -15,6 +15,9 @@ import { VehiclePlanDetail, VehiclePlans } from './pages/VehiclePlans';
 import Vehicles from './pages/Vehicles';
 import { AssetTypes, StakeholderPayouts } from './pages/Catalog';
 import Promos from './pages/Promos';
+import Businesses from './pages/Businesses';
+import Fleet from './pages/Fleet';
+import FleetDetail from './pages/FleetDetail';
 import { CancellationPolicy, RevenueSetup } from './pages/Rules';
 import { SupportQueue, TicketDetail } from './pages/SupportDesk';
 import { MemberDetail, Members, Roles } from './pages/Team';
@@ -50,6 +53,9 @@ export default function App() {
         <Route path="drivers" element={<Drivers />} />
         <Route path="onboarding/:id" element={<OnboardingDetail />} />
         <Route path="people/:id" element={<Person />} />
+        <Route path="fleet" element={<Fleet />} />
+        <Route path="fleet/businesses" element={<Businesses />} />
+        <Route path="fleet/:id" element={<FleetDetail />} />
         <Route path="vehicles" element={<Vehicles />} />
         <Route path="vehicles/:id" element={<VehicleDetail />} />
         <Route path="finances/wallet" element={<Wallet />} />

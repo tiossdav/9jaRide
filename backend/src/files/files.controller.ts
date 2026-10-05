@@ -9,10 +9,10 @@ export class FilesController {
   constructor(private readonly files: FilesService) {}
 
   /** Send one photo or PDF as the form field "file". The answer is the id to attach it to an application. */
-  @Roles('driver') @Post()
+  @Roles('driver', 'admin', 'business') @Post()
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } }))
   upload(@CurrentUser() me: Principal, @UploadedFile() file?: { buffer: Buffer }) {
-    return this.files.save(me.id, file?.buffer);
+    return this.files.save(me.id, file?.buffer, me.kind);
   }
 
   @Get(':id') @Header('X-Content-Type-Options', 'nosniff') @Header('Cache-Control', 'private, max-age=600')

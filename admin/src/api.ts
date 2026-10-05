@@ -62,6 +62,36 @@ export async function call<T = any>(method: string, path: string, body?: unknown
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
+/** Sends a form with a file in it (an upload, or a list of vehicles), signed in, with the same one retry after a refresh. */
+export async function sendForm<T = any>(path: string, form: FormData): Promise<T> {
+  const go = async (token?: string) => {
+    try { return await fetch(BASE + path, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: form }); } catch { throw new ApiError(0, 'Cannot reach the server. Check your connection.'); }
+  };
+  let res = await go(read()?.accessToken);
+  if (res.status === 401 && read()) {
+    if (await refresh()) res = await go(read()?.accessToken);
+    else { onExpired(); throw new ApiError(401, 'Your session has ended. Sign in again.'); }
+  }
+  if (!res.ok) await fail(res);
+  return res.status === 204 ? (undefined as T) : res.json();
+}
+
+/** Uploads one photo or PDF and returns its id. */
+export async function uploadFile(file: File): Promise<string> {
+  const form = new FormData();
+  form.append('file', file);
+  return (await sendForm<{ id: string }>('/files', form)).id;
+}
+
+/** A private picture as something an <img> can show: fetched with the sign-in token, then turned into a local address. */
+export async function blobUrl(path: string): Promise<string> {
+  const send = (t?: string) => fetch(BASE + path, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
+  let res = await send(read()?.accessToken);
+  if (res.status === 401 && (await refresh())) res = await send(read()?.accessToken);
+  if (!res.ok) throw new ApiError(res.status, 'The picture could not be loaded.');
+  return URL.createObjectURL(await res.blob());
+}
+
 export const get = <T = any>(path: string) => call<T>('GET', path);
 export const post = <T = any>(path: string, body: unknown = {}, extra: Record<string, string> = {}) => call<T>('POST', path, body, extra);
 export const del = <T = any>(path: string) => call<T>('DELETE', path);

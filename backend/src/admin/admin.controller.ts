@@ -51,7 +51,15 @@ class AssignmentDto {
   @ValidateNested() @Type(() => PlanDto) plan!: PlanDto;
 }
 
+/** Giving a business vehicle to the driver at approval. Optional: a business can also give one later from its own list. */
+class FleetAssignDto {
+  @IsUUID() fleetVehicleId!: string;
+  @IsInt() @Min(0) @Max(9000) deductionBps!: number;
+  @IsOptional() @IsInt() @Min(1) targetKobo?: number;
+}
+
 class ApproveDto {
+  @IsOptional() @ValidateNested() @Type(() => FleetAssignDto) fleet?: FleetAssignDto;
   @IsOptional() @ValidateNested() @Type(() => AssignmentDto) assignment?: AssignmentDto;
   /** The category the reviewer confirmed after inspecting the vehicle. Defaults to the one the driver asked for. */
   @IsOptional() @Matches(/^[a-z][a-z0-9_]{1,29}$/) category?: string;
@@ -83,6 +91,7 @@ class PersonalDto {
 
 class ApplicationDto {
   @IsOptional() @IsString() @MaxLength(30) arrangement?: string;
+  @IsOptional() @IsInt() @Min(100) @Max(9000) deductionBps?: number;
   @IsDefined() @ValidateNested() @Type(() => VehicleDto) vehicle!: VehicleDto;
   @IsOptional() @ValidateNested() @Type(() => OwnerDto) owner?: OwnerDto;
   @IsDefined() @ValidateNested() @Type(() => PersonalDto) personal!: PersonalDto;
@@ -144,8 +153,8 @@ export class AdminDriversController {
   @Post('driver-applications/:id/approve') @HttpCode(204)
   async approve(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ApproveDto) {
     // giving a driver a car on a payment plan commits company money, so it is an admin decision
-    if (dto.assignment && me.role !== 'admin') throw new ForbiddenException('only an admin can assign a vehicle and set up a payment plan');
-    await this.applications.approve(id, me.id, { assignment: dto.assignment, category: dto.category });
+    if ((dto.assignment || dto.fleet) && me.role !== 'admin') throw new ForbiddenException('only an admin can assign a vehicle at approval');
+    await this.applications.approve(id, me.id, { assignment: dto.assignment, category: dto.category, fleet: dto.fleet });
   }
 
   /** Admin only: accept the NIN of an application by hand when the check could not settle it. */

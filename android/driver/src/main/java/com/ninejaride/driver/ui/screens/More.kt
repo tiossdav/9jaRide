@@ -326,6 +326,7 @@ fun VehicleScreen(vm: DriverViewModel) {
                     if (plan.overdueKobo > 0 && plan.status != "cancelled") LabeledBox("Behind by", naira(plan.overdueKobo), valueColor = C.Red)
                     plan.nextDueOn?.let { LabeledBox("Next payment due", it) }
                 }
+                vm.vehicleTerms?.let { ShareSection(vm, it) }
                 Txt("To change vehicle details, contact support.", 12.5f, 700, C.Ink)
             }
         }
@@ -401,4 +402,20 @@ fun DeleteAccountScreen(vm: DriverViewModel) {
             Btn("Back to profile", vm::pop, Modifier.fillMaxWidth(), kind = BtnKind.Outline)
         }
     }
+}
+
+/** How much of each trip goes toward the vehicle. A share the driver chose can be changed here; one a business set cannot. */
+@Composable
+private fun ShareSection(vm: DriverViewModel, t: com.ninejaride.driver.state.VehicleTerms) {
+    var text by remember(t.percent) { mutableStateOf(if (t.percent % 1.0 == 0.0) t.percent.toInt().toString() else t.percent.toString()) }
+    Txt("PAYING TOWARD THIS VEHICLE", 12f, 600, C.Muted, letterSpacing = 1f)
+    LabeledBox("Share of your earnings", "${text.ifBlank { "0" }}%") { if (!t.canChange) Chip(if (t.setByOwner) "Set by ${t.ownerName.ifBlank { "the owner" }}" else "Fixed", C.Muted, C.Raised) }
+    if (t.ownerName.isNotBlank()) LabeledBox("Paid to", t.ownerName)
+    t.targetKobo?.let { LabeledBox("Paid so far", naira(t.paidKobo) + " of " + naira(it)) } ?: LabeledBox("Paid so far", naira(t.paidKobo))
+    if (t.canChange) {
+        com.ninejaride.core.ui.components.InputField("Change the share (%)", text, { text = it.filter { c -> c.isDigit() || c == '.' }.take(5); vm.termsError = null }, "1 to 90", KeyboardType.Decimal,
+            helper = "The new share applies from your next trip. Past trips stay as they were.")
+        vm.termsError?.let { Txt(it, 12.5f, 600, C.Red) }
+        Btn(if (vm.termsBusy) "Saving..." else "Save share", { val p = text.toDoubleOrNull() ?: 0.0; if (p in 1.0..90.0) vm.saveShare(p) else vm.termsError = "Choose a share between 1% and 90%." }, Modifier.fillMaxWidth(), enabled = !vm.termsBusy && text.toDoubleOrNull() != t.percent)
+    } else Txt("This share is set by ${t.ownerName.ifBlank { "the owner" }}. You cannot change it. Ask them if it needs to change.", 12.5f, 500, C.Muted)
 }

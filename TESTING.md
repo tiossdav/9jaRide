@@ -108,3 +108,28 @@ A driver chooses how they will drive when they apply:
 | I drive someone else's car (`third_party`) | plate, make, colour, owner name and phone, licence, insurance, the owner's agreement | approve |
 
 Payment plans appear under **Finances, Vehicle plans** (and on the driver's and the vehicle's page). Finance or an admin records each payment; the paid, owed and behind figures are always worked out from that history, which cannot be edited (a mistake is taken back with a reversal). Documents are uploaded as photos in the app (stored in `backend/uploads`, private: only the owner and support/admin staff can open them; set `UPLOAD_DIR` to move them). The application collects personal details, next of kin and the vehicle; the driver asks for Regular or Comfort and the reviewer confirms the category after inspecting the vehicle. A database trigger refuses to approve an application without that confirmation. After submitting, the driver sees a thank-you page saying agents will review it and that they will be notified on WhatsApp or by email (their choice); sending those notifications is not built yet.
+
+## Vehicles, businesses and what is taken from a driver's earnings
+
+Three ways to drive, chosen at sign-up:
+
+| Choice | Who is checked | Vehicle |
+| --- | --- | --- |
+| I own my vehicle | the driver and the vehicle | the driver gives plate, model, colour, documents |
+| I drive someone else's car | the driver and the vehicle | plus the owner's name and phone, and **the share of earnings the driver chooses** to go toward the car |
+| Drive a business's vehicle | the driver only | the business gives one from its list (Fleet) after approval and sets the share, which the driver cannot change |
+
+- **Fleet** (admin portal, left menu): one list of vehicles supplied by businesses, with search, filters, pictures and history. A business account sees only its own vehicles. Import many at once from **Excel (.xlsx) or CSV**: "Check the file" first shows every problem line (bad plate, duplicate, unknown category), then "Import" saves the good ones. A blank template can be downloaded from the import window.
+- **Businesses** (admin): add a business and its logins. A business login opens straight on Fleet and sees nothing else.
+- A vehicle must be **verified** before it can be given out, and it can be with **one driver at a time**; a driver has one vehicle at a time. Every assignment is kept as history.
+- On every finished trip, the owner's share is taken from the driver's earnings automatically (for cash trips it comes off the driver's wallet, like the service charge). It stops once the target (the vehicle's price) is reached. The driver sees "Vehicle payment" and "You keep" on the receipt and in their earnings. Owners' balances are in the ledger as `owner:<id>`.
+- The earlier fixed-instalment "platform plan" still works for old records but is off for new drivers.
+
+## Alerts in the admin portal
+A bell and pop-ups at the top right on every page: new bookings, sign-ups, verifications, support reports, vehicle changes, and (finance/admin) payouts and adjustments. **An SOS stays on screen, red, with a sound, until someone acknowledges it** and wherever you are in the portal.
+
+## Booking alert in the driver app
+While online, the app watches for bookings even when it is behind another app. A booking rings loudly (looping, on the alarm volume) and opens over the lock screen. In "Before you go online" the app asks for: notifications, full-screen alerts, and Do Not Disturb access, so the ring is heard. Without a push service (Firebase) a phone that has fully closed the app cannot be reached; that needs Firebase set up later.
+
+## Verifying a NIN
+No card photo is needed. The NIN is checked by a service (`NIN_PROVIDER`; today a stand-in that accepts any 11 digits: a number ending 999 fails, ending 000 stays "checking" for a minute). A failed NIN is refused at once with a message; a pending one settles by itself, or an admin can accept it by hand.

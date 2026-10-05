@@ -272,7 +272,10 @@ export class RidesService {
     const { rows } = await this.pool.query(`SELECT created_at, COALESCE(promo_discount_kobo, 0)::bigint AS discount FROM rides WHERE id = $1`, [rideId]);
     const rules = await this.settings.effective('revenue', rows[0].created_at);
     const { commission, driverShare } = splitFare(totalKobo, taxKobo, rules.commissionBps, rules.taxBase === 'included');
-    return { commissionKobo: commission, driverEarnKobo: driverShare, discountKobo: Number(rows[0].discount) };
+    // what came off for a vehicle the driver is paying toward, so the app can show what is left
+    const owed = (await this.pool.query(`SELECT amount_kobo FROM vehicle_deductions WHERE ride_id = $1`, [rideId])).rows[0];
+    const vehicleKobo = owed ? Number(owed.amount_kobo) : 0;
+    return { commissionKobo: commission, driverEarnKobo: driverShare, discountKobo: Number(rows[0].discount), vehicleDeductionKobo: vehicleKobo, driverKeepsKobo: driverShare - vehicleKobo };
   }
 
   // ------------------------------------------------------------------ what the driver app shows

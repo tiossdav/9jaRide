@@ -234,6 +234,8 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     var colour by mutableStateOf("")
     var ownerName by mutableStateOf("")
     var ownerPhone by mutableStateOf("")
+    /** For someone else's car: the share of earnings (in percent) that goes toward it. */
+    var sharePercent by mutableStateOf("20")
 
     // documents: the numbers and dates typed in, and the id of the photo uploaded for each
     var licenceNumber by mutableStateOf("")
@@ -286,6 +288,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         dateOfBirth = a.dateOfBirth.takeIf { it.length == 10 }?.let { "${it.substring(8, 10)}/${it.substring(5, 7)}/${it.substring(0, 4)}" } ?: ""
         kinName = a.kinName; kinPhone = a.kinPhone.replace("+234", "0"); kinRelationship = a.kinRelationship; kinAddress = a.kinAddress
         plate = a.plate; make = a.make; colour = a.colour; ownerName = a.ownerName; ownerPhone = a.ownerPhone.replace("+234", "0")
+        if (a.deductionBps > 0) sharePercent = (a.deductionBps / 100.0).let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() }
         uploads.clear()
         a.documents.forEach { d ->
             d.fileId?.let { uploads[d.kind] = it }
@@ -386,6 +389,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                 a.asksForVehicle && (make.trim().length < 2 || colour.trim().length < 2) -> "Enter the model and colour of the vehicle."
                 a.asksForOwner && ownerName.trim().length < 2 -> "Enter the name of the person who owns the car."
                 a.asksForOwner && !phoneOk(ownerPhone) -> "Enter the owner's 11-digit phone number."
+                a.asksForOwner && (sharePercent.toDoubleOrNull() ?: 0.0) !in 1.0..90.0 -> "Choose what share of your earnings goes toward the car, between 1% and 90%."
                 else -> null
             }
             else -> when {
@@ -448,6 +452,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             if (a.asksForOwner) ownerName.trim() else "", "+234" + ownerPhone.filter { it.isDigit() }.drop(1),
             email.trim(), contactPreference, dateOrNull(dateOfBirth, future = false) ?: "", nin.filter { it.isDigit() }, lassdri.trim().uppercase(), address.trim(),
             kinName.trim(), "+234" + kinPhone.filter { it.isDigit() }.drop(1), kinRelationship.trim(), kinAddress.trim(), docs,
+            if (a.asksForOwner) Math.round((sharePercent.toDoubleOrNull() ?: 0.0) * 100).toInt() else 0,
         )
         viewModelScope.launch {
             applying = true; applyError = null
@@ -538,6 +543,20 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     var photo by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
     var photoBusy by mutableStateOf(false)
     var photoError by mutableStateOf<String?>(null)
+    /** What went toward the vehicle today, and the terms of that share. */
+    var vehicleSharedToday by mutableLongStateOf(0L)
+    var vehicleTerms by mutableStateOf<VehicleTerms?>(null)
+    var termsBusy by mutableStateOf(false)
+    var termsError by mutableStateOf<String?>(null)
+
+    /** Saves a new share. Only possible when the driver chose it themselves; the server refuses otherwise. */
+    fun saveShare(percent: Double) {
+        viewModelScope.launch {
+            termsBusy = true; termsError = null
+            try { api.setVehicleShare(Math.round(percent * 100).toInt()); vehicleTerms = api.vehicleTerms(); toast = "Saved" to "The new share applies from your next trip." }
+            catch (e: ApiException) { termsError = e.message } finally { termsBusy = false }
+        }
+    }
 
     /** Pulls everything the screens show from the server: profile, photo, trips, today's earnings and the wallet. */
     fun loadAccount() {
@@ -549,8 +568,9 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             }
             runCatching { api.trips() }.getOrNull()?.let { (list, today) ->
                 trips.clear(); trips.addAll(list)
-                tripsToday = today.trips; earningsKobo = today.earnedKobo; kmToday = today.distanceM / 1000.0; hoursToday = today.durationS / 3600.0
+                tripsToday = today.trips; earningsKobo = if (today.vehicleKobo > 0) today.keptKobo else today.earnedKobo; vehicleSharedToday = today.vehicleKobo; kmToday = today.distanceM / 1000.0; hoursToday = today.durationS / 3600.0
             }
+            vehicleTerms = runCatching { api.vehicleTerms() }.getOrNull()
             runCatching { api.walletBalance() }.getOrNull()?.let { walletKobo = it }
             runCatching { api.walletTransactions() }.getOrNull()?.let { transactions.clear(); transactions.addAll(it) }
         }
@@ -625,7 +645,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             val v = profile.vehicle
             val out = mutableListOf<Check>()
             out += if (profile.active) Check(true, "Account active", "Approved by 9jaRide Pro") else Check(false, "Account not active", "Contact support")
-            out += if (v != null) Check(true, "Vehicle added", "${v.model} · ${v.colour} · ${v.plate}") else Check(false, "No vehicle on your account", "Contact support")
+            out += if (v != null) Check(true, "Vehicle added", "${v.model} · ${v.colour} · ${v.plate}") else if (profile.arrangement == "business_vehicle") Check(false, "Waiting for a vehicle", "Your business has not given you a vehicle yet") else Check(false, "No vehicle on your account", "Contact support")
             out += if (walletKobo >= 0) Check(true, "Wallet is clear", "Balance ${naira(walletKobo)}")
             else Check(false, "Wallet balance is ${naira(walletKobo)}", "Top up at least ${naira(-walletKobo)} to continue", "Top up")
             if (walletKobo < 0 && !profile.emailVerified) out += Check(false, "Email not verified", "Needed to fund your wallet", "Verify")
@@ -979,7 +999,8 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         server("Could not end the trip") {
             val fare = api.completeTrip(id, (tripKm * 1000).toInt(), tripSeconds, waitingSeconds)
             rideJob?.cancel()
-            receipt = FareReceipt(fare.lines.map { FareLine(it.first, it.second) }, fare.totalKobo, fare.commissionKobo, fare.driverEarnKobo, if (fare.totalKobo > 0) Math.round(fare.commissionKobo * 100.0 / Math.max(1L, fare.totalKobo - fare.taxKobo)).toInt() else 0)
+            receipt = FareReceipt(fare.lines.map { FareLine(it.first, it.second) }, fare.totalKobo, fare.commissionKobo, fare.driverEarnKobo, if (fare.totalKobo > 0) Math.round(fare.commissionKobo * 100.0 / Math.max(1L, fare.totalKobo - fare.taxKobo)).toInt() else 0,
+                fare.vehicleDeductionKobo, vehicleTerms?.percent?.toInt() ?: 0)
             phase = Phase.Collect
             loadAccount() // today's earnings, the trip list and the wallet now include this trip
         }

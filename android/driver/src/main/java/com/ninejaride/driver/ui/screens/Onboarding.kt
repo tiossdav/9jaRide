@@ -114,8 +114,8 @@ fun ApplyScreen(vm: DriverViewModel) {
                         CATEGORIES.forEach { (code, label) -> PillChoice(label, vm.vehicleCategory == code, { vm.vehicleCategory = code }, Modifier.weight(1f)) }
                     }
                     Txt("Our team will inspect the vehicle and confirm the category before you are approved.", 12.5f, 500, C.Muted)
-                    if (a?.hasPaymentPlan == true) {
-                        Card { Txt("We will give you a car", 15f, 700); Gap(4.dp); Txt("Our team picks the car and agrees the payment plan with you: the price, the deposit, and how much you pay and how often. You will see the car once you are approved.", 13f, 500, C.Muted) }
+                    if (a?.code == "business_vehicle") {
+                        Card { Txt("A business will give you a vehicle", 15f, 700); Gap(4.dp); Txt("Once you are approved, the business assigns a vehicle to you. It sets the share of your earnings that goes toward that vehicle, and you will see it before you start. You only need to be verified yourself; the business looks after the vehicle.", 13f, 500, C.Muted) }
                     }
                     if (a?.asksForVehicle == true) {
                         InputField("Plate number", vm.plate, edit { vm.plate = it }, "KJA-482AB", plate = true)
@@ -127,6 +127,8 @@ fun ApplyScreen(vm: DriverViewModel) {
                         Txt("WHO OWNS THE CAR", 11f, 500, C.Muted, letterSpacing = 1f)
                         InputField("Owner name", vm.ownerName, edit { vm.ownerName = it }, "Full name of the owner")
                         InputField("Owner phone number", vm.ownerPhone, edit { vm.ownerPhone = it.filter { c -> c.isDigit() }.take(11) }, "0803 000 0010", KeyboardType.Phone, phone = true)
+                        InputField("Share of your earnings toward the car (%)", vm.sharePercent, edit { vm.sharePercent = it.filter { c -> c.isDigit() || c == '.' }.take(5) }, "e.g. 20", KeyboardType.Decimal,
+                            helper = "This share comes off each trip you earn and goes to the owner, like a regular repayment. You can change it later.")
                     }
                 }
                 else -> DocumentsStep(vm)

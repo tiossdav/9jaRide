@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query, UseInterceptors } from '@nestjs/common';
-import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
 import { CurrentUser, Principal, Roles } from '../auth/auth.types';
 import { StaffAuditInterceptor } from '../common/audit.interceptor';
 import { TeamService, StaffRole } from './team.service';
@@ -8,7 +8,8 @@ class InviteDto {
   @IsEmail() @MaxLength(200) email!: string;
   @IsString() @MinLength(2) @MaxLength(100) fullName!: string;
   @IsOptional() @IsString() @Matches(/^[0-9+ ()-]{7,20}$/) phone?: string;
-  @IsIn(['support', 'finance', 'admin']) role!: StaffRole;
+  @IsIn(['support', 'finance', 'admin', 'business']) role!: StaffRole;
+  @IsOptional() @IsUUID() businessId?: string;
 }
 class RoleDto { @IsIn(['support', 'finance', 'admin']) role!: StaffRole; }
 class ActiveDto { @IsBoolean() active!: boolean; }

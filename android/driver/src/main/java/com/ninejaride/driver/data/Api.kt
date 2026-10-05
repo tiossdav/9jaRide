@@ -31,7 +31,7 @@ class ServerRide(val rideId: String, val code: String, val status: String, val c
                  val pickup: com.ninejaride.core.data.MapPoint, val pickupAddress: String?, val dropoff: com.ninejaride.core.data.MapPoint, val dropoffAddress: String?,
                  val expectedKobo: Long?, val riderName: String)
 
-class ServerFare(val lines: List<Pair<String, Long>>, val totalKobo: Long, val commissionKobo: Long, val driverEarnKobo: Long, val taxKobo: Long)
+class ServerFare(val lines: List<Pair<String, Long>>, val totalKobo: Long, val commissionKobo: Long, val driverEarnKobo: Long, val taxKobo: Long, val vehicleDeductionKobo: Long = 0)
 
 /** One way of getting a vehicle, as the sign-up screen offers it. */
 class Arrangement(val code: String, val name: String, val description: String, val asksForVehicle: Boolean, val asksForOwner: Boolean, val hasPaymentPlan: Boolean)
@@ -44,7 +44,7 @@ class ServerApplication(
     val email: String, val contactPreference: String, val dateOfBirth: String, val nin: String, val lassdri: String, val address: String,
     val kinName: String, val kinPhone: String, val kinRelationship: String, val kinAddress: String,
     val category: String, val plate: String, val make: String, val colour: String, val ownerName: String, val ownerPhone: String,
-    val documents: List<ServerDoc>,
+    val documents: List<ServerDoc>, val deductionBps: Int = 0,
 )
 
 /** Everything the application form collects, ready to send. */
@@ -52,7 +52,7 @@ class ApplicationForm(
     val arrangement: String, val category: String, val plate: String, val make: String, val colour: String, val ownerName: String, val ownerPhone: String,
     val email: String, val contactPreference: String, val dateOfBirth: String, val nin: String, val lassdri: String, val address: String,
     val kinName: String, val kinPhone: String, val kinRelationship: String, val kinAddress: String,
-    val documents: List<ServerDoc>,
+    val documents: List<ServerDoc>, val deductionBps: Int = 0,
 )
 
 /** The settlement page: where the driver is paid, and how the vehicle is paid for. */
@@ -97,6 +97,7 @@ class Api(context: Context) {
             kin?.str("name") ?: "", kin?.str("phone") ?: "", kin?.str("relationship") ?: "", kin?.str("address") ?: "",
             v?.str("category") ?: "regular", v?.str("plate") ?: "", v?.str("make") ?: "", v?.str("colour") ?: "", ow?.str("name") ?: "", ow?.str("phone") ?: "",
             o["documents"]?.jsonArray?.map { val d = it.jsonObject; ServerDoc(d.str("kind") ?: "", d.str("number"), d.str("fileId"), d.str("expiresOn")?.take(10)) } ?: emptyList(),
+            (o.lng("deductionBps") ?: 0).toInt(),
         )
     }
 
@@ -108,7 +109,7 @@ class Api(context: Context) {
         client.call("POST", "/driver/application", buildJsonObject {
             put("arrangement", f.arrangement)
             put("vehicle", buildJsonObject { put("category", f.category); if (f.plate.isNotBlank()) { put("make", f.make); put("colour", f.colour); put("plate", f.plate) } })
-            if (f.ownerName.isNotBlank()) put("owner", buildJsonObject { put("name", f.ownerName); put("phone", f.ownerPhone) })
+            if (f.ownerName.isNotBlank()) { put("owner", buildJsonObject { put("name", f.ownerName); put("phone", f.ownerPhone) }); put("deductionBps", f.deductionBps) }
             put("personal", buildJsonObject {
                 put("email", f.email); put("contactPreference", f.contactPreference); if (f.dateOfBirth.isNotBlank()) put("dateOfBirth", f.dateOfBirth)
                 put("nin", f.nin); put("lassdri", f.lassdri); put("address", f.address)
@@ -131,7 +132,7 @@ class Api(context: Context) {
             vehicle = v?.let { com.ninejaride.driver.state.Vehicle("", it.str("make") ?: "", 0, com.ninejaride.core.format.formatPlate(it.str("plate") ?: ""), it.str("colour") ?: "", it.str("categoryLabel") ?: it.str("category") ?: "", it.str("arrangement") ?: "", it.obj("owner")?.str("name") ?: "", it.obj("owner")?.str("phone") ?: "") },
             bank = null, photoId = o.str("photoFileId"), dateOfBirth = dob, lassdri = p?.str("lassdri") ?: "", address = p?.str("address") ?: "",
             kinName = kin?.str("name") ?: "", kinPhone = kin?.str("phone")?.let { if (it.startsWith("+234")) "0" + it.drop(4) else it } ?: "", kinRelationship = kin?.str("relationship") ?: "", kinAddress = kin?.str("address") ?: "",
-            contactPreference = p?.str("contactPreference") ?: "", ratingAverage = o.dbl2("rating"),
+            contactPreference = p?.str("contactPreference") ?: "", ratingAverage = o.dbl2("rating"), arrangement = o.obj("application")?.str("arrangement") ?: "",
             plan = pl?.let { com.ninejaride.driver.state.PlanSummary(it.str("status") ?: "", it.lng("totalKobo") ?: 0, it.lng("paidKobo") ?: 0, it.lng("outstandingKobo") ?: 0, it.lng("overdueKobo") ?: 0, it.str("nextDueOn")?.take(10)) },
         )
     }
@@ -139,7 +140,7 @@ class Api(context: Context) {
     suspend fun setPhoto(fileId: String) { client.call("POST", "/driver/profile/photo", buildJsonObject { put("fileId", fileId) }.toString(), auth = true) }
     suspend fun fileBytes(fileId: String): ByteArray = client.download("/files/$fileId")
 
-    class Today(val trips: Int, val earnedKobo: Long, val distanceM: Long, val durationS: Long)
+    class Today(val trips: Int, val earnedKobo: Long, val distanceM: Long, val durationS: Long, val keptKobo: Long = 0, val vehicleKobo: Long = 0)
 
     /** Finished trips, newest first, and today's totals. */
     suspend fun trips(): Pair<List<com.ninejaride.driver.state.TripRecord>, Today> {
@@ -154,13 +155,13 @@ class Api(context: Context) {
             val whenText = at?.let { z -> (if (z.toLocalDate() == now) "Today, " else "") + z.format(if (z.toLocalDate() == now) java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.ENGLISH) else fmt) } ?: ""
             com.ninejaride.driver.state.TripRecord(
                 t.str("code") ?: "", whenText,
-                com.ninejaride.driver.state.FareReceipt(listOf(com.ninejaride.driver.state.FareLine("Trip fare", total - tax), com.ninejaride.driver.state.FareLine("Tax", tax)), total, commission, t.lng("earnedKobo") ?: 0, if (total > tax) Math.round(commission * 100.0 / (total - tax)).toInt() else 0),
+                com.ninejaride.driver.state.FareReceipt(listOf(com.ninejaride.driver.state.FareLine("Trip fare", total - tax), com.ninejaride.driver.state.FareLine("Tax", tax)), total, commission, t.lng("earnedKobo") ?: 0, if (total > tax) Math.round(commission * 100.0 / (total - tax)).toInt() else 0, t.lng("vehicleDeductionKobo") ?: 0),
                 t.str("pickup") ?: "", t.str("dropoff") ?: "", (t.lng("distanceM") ?: 0) / 1000.0, (t.lng("durationS") ?: 0).toInt(),
                 if (t.str("paymentMethod") == "cash") "Cash" else "Wallet", com.ninejaride.driver.state.Rider(t.str("rider") ?: "Rider", 5),
             )
         } ?: emptyList()
         val td = o.obj("today")
-        return items to Today((td?.lng("trips") ?: 0).toInt(), td?.lng("earnedKobo") ?: 0, td?.lng("distanceM") ?: 0, td?.lng("durationS") ?: 0)
+        return items to Today((td?.lng("trips") ?: 0).toInt(), td?.lng("earnedKobo") ?: 0, td?.lng("distanceM") ?: 0, td?.lng("durationS") ?: 0, td?.lng("keptKobo") ?: 0, td?.lng("vehicleDeductionKobo") ?: 0)
     }
 
     suspend fun walletBalance(): Long = client.call("GET", "/wallet", auth = true).lng("balanceKobo") ?: 0
@@ -175,11 +176,15 @@ class Api(context: Context) {
         val o = client.call("GET", "/driver/settlement", auth = true)
         val a = o.obj("account"); val v = o.obj("vehicle"); val pl = o.obj("plan"); val t = o.obj("terms")
         val vehicle = v?.let { listOfNotNull(it.str("make"), it.str("colour"), com.ninejaride.core.format.formatPlate(it.str("plate") ?: "").ifBlank { null }).joinToString(" · ") } ?: ""
+        val percent = t?.let { (it["percent"] as? JsonPrimitive)?.doubleOrNull }?.let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() }
+        val by = t?.str("owner")
+        val target = t?.lng("targetKobo")?.let { " Deductions stop once " + com.ninejaride.core.format.naira(it) + " has been paid." } ?: ""
         val terms = when (t?.str("kind")) {
-            "payment_plan" -> "You are paying for this vehicle through 9jaRide in instalments." +
-                (pl?.let { " Paid so far " + com.ninejaride.core.format.naira(it.lng("paidKobo") ?: 0) + " of " + com.ninejaride.core.format.naira(it.lng("totalKobo") ?: 0) + "." } ?: "") +
-                " These terms were set by 9jaRide and you cannot change them here."
-            "owner" -> "You drive a car that belongs to someone else."
+            "business" ->
+                if (percent != null) (by ?: "A business") + " owns this vehicle. $percent% of what you earn on each trip goes toward it." + target + " The business sets this share, so you cannot change it."
+                else "A business will give you a vehicle. Until it does you cannot go online. Its share of your earnings is set by the business when it does."
+            "owner" -> "You drive a car that belongs to " + (by ?: "someone else") + ". $percent% of what you earn on each trip goes to them." + target + " You chose this share and can change it on the Vehicle page."
+            "payment_plan" -> "You are paying for this vehicle through 9jaRide in instalments."
             else -> "You drive your own vehicle. Nothing is deducted from your earnings for it."
         }
         return ServerSettlement(o["done"]?.jsonPrimitive?.booleanOrNull == true, a?.str("bankName") ?: "", a?.str("accountNumber") ?: "", a?.str("accountName") ?: "", vehicle, terms)
@@ -188,6 +193,16 @@ class Api(context: Context) {
         client.call("POST", "/driver/settlement/account", buildJsonObject { put("bankName", bank); put("accountNumber", number); put("accountName", holder) }.toString(), auth = true)
     }
     suspend fun completeSettlement() { client.call("POST", "/driver/settlement/complete", "{}", auth = true) }
+
+    /** Null when the driver has no vehicle with a share to pay. */
+    suspend fun vehicleTerms(): com.ninejaride.driver.state.VehicleTerms? {
+        val t = client.call("GET", "/driver/vehicle-terms", auth = true).obj("terms") ?: return null
+        return com.ninejaride.driver.state.VehicleTerms(
+            t.dbl2("percent") ?: 0.0, t.str("setBy") == "owner", (t["canChange"] as? JsonPrimitive)?.booleanOrNull == true, t.obj("owner")?.str("name") ?: "",
+            t.lng("targetKobo"), t.lng("paidKobo") ?: 0, t.lng("remainingKobo"),
+        )
+    }
+    suspend fun setVehicleShare(bps: Int) { client.call("PUT", "/driver/vehicle-terms", buildJsonObject { put("deductionBps", bps) }.toString(), auth = true) }
 
     suspend fun appConfig(): AppConfig {
         val o = client.call("GET", "/app/config")
@@ -246,7 +261,7 @@ class Api(context: Context) {
     suspend fun completeTrip(rideId: String, distanceM: Int, durationS: Int, waitingS: Int): ServerFare {
         val o = client.call("POST", "/driver/rides/$rideId/complete", buildJsonObject { put("distanceM", distanceM); put("durationS", durationS); put("waitingS", waitingS) }.toString(), auth = true)
         val lines = o["lines"]?.jsonArray?.map { val l = it.jsonObject; (l.str("label") ?: "") to (l.lng("amountKobo") ?: 0L) } ?: emptyList()
-        return ServerFare(lines, o.lng("totalKobo") ?: 0, o.lng("commissionKobo") ?: 0, o.lng("driverEarnKobo") ?: 0, o.lng("taxKobo") ?: 0)
+        return ServerFare(lines, o.lng("totalKobo") ?: 0, o.lng("commissionKobo") ?: 0, o.lng("driverEarnKobo") ?: 0, o.lng("taxKobo") ?: 0, o.lng("vehicleDeductionKobo") ?: 0)
     }
 
     suspend fun sos(key: String, at: com.ninejaride.core.data.MapPoint?) {

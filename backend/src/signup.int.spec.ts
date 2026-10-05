@@ -40,15 +40,16 @@ suite('sign-up with the temporary code', () => {
   it('lists the ways a driver can get a vehicle', async () => {
     const driver = await h.login('driver');
     const r = await h.http().get('/driver/application/arrangements').set(h.auth(driver.token)).expect(200);
-    expect(r.body.items.map((a: { code: string }) => a.code)).toEqual(['own', 'platform_plan', 'third_party']);
-    expect(r.body.items[1]).toMatchObject({ asksForVehicle: false, hasPaymentPlan: true });
+    expect(r.body.items.map((a: { code: string }) => a.code)).toEqual(['own', 'business_vehicle', 'third_party']);
+    expect(r.body.items[1]).toMatchObject({ code: 'business_vehicle', asksForVehicle: false, asksForOwner: false });
+    expect(r.body.items[2]).toMatchObject({ asksForVehicle: true, asksForOwner: true });
   });
 
 
   describe('driver onboarding by arrangement', () => {
     /** The documents a platform-plan driver shows: who they are, no vehicle papers. */
     const personDocs = async (token: string) => (await h.ownerDocs(token)).filter((d) => ['drivers_licence', 'nin', 'lassdri'].includes(d.kind));
-    const base = async (token: string, over: object = {}) => ({ arrangement: 'platform_plan', vehicle: { category: 'regular' }, personal: h.personal(), documents: await personDocs(token), ...over });
+    const base = async (token: string, over: object = {}) => ({ arrangement: 'business_vehicle', vehicle: { category: 'regular' }, personal: h.personal(), documents: await personDocs(token), ...over });
 
     it('takes proof uploads, keeps them private, and lets staff look at them', async () => {
       const driver = await h.login('driver');
@@ -111,9 +112,10 @@ suite('sign-up with the temporary code', () => {
 
     it('asks the owner of a borrowed car for their details and permission', async () => {
       const driver = await h.login('driver');
-      const body = async (extra: object[] = []) => ({ arrangement: 'third_party', vehicle: { category: 'regular', make: 'Honda', colour: 'Grey', plate: plate() }, personal: h.personal(), documents: [...(await h.ownerDocs(driver.token)), ...extra] });
+      const body = async (extra: object[] = []) => ({ arrangement: 'third_party', deductionBps: 2000, vehicle: { category: 'regular', make: 'Honda', colour: 'Grey', plate: plate() }, personal: h.personal(), documents: [...(await h.ownerDocs(driver.token)), ...extra] });
       const owner = { name: 'Mr Owner', phone: '08031234567' };
       await h.http().post('/driver/application').set(h.auth(driver.token)).send(await body()).expect(400); // no owner
+      await h.http().post('/driver/application').set(h.auth(driver.token)).send({ ...(await body()), owner: { name: 'Mr Owner', phone: '08031234567' }, deductionBps: undefined }).expect(400); // no share chosen
       const first = await body();
       const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send({ ...first, owner }).expect(200);
       const admin = await h.staff('admin');
@@ -126,6 +128,9 @@ suite('sign-up with the temporary code', () => {
       await h.http().post(`/admin/driver-applications/${again.id}/approve`).set(h.auth(admin.token)).send({}).expect(204);
       const v = await h.pool.query(`SELECT arrangement, owner_name FROM vehicles WHERE driver_id = $1 AND active`, [driver.id]);
       expect(v.rows[0]).toEqual({ arrangement: 'third_party', owner_name: 'Mr Owner' });
+      // who drives what is recorded, with the share the driver chose and the owner who is paid it
+      const a = await h.pool.query(`SELECT a.deduction_bps, a.deduction_set_by, o.name, o.kind FROM vehicle_assignments a JOIN vehicle_owners o ON o.id = a.owner_id WHERE a.driver_id = $1 AND a.ended_at IS NULL`, [driver.id]);
+      expect(a.rows[0]).toEqual({ deduction_bps: 2000, deduction_set_by: 'driver', name: 'Mr Owner', kind: 'individual' });
     });
 
     it('checks the NIN with a verification service instead of a photo of the card', async () => {
@@ -144,8 +149,7 @@ suite('sign-up with the temporary code', () => {
       expect((await h.http().get(`/admin/driver-applications/${sub.body.id}`).set(h.auth(admin.token)).expect(200)).body).toMatchObject({ ninCheck: { status: 'pending' }, missingDocuments: [] });
 
       // approval asks again; the service has answered by now
-      const assignment = { vehicle: { category: 'regular', make: 'Kia', colour: 'Blue', plate: plate() }, plan: { totalKobo: 500_000, depositKobo: 0, instalmentKobo: 50_000, frequency: 'weekly', startsOn: inFuture(0) } };
-      await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(admin.token)).send({ assignment }).expect(204);
+      await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(admin.token)).send({}).expect(204);
       expect((await h.pool.query(`SELECT nin_status FROM driver_applications WHERE id = $1`, [sub.body.id])).rows[0].nin_status).toBe('verified');
     });
 
@@ -156,12 +160,11 @@ suite('sign-up with the temporary code', () => {
       const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send(await base(driver.token)).expect(200);
       await h.pool.query(`UPDATE driver_applications SET nin_status = 'failed', nin_reason = 'No match' WHERE id = $1`, [sub.body.id]);
       await h.pool.query(`UPDATE driver_applications SET nin = '12345678999' WHERE id = $1`, [sub.body.id]); // the service will keep refusing this one
-      const assignment = { vehicle: { category: 'regular', make: 'Kia', colour: 'Blue', plate: plate() }, plan: { totalKobo: 500_000, depositKobo: 0, instalmentKobo: 50_000, frequency: 'weekly', startsOn: inFuture(0) } };
-      const refused = await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(admin.token)).send({ assignment }).expect(409);
+      const refused = await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(admin.token)).send({}).expect(409);
       expect(refused.body.code).toBe('nin_not_verified');
       await h.http().post(`/admin/driver-applications/${sub.body.id}/accept-nin`).set(h.auth(support.token)).send({ note: 'Checked the card in person' }).expect(403); // admin only
       await h.http().post(`/admin/driver-applications/${sub.body.id}/accept-nin`).set(h.auth(admin.token)).send({ note: 'Checked the card in person' }).expect(204);
-      await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(admin.token)).send({ assignment }).expect(204);
+      await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(admin.token)).send({}).expect(204);
     });
 
     it('takes an approved driver through settlement: a payout account first, then done', async () => {
@@ -169,9 +172,9 @@ suite('sign-up with the temporary code', () => {
       const admin = await h.staff('admin');
       const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send(await base(driver.token)).expect(200);
       await h.http().post('/driver/settlement/complete').set(h.auth(driver.token)).expect(400); // not approved, no account
-      await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(admin.token)).send({ assignment: { vehicle: { category: 'regular', make: 'Kia', colour: 'Blue', plate: plate() }, plan: { totalKobo: 500_000, depositKobo: 0, instalmentKobo: 50_000, frequency: 'weekly', startsOn: inFuture(0) } } }).expect(204);
+      await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(admin.token)).send({}).expect(204);
       const before = (await h.http().get('/driver/settlement').set(h.auth(driver.token)).expect(200)).body;
-      expect(before).toMatchObject({ done: false, account: null, terms: { kind: 'payment_plan', setBy: 'platform', canChange: false } });
+      expect(before).toMatchObject({ done: false, account: null, terms: { kind: 'business', setBy: 'owner', canChange: false, waiting: true } });
       await h.http().post('/driver/settlement/complete').set(h.auth(driver.token)).expect(400); // still no account
       await h.http().post('/driver/settlement/account').set(h.auth(driver.token)).send({ bankName: 'GTBank', accountNumber: '123', accountName: 'Ada' }).expect(400);
       await h.http().post('/driver/settlement/account').set(h.auth(driver.token)).send({ bankName: 'GTBank', accountNumber: '0123456789', accountName: 'Ada Driver' }).expect(204);
@@ -179,9 +182,16 @@ suite('sign-up with the temporary code', () => {
       expect((await h.http().get('/driver/settlement').set(h.auth(driver.token)).expect(200)).body).toMatchObject({ done: true, account: { accountNumber: '0123456789' } });
     });
 
-    it('gives a platform-plan driver a car and a payment plan, and tracks what they pay', async () => {
+    /** The earlier fixed-instalment plans are switched off for new drivers but still work for old records, so these tests turn them on for a moment. */
+    const legacy = async (work: () => Promise<void>) => {
+      await h.pool.query(`UPDATE vehicle_arrangements SET active = true WHERE code = 'platform_plan'`);
+      try { await work(); } finally { await h.pool.query(`UPDATE vehicle_arrangements SET active = false WHERE code = 'platform_plan'`); }
+    };
+    const planBase = async (token: string) => base(token, { arrangement: 'platform_plan' });
+
+    it('still tracks an older fixed-instalment vehicle plan: payments, reversals and paying it off', async () => legacy(async () => {
       const driver = await h.login('driver');
-      const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send(await base(driver.token)).expect(200);
+      const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send(await planBase(driver.token)).expect(200);
       const admin = await h.staff('admin');
       const support = await h.staff('support');
       const finance = await h.staff('finance');
@@ -222,7 +232,7 @@ suite('sign-up with the temporary code', () => {
       await pay({ kind: 'instalment', amountKobo: 800_000, method: 'transfer' }).expect(200);
       expect((await h.http().get(`/admin/console/vehicle-plans/${plan.id}`).set(h.auth(support.token)).expect(200)).body).toMatchObject({ status: 'completed', outstandingKobo: 0, nextDueOn: null });
       await pay({ kind: 'instalment', amountKobo: 100, method: 'cash' }).expect(409);
-    });
+    }));
 
     it('shows the driver their own sign-up and onboarding details, and a photo they can replace', async () => {
       const driver = await h.login('driver', 'Ada Profile');
@@ -252,13 +262,13 @@ suite('sign-up with the temporary code', () => {
       const other = await h.login('driver');
       await h.http().post('/driver/profile/photo').set(h.auth(other.token)).send({ fileId: second }).expect(400); // someone else's file
       const trips = (await h.http().get('/driver/trips').set(h.auth(driver.token)).expect(200)).body;
-      expect(trips).toEqual({ items: [], today: { trips: 0, earnedKobo: 0, distanceM: 0, durationS: 0 } });
+      expect(trips).toMatchObject({ items: [], today: { trips: 0, earnedKobo: 0, keptKobo: 0, vehicleDeductionKobo: 0 } });
       await h.http().get('/driver/profile').set(h.auth((await h.login('rider')).token)).expect(403);
     });
 
-    it('lets only an admin change a plan to defaulted or cancelled', async () => {
+    it('lets only an admin change an older plan to defaulted or cancelled', async () => legacy(async () => {
       const driver = await h.login('driver');
-      const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send(await base(driver.token)).expect(200);
+      const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send(await planBase(driver.token)).expect(200);
       const admin = await h.staff('admin');
       const finance = await h.staff('finance');
       await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(admin.token)).send({ assignment: { vehicle: { category: 'regular', make: 'Kia', colour: 'Red', plate: plate() }, plan: { totalKobo: 500_000, depositKobo: 0, instalmentKobo: 50_000, frequency: 'daily', startsOn: inFuture(0) } } }).expect(204);
@@ -267,6 +277,6 @@ suite('sign-up with the temporary code', () => {
       expect((await h.http().post(`/admin/vehicle-plans/${id}/status`).set(h.auth(admin.token)).send({ status: 'defaulted', note: 'missed weeks' }).expect(200)).body.status).toBe('defaulted');
       await h.http().post(`/admin/vehicle-plans/${id}/status`).set(h.auth(admin.token)).send({ status: 'defaulted', note: 'again' }).expect(409);
       expect((await h.http().post(`/admin/vehicle-plans/${id}/status`).set(h.auth(admin.token)).send({ status: 'cancelled', note: 'car returned' }).expect(200)).body.status).toBe('cancelled');
-    });
+    }));
   });
 });

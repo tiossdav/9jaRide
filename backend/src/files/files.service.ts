@@ -53,14 +53,14 @@ export function sniffType(b: Buffer): string | null {
 export class FilesService {
   constructor(@Inject(PG_POOL) private readonly pool: Pool, @Inject(FILE_STORAGE) private readonly storage: FileStorage) {}
 
-  async save(ownerId: string, bytes: Buffer | undefined): Promise<{ id: string; mimeType: string; sizeBytes: number }> {
+  async save(ownerId: string, bytes: Buffer | undefined, ownerKind: 'user' | 'staff' = 'user'): Promise<{ id: string; mimeType: string; sizeBytes: number }> {
     if (!bytes?.length) throw new BadRequestException('no file was sent');
     if (bytes.length > MAX_UPLOAD_BYTES) throw new PayloadTooLargeException('that file is too big (8 MB at most)');
     const mimeType = sniffType(bytes);
     if (!mimeType) throw new BadRequestException('send a photo (JPEG, PNG or WebP) or a PDF');
     const key = randomUUID();
     await this.storage.put(key, bytes);
-    const { rows } = await this.pool.query(`INSERT INTO uploaded_files (owner_id, mime_type, size_bytes, storage_key) VALUES ($1, $2, $3, $4) RETURNING id`, [ownerId, mimeType, bytes.length, key]);
+    const { rows } = await this.pool.query(`INSERT INTO uploaded_files (owner_id, owner_kind, mime_type, size_bytes, storage_key) VALUES ($1, $2, $3, $4, $5) RETURNING id`, [ownerId, ownerKind, mimeType, bytes.length, key]);
     return { id: rows[0].id, mimeType, sizeBytes: bytes.length };
   }
 

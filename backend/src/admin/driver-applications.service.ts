@@ -9,6 +9,7 @@ import { PG_POOL, REDIS } from '../common/infra.module';
 import { normalisePlate } from '../common/plate';
 import { keys } from '../dispatch/dispatch.types';
 import { FilesService } from '../files/files.service';
+import { FleetService, MAX_DEDUCTION_BPS } from '../fleet/fleet.service';
 import { NinService } from '../nin/nin.service';
 import { PlanTerms, VehiclePlansService } from '../vehicle-plans/vehicle-plans.service';
 
@@ -24,7 +25,8 @@ export const REQUESTABLE_CATEGORIES = ['regular', 'comfort'];
 export function requiredDocuments(arrangement: string): DocumentKind[] {
   // the NIN is checked by a verification service, so no photo of it is asked for
   const person: DocumentKind[] = ['drivers_licence', 'lassdri'];
-  if (arrangement === 'platform_plan') return person;
+  // a business supplies the vehicle and answers for it, so the driver only proves who they are
+  if (arrangement === 'platform_plan' || arrangement === 'business_vehicle') return person;
   const car: DocumentKind[] = [...person, 'vehicle_photo', 'insurance', 'inspection_certificate'];
   return arrangement === 'third_party' ? [...car, 'owner_consent'] : car;
 }
@@ -46,6 +48,8 @@ export interface ApplicationInput {
   /** Make, colour and plate are only asked for when the arrangement needs them; the category is the one the driver wants. */
   vehicle: { category: string; make?: string; colour?: string; plate?: string };
   owner?: { name: string; phone: string };
+  /** For someone else's car: the share of earnings that goes toward it, in basis points (2000 = 20%). */
+  deductionBps?: number;
   personal: Personal;
   documents: { kind: DocumentKind; number?: string; fileId: string; expiresOn?: string }[];
 }
@@ -66,6 +70,7 @@ export class DriverApplicationsService {
     private readonly plans: VehiclePlansService,
     private readonly files: FilesService,
     private readonly nin: NinService,
+    private readonly fleet: FleetService,
   ) {}
 
   /** The ways a driver can come by a car, for the sign-up screen. */
@@ -99,6 +104,7 @@ export class DriverApplicationsService {
       ownerPhone = normalisePhone(input.owner?.phone ?? '');
       if (ownerName.length < 2) throw new BadRequestException("enter the owner's name");
       if (!ownerPhone) throw new BadRequestException("enter the owner's phone number");
+      if (!Number.isInteger(input.deductionBps) || input.deductionBps! < 100 || input.deductionBps! > MAX_DEDUCTION_BPS) throw new BadRequestException(`say what share of your earnings goes toward the car (1% to ${MAX_DEDUCTION_BPS / 100}%)`);
     }
 
     const p = input.personal;
@@ -139,7 +145,7 @@ export class DriverApplicationsService {
         input.vehicle.category, make, colour, plate, arr.code, ownerName, ownerPhone,
         email, p.contactPreference, p.dateOfBirth ?? null, p.nin.trim(), p.lassdri.trim().toUpperCase(), p.address.trim(),
         p.nextOfKin.name.trim(), kinPhone, p.nextOfKin.relationship?.trim() || null, p.nextOfKin.address.trim(),
-        ninCheck.status, ninCheck.reason ?? null, ninCheck.reference ?? null,
+        ninCheck.status, ninCheck.reason ?? null, ninCheck.reference ?? null, arr.needs_owner_details ? input.deductionBps : null,
       ];
       let id: string;
       if (open.rows[0]) {
@@ -148,7 +154,7 @@ export class DriverApplicationsService {
         await client.query(
           `UPDATE driver_applications SET status = 'SUBMITTED', vehicle_category = $2, vehicle_make = $3, vehicle_colour = $4, vehicle_plate = $5, arrangement = $6,
                   owner_name = $7, owner_phone = $8, email = $9, contact_preference = $10, date_of_birth = $11, nin = $12, lassdri_number = $13, address = $14,
-                  next_of_kin_name = $15, next_of_kin_phone = $16, next_of_kin_relationship = $17, next_of_kin_address = $18, nin_status = $19, nin_reason = $20, nin_reference = $21, nin_checked_at = now(), submitted_at = now(), updated_at = now()
+                  next_of_kin_name = $15, next_of_kin_phone = $16, next_of_kin_relationship = $17, next_of_kin_address = $18, nin_status = $19, nin_reason = $20, nin_reference = $21, deduction_bps = $22, nin_checked_at = now(), submitted_at = now(), updated_at = now()
             WHERE id = $1`,
           [id, ...cols],
         );
@@ -157,8 +163,8 @@ export class DriverApplicationsService {
         const created = await client.query(
           `INSERT INTO driver_applications (driver_id, vehicle_category, vehicle_make, vehicle_colour, vehicle_plate, arrangement, owner_name, owner_phone,
                   email, contact_preference, date_of_birth, nin, lassdri_number, address, next_of_kin_name, next_of_kin_phone, next_of_kin_relationship, next_of_kin_address,
-                  nin_status, nin_reason, nin_reference, nin_checked_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, now()) RETURNING id`,
+                  nin_status, nin_reason, nin_reference, deduction_bps, nin_checked_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, now()) RETURNING id`,
           [driverId, ...cols],
         );
         id = created.rows[0].id;
@@ -199,6 +205,7 @@ export class DriverApplicationsService {
       status: r.status,
       arrangement: r.arrangement,
       owner: r.owner_name ? { name: r.owner_name, phone: r.owner_phone } : null,
+      deductionBps: r.deduction_bps,
       vehicle: { category: r.vehicle_category, make: r.vehicle_make, colour: r.vehicle_colour, plate: r.vehicle_plate },
       approvedCategory: r.approved_category,
       ninCheck: { status: r.nin_status, reason: r.nin_reason },
@@ -248,7 +255,7 @@ export class DriverApplicationsService {
    * For a platform vehicle the approver also says which car the driver gets and the payment plan, and both are created
    * in the same step, so a driver is never approved onto a car with no agreement behind it.
    */
-  async approve(id: string, staffId: string, opts: { assignment?: Assignment; category?: string } = {}): Promise<void> {
+  async approve(id: string, staffId: string, opts: { assignment?: Assignment; category?: string; fleet?: { fleetVehicleId: string; deductionBps: number; targetKobo?: number | null } } = {}): Promise<void> {
     const { assignment } = opts;
     const client = await this.pool.connect();
     try {
@@ -278,12 +285,19 @@ export class DriverApplicationsService {
       }
       const arr = (await client.query(`SELECT needs_plan FROM vehicle_arrangements WHERE code = $1`, [app.arrangement])).rows[0];
       if (arr.needs_plan && !assignment) throw new BadRequestException('choose the vehicle to give this driver and set up the payment plan');
-      // the car: what the driver declared, or what staff assign for a platform vehicle
+      // the car: what the driver declared, what staff assign for a legacy platform vehicle, or (for a business vehicle) none yet:
+      // the business gives one later from its list, or the approver picks one now
+      const business = app.arrangement === 'business_vehicle';
       const car = arr.needs_plan
         ? { make: assignment!.vehicle.make.trim(), colour: assignment!.vehicle.colour.trim(), plate: normalisePlate(assignment!.vehicle.plate) }
         : { make: app.vehicle_make, colour: app.vehicle_colour, plate: app.vehicle_plate };
-      const category: string = (arr.needs_plan ? assignment!.vehicle.category : opts.category) ?? app.vehicle_category;
-      if (!/^[A-Z0-9]{5,10}$/.test(car.plate)) throw new BadRequestException('enter the number plate letters and digits only');
+      let category: string = (arr.needs_plan ? assignment!.vehicle.category : opts.category) ?? app.vehicle_category;
+      if (business && opts.fleet) {
+        const fv = (await client.query(`SELECT category FROM fleet_vehicles WHERE id = $1`, [opts.fleet.fleetVehicleId])).rows[0];
+        if (!fv) throw new NotFoundException('vehicle not found');
+        category = fv.category; // the category of the vehicle the driver is given
+      }
+      if (!business && !/^[A-Z0-9]{5,10}$/.test(car.plate)) throw new BadRequestException('enter the number plate letters and digits only');
 
       const cat = await client.query(`SELECT active FROM asset_types WHERE code = $1`, [category]);
       if (!cat.rows[0]?.active) throw new ConflictException({ code: 'category_off', message: 'that vehicle category is switched off' });
@@ -293,18 +307,32 @@ export class DriverApplicationsService {
                 reviewed_by = $3, reviewed_at = now(), updated_at = now() WHERE id = $1`,
         [id, category, staffId],
       );
-      await client.query(`UPDATE vehicles SET active = false WHERE driver_id = $1 AND active`, [app.driver_id]);
-      let vehicleId: string;
-      try {
-        vehicleId = (await client.query(
-          `INSERT INTO vehicles (driver_id, category, make, colour, plate, arrangement, owner_name, owner_phone, application_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-          [app.driver_id, category, car.make, car.colour, car.plate, app.arrangement, app.owner_name, app.owner_phone, id],
-        )).rows[0].id;
-      } catch (e: any) {
-        if (e?.code === '23505') throw new ConflictException({ code: 'plate_in_use', message: 'that number plate is registered to another driver' });
-        throw e;
+      if (business) {
+        if (opts.fleet) await this.fleet.assignInTx(client, opts.fleet.fleetVehicleId, app.driver_id, { deductionBps: opts.fleet.deductionBps, targetKobo: opts.fleet.targetKobo ?? null, setBy: 'owner' }, staffId);
+      } else {
+        await client.query(`UPDATE vehicles SET active = false WHERE driver_id = $1 AND active`, [app.driver_id]);
+        await client.query(`UPDATE vehicle_assignments SET ended_at = now(), ended_reason = 'replaced by a new vehicle' WHERE driver_id = $1 AND ended_at IS NULL`, [app.driver_id]);
+        let vehicleId: string;
+        try {
+          vehicleId = (await client.query(
+            `INSERT INTO vehicles (driver_id, category, make, colour, plate, arrangement, owner_name, owner_phone, application_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+            [app.driver_id, category, car.make, car.colour, car.plate, app.arrangement, app.owner_name, app.owner_phone, id],
+          )).rows[0].id;
+        } catch (e: any) {
+          if (e?.code === '23505') throw new ConflictException({ code: 'plate_in_use', message: 'that number plate is registered to another driver' });
+          throw e;
+        }
+        // who drives what: always recorded. A borrowed car also has an owner, who is paid the share the driver chose.
+        let ownerId: string | null = null;
+        if (app.arrangement === 'third_party') {
+          ownerId = (await client.query(`INSERT INTO vehicle_owners (kind, name, phone) VALUES ('individual', $1, $2) RETURNING id`, [app.owner_name, app.owner_phone])).rows[0].id;
+        }
+        await client.query(
+          `INSERT INTO vehicle_assignments (driver_id, vehicle_id, owner_id, deduction_bps, deduction_set_by, assigned_by) VALUES ($1, $2, $3, $4, 'driver', $5)`,
+          [app.driver_id, vehicleId, ownerId, ownerId ? (app.deduction_bps ?? 0) : 0, staffId],
+        );
+        if (arr.needs_plan) await this.plans.createInTx(client, app.driver_id, vehicleId, assignment!.plan, staffId);
       }
-      if (arr.needs_plan) await this.plans.createInTx(client, app.driver_id, vehicleId, assignment!.plan, staffId);
       await client.query('COMMIT');
       await this.redis.del(`driver:${app.driver_id}:category`); // pick up the new vehicle on the next ping
     } catch (e) {

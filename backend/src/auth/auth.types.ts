@@ -1,6 +1,6 @@
 import { SetMetadata, createParamDecorator, ExecutionContext } from '@nestjs/common';
 
-export type Role = 'rider' | 'driver' | 'support' | 'finance' | 'admin';
+export type Role = 'rider' | 'driver' | 'support' | 'finance' | 'admin' | 'business';
 
 /** Who is calling. Always taken from the verified token, never from the request body or URL. */
 export interface Principal {

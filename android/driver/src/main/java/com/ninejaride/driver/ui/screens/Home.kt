@@ -124,6 +124,7 @@ private fun EarningsCard(vm: DriverViewModel) {
             Chip("Today ▾", Color.White, Color.White.copy(alpha = 0.16f))
         }
         Txt(naira(vm.earningsKobo), 26f, 800, Color.White)
+        if (vm.vehicleSharedToday > 0) Txt("After ${naira(vm.vehicleSharedToday)} for your vehicle", 12f, 500, C.OnGreenMuted)
         Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Stat("${vm.tripsToday}", "Trips", Modifier.weight(1f))
             Stat("%.1f".format(vm.hoursToday), "Hours", Modifier.weight(1f))

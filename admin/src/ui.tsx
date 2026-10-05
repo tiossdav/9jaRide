@@ -1,7 +1,7 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { ReactNode, useEffect, useRef, useState } from 'react';
-import { ApiError, get } from './api';
+import { ApiError, blobUrl, get } from './api';
 
 // ---------------------------------------------------------------- formatting
 export const naira = (kobo: number | null | undefined, decimals = false): string => {
@@ -32,7 +32,7 @@ export const plateInput = (typed: string): string => typed.toUpperCase().replace
 export const toKobo = (typed: string): number => Math.round(Number(typed.replace(/,/g, '')) * 100);
 
 /** How a driver comes by their car, in words staff use. */
-export const ARRANGEMENT: Record<string, string> = { own: 'Owns the vehicle', platform_plan: 'Platform vehicle (payment plan)', third_party: "Someone else's vehicle" };
+export const ARRANGEMENT: Record<string, string> = { own: 'Owns the vehicle', business_vehicle: "A business's vehicle", platform_plan: 'Platform vehicle (older payment plan)', third_party: "Someone else's vehicle" };
 export const arrangementLabel = (code?: string | null) => (code ? ARRANGEMENT[code] ?? title(code) : '-');
 export const title = (s: string) => s.toLowerCase().replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 export const initials = (name?: string | null) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
@@ -254,4 +254,20 @@ export function LeafletMap({ dots, height = 340 }: { dots: MapDot[]; height?: nu
     }
   }, [dots]);
   return <div className="map" ref={el} style={{ height }} />;
+}
+
+/** A private picture from the server, with a grey box while it loads and a plain one if it cannot be shown. */
+export function AuthImage({ fileId, alt, size = 64 }: { fileId?: string | null; alt: string; size?: number }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [bad, setBad] = useState(false);
+  useEffect(() => {
+    let live = true; let made: string | null = null;
+    setUrl(null); setBad(false);
+    if (fileId) blobUrl(`/files/${fileId}`).then((u) => { made = u; if (live) setUrl(u); else URL.revokeObjectURL(u); }).catch(() => live && setBad(true));
+    return () => { live = false; if (made) URL.revokeObjectURL(made); };
+  }, [fileId]);
+  const box = { width: size, height: size, borderRadius: 10, background: 'var(--raised)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 11, overflow: 'hidden', flex: 'none' } as const;
+  if (!fileId) return <div style={box} aria-label={alt}><Icon name="car" size={Math.round(size / 3)} /></div>;
+  if (bad) return <div style={box} aria-label={alt}>No picture</div>;
+  return url ? <img src={url} alt={alt} style={{ ...box, objectFit: 'cover' }} /> : <div style={box} aria-busy="true" aria-label={alt} />;
 }

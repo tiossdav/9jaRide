@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { Pool } from 'pg';
 import { PG_POOL } from '../common/infra.module';
 import { FilesService } from '../files/files.service';
+import { FleetService } from '../fleet/fleet.service';
 import { splitFare } from '../ledger/postings';
 import { SettingsService } from '../settings/settings.service';
 import { VehiclePlansService } from '../vehicle-plans/vehicle-plans.service';
@@ -14,6 +15,7 @@ export class DriverProfileService {
     private readonly files: FilesService,
     private readonly plans: VehiclePlansService,
     private readonly settings: SettingsService,
+    private readonly fleet: FleetService,
   ) {}
 
   async profile(driverId: string) {
@@ -56,9 +58,9 @@ export class DriverProfileService {
   async trips(driverId: string, limit = 30) {
     const { rows } = await this.pool.query(
       `SELECT r.id, r.short_code, r.payment_method, r.pickup_address, r.dropoff_address, r.created_at, COALESCE(r.promo_discount_kobo, 0)::bigint AS discount,
-              f.total_kobo, f.tax_kobo, f.distance_m, f.duration_s, f.created_at AS finished_at, u.full_name AS rider,
+              f.total_kobo, f.tax_kobo, f.distance_m, f.duration_s, f.created_at AS finished_at, u.full_name AS rider, COALESCE(vd.amount_kobo, 0)::bigint AS vehicle_kobo,
               (f.created_at AT TIME ZONE 'Africa/Lagos')::date = (now() AT TIME ZONE 'Africa/Lagos')::date AS today
-         FROM rides r JOIN ride_fares f ON f.ride_id = r.id JOIN users u ON u.id = r.rider_id
+         FROM rides r JOIN ride_fares f ON f.ride_id = r.id JOIN users u ON u.id = r.rider_id LEFT JOIN vehicle_deductions vd ON vd.ride_id = r.id
         WHERE r.driver_id = $1 AND r.status = 'TRIP_COMPLETED' ORDER BY f.created_at DESC LIMIT $2`,
       [driverId, Math.min(limit, 100)],
     );
@@ -68,14 +70,14 @@ export class DriverProfileService {
       const { commission, driverShare } = splitFare(Number(t.total_kobo), Number(t.tax_kobo), rules.commissionBps, rules.taxBase === 'included');
       items.push({
         id: t.id, code: t.short_code, at: t.finished_at, paymentMethod: t.payment_method, pickup: t.pickup_address, dropoff: t.dropoff_address, rider: t.rider.split(' ')[0],
-        totalKobo: Number(t.total_kobo), taxKobo: Number(t.tax_kobo), commissionKobo: commission, earnedKobo: driverShare, distanceM: t.distance_m, durationS: t.duration_s, today: t.today,
+        totalKobo: Number(t.total_kobo), taxKobo: Number(t.tax_kobo), commissionKobo: commission, earnedKobo: driverShare, vehicleDeductionKobo: Number(t.vehicle_kobo), keptKobo: driverShare - Number(t.vehicle_kobo), distanceM: t.distance_m, durationS: t.duration_s, today: t.today,
       });
     }
     const today = items.filter((i) => i.today);
     return {
       items,
       today: {
-        trips: today.length, earnedKobo: today.reduce((n, i) => n + i.earnedKobo, 0), distanceM: today.reduce((n, i) => n + i.distanceM, 0), durationS: today.reduce((n, i) => n + i.durationS, 0),
+        trips: today.length, earnedKobo: today.reduce((n, i) => n + i.earnedKobo, 0), vehicleDeductionKobo: today.reduce((n, i) => n + i.vehicleDeductionKobo, 0), keptKobo: today.reduce((n, i) => n + i.keptKobo, 0), distanceM: today.reduce((n, i) => n + i.distanceM, 0), durationS: today.reduce((n, i) => n + i.durationS, 0),
       },
     };
   }
@@ -92,11 +94,20 @@ export class DriverProfileService {
       account: acct ? { bankName: acct.bank_name, accountNumber: acct.account_number, accountName: acct.account_name } : null,
       vehicle: me.vehicle,
       plan: me.plan,
-      // how the vehicle is paid for, in words for the driver: who set it, and whether they can change it
-      terms: me.vehicle?.arrangement === 'platform_plan' && me.plan
-        ? { kind: 'payment_plan', setBy: 'platform', canChange: false }
-        : me.vehicle?.arrangement === 'third_party' ? { kind: 'owner', setBy: 'driver', canChange: true } : { kind: 'own', setBy: 'driver', canChange: false },
+      // how the vehicle is paid for: who set the share, and whether the driver can change it
+      terms: await this.vehicleTerms(driverId, me.application?.arrangement ?? null, !!me.vehicle),
     };
+  }
+
+  /** The share of earnings that goes toward the vehicle, and who controls it. */
+  private async vehicleTerms(driverId: string, arrangement: string | null, hasVehicle: boolean) {
+    const t = await this.fleet.driverTerms(driverId);
+    if (arrangement === 'business_vehicle') {
+      return t ? { kind: 'business', setBy: t.setBy, canChange: false, percent: t.percent, owner: t.owner?.name ?? null, targetKobo: t.targetKobo, paidKobo: t.paidKobo }
+        : { kind: 'business', setBy: 'owner', canChange: false, percent: null, owner: null, waiting: !hasVehicle };
+    }
+    if (arrangement === 'third_party' && t) return { kind: 'owner', setBy: t.setBy, canChange: t.canChange, percent: t.percent, owner: t.owner?.name ?? null, targetKobo: t.targetKobo, paidKobo: t.paidKobo };
+    return { kind: 'own', setBy: 'driver', canChange: false, percent: 0 };
   }
 
   async saveAccount(driverId: string, a: { bankName: string; accountNumber: string; accountName: string }): Promise<void> {

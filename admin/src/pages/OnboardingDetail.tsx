@@ -7,7 +7,7 @@ import { AssignModal } from './AssignVehicle';
 
 interface App {
   id: string; driverId: string; driverName: string; phone: string; status: string; accountStatus: string;
-  arrangement: string; owner: { name: string; phone: string } | null;
+  arrangement: string; owner: { name: string; phone: string } | null; deductionBps: number | null;
   vehicle: { category: string; make: string | null; colour: string | null; plate: string | null };
   approvedCategory: string | null;
   ninCheck: { status: 'not_checked' | 'pending' | 'verified' | 'failed'; reason: string | null };
@@ -35,7 +35,8 @@ export default function OnboardingDetail() {
   const act = useAction();
   if (!a) return <Loading error={error} retry={reload} />;
   const open = a.status === 'SUBMITTED';
-  const platform = a.arrangement === 'platform_plan';
+  const platform = a.arrangement === 'platform_plan'; // the older fixed-instalment plan: the approver picks the car
+  const business = a.arrangement === 'business_vehicle'; // a business gives the vehicle later; only the driver is checked now
   const blocked = a.missingDocuments.length > 0 || a.documents.some((d) => d.expired);
   const p = a.personal;
 
@@ -55,8 +56,9 @@ export default function OnboardingDetail() {
             {kv('Name', p.nextOfKin.name ?? '-')}{kv('Phone number', p.nextOfKin.phone ?? '-')}{kv('Relationship', p.nextOfKin.relationship ?? '-')}{kv('Address', p.nextOfKin.address ?? '-')}</div>
           <div className="card"><h3>Vehicle</h3>
             {kv('Arrangement', arrangementLabel(a.arrangement))}
-            {platform ? <div className="note" style={{ margin: '6px 0' }}>The driver asked for a platform vehicle. Choose the car and set the payment plan when you approve.</div>
-              : <>{kv('Plate number', formatPlate(a.vehicle.plate))}{kv('Model', a.vehicle.make)}{kv('Colour', a.vehicle.colour)}{kv('Owner', a.owner ? `${a.owner.name} · ${a.owner.phone}` : `${a.driverName} (the driver)`)}</>}
+            {business ? <div className="note" style={{ margin: '6px 0' }}>The driver will drive a business&apos;s vehicle. Only the driver is checked here; the business gives them a vehicle from its list (Fleet) once they are approved.</div>
+              : platform ? <div className="note" style={{ margin: '6px 0' }}>The driver asked for a platform vehicle. Choose the car and set the payment plan when you approve.</div>
+              : <>{kv('Plate number', formatPlate(a.vehicle.plate))}{kv('Model', a.vehicle.make)}{kv('Colour', a.vehicle.colour)}{kv('Owner', a.owner ? `${a.owner.name} · ${a.owner.phone}` : `${a.driverName} (the driver)`)}{a.deductionBps ? kv('Share of earnings toward the car', `${a.deductionBps / 100}%`) : null}</>}
             {kv('Category asked for', label(a.vehicle.category))}
             {a.approvedCategory && kv('Category confirmed', <b>{label(a.approvedCategory)}</b>)}</div>
         </div>
@@ -72,7 +74,7 @@ export default function OnboardingDetail() {
             <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <h3>Decision</h3>
               {blocked && <div className="note">Approval is blocked until every required document is present and in date.</div>}
-              <button className="btn" disabled={act.busy || blocked} onClick={() => (platform ? setAssigning(true) : setApproving(true))}>{platform ? 'Assign vehicle and approve' : 'Inspect and approve'}</button>
+              <button className="btn" disabled={act.busy || blocked} onClick={() => (platform ? setAssigning(true) : setApproving(true))}>{platform ? 'Assign vehicle and approve' : business ? 'Approve driver' : 'Inspect and approve'}</button>
               <button className="btn ghost" onClick={() => setAsk('changes')}>Request changes</button>
               <button className="btn outline-red" onClick={() => setAsk('reject')}>Reject</button>
             </div>
@@ -97,11 +99,11 @@ function InspectModal({ app, onClose, onDone }: { app: App; onClose: () => void;
   return (
     <Modal onClose={onClose}>
       <h3 style={{ fontSize: 16, fontWeight: 700 }}>Inspect and approve {app.driverName}</h3>
-      <div className="note">{app.vehicle.colour} {app.vehicle.make} · {formatPlate(app.vehicle.plate)}. The driver asked for <b>{label(app.vehicle.category)}</b>. Confirm the category after you have looked at the vehicle, its photo and its inspection certificate.</div>
+      <div className="note">{app.vehicle.plate ? <>{app.vehicle.colour} {app.vehicle.make} · {formatPlate(app.vehicle.plate)}. </> : null}The driver asked for <b>{label(app.vehicle.category)}</b>. {app.vehicle.plate ? 'Confirm the category after you have looked at the vehicle, its photo and its inspection certificate.' : 'The business will give them a vehicle; this is the kind of trips they will be sent on.'}</div>
       <div className="field"><label htmlFor="ic">Confirmed category</label>
         <select id="ic" className="select" value={category} onChange={(e) => setCategory(e.target.value)}>{CATEGORIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
       {category !== app.vehicle.category && <div className="banner" role="status">This is different from what the driver asked for. Trips and fares for this driver will follow {label(category)}.</div>}
-      <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}><input type="checkbox" checked={inspected} onChange={(e) => setInspected(e.target.checked)} /> I have inspected this vehicle and its documents.</label>
+      <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}><input type="checkbox" checked={inspected} onChange={(e) => setInspected(e.target.checked)} /> {app.vehicle.plate ? 'I have inspected this vehicle and its documents.' : 'I have checked this driver and their documents.'}</label>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <button className="btn ghost" onClick={onClose}>Cancel</button>
         <button className="btn" disabled={!inspected} onClick={() => confirm.ask(

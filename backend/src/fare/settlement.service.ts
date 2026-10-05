@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { Measured } from './fare.calc';
 import { FareService, StoredFare } from './fare.service';
+import { FleetService } from '../fleet/fleet.service';
 import { LedgerService } from '../ledger/ledger.service';
+import { splitFare } from '../ledger/postings';
 import { PromoService } from '../promo/promo.service';
 import { SettingsService } from '../settings/settings.service';
 
@@ -12,7 +14,7 @@ import { SettingsService } from '../settings/settings.service';
  */
 @Injectable()
 export class SettlementService {
-  constructor(private readonly fares: FareService, private readonly ledger: LedgerService, private readonly settings: SettingsService, private readonly promo: PromoService) {}
+  constructor(private readonly fares: FareService, private readonly ledger: LedgerService, private readonly settings: SettingsService, private readonly promo: PromoService, private readonly fleet: FleetService) {}
 
   async settleCompletedTrip(rideId: string, measured: Measured): Promise<StoredFare> {
     return this.ledger.withTransaction(async (client) => {
@@ -43,14 +45,19 @@ export class SettlementService {
       // The commission rules that applied when the ride was booked, so a later change never rewrites a trip in flight.
       const revenue = await this.settings.effective('revenue', ride.created_at, client);
       const discountKobo = await this.promo.settle(client, rideId, fare.totalKobo);
-      const rules = { commissionBps: revenue.commissionBps, taxCommissionable: revenue.taxBase === 'included', discountKobo };
+      // A driver paying toward a vehicle someone else owns has that owner's share taken from what they earn on this trip.
+      const { driverShare } = splitFare(fare.totalKobo, fare.taxKobo, revenue.commissionBps, revenue.taxBase === 'included');
+      const owed = await this.fleet.deductionFor(client, ride.driver_id, driverShare);
+      const rules = {
+        commissionBps: revenue.commissionBps, taxCommissionable: revenue.taxBase === 'included', discountKobo,
+        deduction: owed ? { account: owed.account, amountKobo: owed.amountKobo } : undefined,
+      };
 
       // Both paths post under idempotency key `trip:<rideId>`, so replaying settlement cannot pay twice.
-      if (ride.payment_method === 'wallet') {
-        await this.ledger.completeWalletTrip(client, rideId, ride.rider_id, ride.driver_id, fare.totalKobo, fare.taxKobo, rules);
-      } else {
-        await this.ledger.completeCashTrip(client, rideId, ride.driver_id, fare.totalKobo, fare.taxKobo, rules);
-      }
+      const posted = ride.payment_method === 'wallet'
+        ? await this.ledger.completeWalletTrip(client, rideId, ride.rider_id, ride.driver_id, fare.totalKobo, fare.taxKobo, rules)
+        : await this.ledger.completeCashTrip(client, rideId, ride.driver_id, fare.totalKobo, fare.taxKobo, rules);
+      if (posted && owed) await this.fleet.recordDeduction(client, rideId, ride.driver_id, driverShare, owed);
       return fare;
     });
   }

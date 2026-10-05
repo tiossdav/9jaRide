@@ -58,7 +58,7 @@ test.describe('pages load with real data', () => {
   const pages: [string, string][] = [
     ['/live', 'Live operations'], ['/safety', 'Safety Center'], ['/trips', 'All Trips'], ['/customers', 'Customers'], ['/drivers', 'Drivers'],
     ['/vehicles', 'Vehicles'], ['/pricing', 'Trip Fees'], ['/finances/wallet', 'Wallet'], ['/finances/revenue', 'Revenue'], ['/finances/ledger', 'Ledger'],
-    ['/finances/payouts', 'Driver payouts'], ['/finances/vehicle-plans', 'Vehicle plans'], ['/finances/adjustments', 'Refunds and adjustments'], ['/finances/reconciliation', 'Reconciliation'],
+    ['/finances/payouts', 'Driver payouts'], ['/finances/vehicle-plans', 'Vehicle plans'], ['/fleet', 'Fleet'], ['/fleet/businesses', 'Businesses'], ['/finances/adjustments', 'Refunds and adjustments'], ['/finances/reconciliation', 'Reconciliation'],
     ['/setup/asset-types', 'Asset Types'], ['/setup/revenue', 'Revenue Setup'], ['/setup/cancellation', 'Cancellation Policy'], ['/finances/stakeholders', 'Stakeholder payouts'], ['/promo', 'Promo'], ['/support', 'Support'],
     ['/team', 'Team Members'], ['/team/roles', 'Roles & Permissions'], ['/activity', 'Activity Logs'],
   ];

@@ -5,7 +5,7 @@ import { hashPassword } from '../auth/auth.service';
 import { TokensService } from '../auth/tokens.service';
 import { PG_POOL } from '../common/infra.module';
 
-export type StaffRole = 'support' | 'finance' | 'admin';
+export type StaffRole = 'support' | 'finance' | 'admin' | 'business';
 
 /**
  * Staff accounts, managed by admins. Inviting creates the account with a one-time password that is shown once to
@@ -25,7 +25,7 @@ export class TeamService {
   async list(search?: string) {
     const { rows } = await this.pool.query(
       `SELECT s.*, i.full_name AS invited_by_name FROM staff_users s LEFT JOIN staff_users i ON i.id = s.invited_by
-        WHERE ($1::text IS NULL OR s.full_name ILIKE $1 OR s.email ILIKE $1) ORDER BY s.created_at DESC LIMIT 200`,
+        WHERE s.role <> 'business' AND ($1::text IS NULL OR s.full_name ILIKE $1 OR s.email ILIKE $1) ORDER BY s.created_at DESC LIMIT 200`,
       [search?.trim() ? `%${search.trim()}%` : null],
     );
     return rows.map((r) => this.present(r));
@@ -40,13 +40,14 @@ export class TeamService {
     return { ...this.present(rows[0]), recent: recent.rows.map((l) => ({ method: l.method, path: l.path, status: l.status_code, at: l.created_at })) };
   }
 
-  async invite(by: string, input: { email: string; fullName: string; phone?: string; role: StaffRole }) {
+  async invite(by: string, input: { email: string; fullName: string; phone?: string; role: StaffRole; businessId?: string }) {
+    if ((input.role === 'business') !== !!input.businessId) throw new BadRequestException('a business account needs a business, and no other role takes one');
     const password = randomBytes(15).toString('base64url');
     try {
       const { rows } = await this.pool.query(
-        `INSERT INTO staff_users (email, full_name, phone, role, password_hash, must_change_password, invited_by)
-         VALUES ($1, $2, $3, $4, $5, true, $6) RETURNING id`,
-        [input.email.trim().toLowerCase(), input.fullName.trim(), input.phone?.trim() || null, input.role, await hashPassword(password), by],
+        `INSERT INTO staff_users (email, full_name, phone, role, password_hash, must_change_password, invited_by, business_id)
+         VALUES ($1, $2, $3, $4, $5, true, $6, $7) RETURNING id`,
+        [input.email.trim().toLowerCase(), input.fullName.trim(), input.phone?.trim() || null, input.role, await hashPassword(password), by, input.businessId ?? null],
       );
       return { id: rows[0].id, temporaryPassword: password };
     } catch (e: any) {
@@ -65,6 +66,7 @@ export class TeamService {
     if (by === id) throw new BadRequestException('you cannot change your own role');
     const { rows } = await this.pool.query(`SELECT role FROM staff_users WHERE id = $1`, [id]);
     if (!rows[0]) throw new NotFoundException('team member not found');
+    if (rows[0].role === 'business' || role === 'business') throw new BadRequestException('a business account cannot change role; create a new account instead');
     if (rows[0].role === 'admin' && role !== 'admin') await this.assertNotLastAdmin(id);
     await this.pool.query(`UPDATE staff_users SET role = $2 WHERE id = $1`, [id, role]);
     await this.tokens.revokeAll('staff', id); // the new role applies on the next sign-in

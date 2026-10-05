@@ -10,6 +10,7 @@ import { StakeholdersModule } from './stakeholders/stakeholders.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { SettingsModule } from './settings/settings.module';
 import { DriverProfileModule } from './driver-profile/driver-profile.module';
+import { FleetModule } from './fleet/fleet.module';
 import { FilesModule } from './files/files.module';
 import { ConsoleModule } from './console/console.module';
 import { VehiclePlansModule } from './vehicle-plans/vehicle-plans.module';
@@ -24,6 +25,6 @@ import { SafetyModule } from './safety/safety.module';
 
 @Module({
   controllers: [HealthController],
-  imports: [ScheduleModule.forRoot(), InfraModule, SettingsModule, CatalogModule, AuthModule, LedgerModule, FareModule, PaymentsModule, DispatchModule, RidesModule, SafetyModule, AdminModule, ConsoleModule, FilesModule, DriverProfileModule, VehiclePlansModule, TeamModule, StakeholdersModule, PromoModule, SupportModule, AppConfigModule],
+  imports: [ScheduleModule.forRoot(), InfraModule, SettingsModule, CatalogModule, AuthModule, LedgerModule, FareModule, PaymentsModule, DispatchModule, RidesModule, SafetyModule, AdminModule, ConsoleModule, FilesModule, FleetModule, DriverProfileModule, VehiclePlansModule, TeamModule, StakeholdersModule, PromoModule, SupportModule, AppConfigModule],
 })
 export class AppModule {}

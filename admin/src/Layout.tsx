@@ -6,15 +6,22 @@ import { useConfirm } from './bits';
 import { ChangePassword } from './ChangePassword';
 import { Icon, IconName } from './ui';
 
-type Role = 'support' | 'finance' | 'admin';
+type Role = 'support' | 'finance' | 'admin' | 'business';
 interface Child { label: string; icon: IconName; to?: string; roles?: Role[] }
-interface Item { label: string; icon: IconName; to?: string; children?: Child[]; roles?: Role[] }
+interface Item { label: string; icon: IconName; to?: string; children?: Child[]; roles?: Role[]; end?: boolean }
 const OPS: Role[] = ['support', 'admin'];
 const MONEY: Role[] = ['finance', 'admin'];
 
 // The full menu from the design. Entries without a page yet are shown but not clickable.
 const NAV: { group: string; items: Item[] }[] = [
   { group: 'Overview', items: [{ label: 'Dashboard', icon: 'grid', to: '/', roles: OPS }] },
+  {
+    group: 'Fleet',
+    items: [
+      { label: 'Fleet', icon: 'car', to: '/fleet', end: true, roles: ['support', 'admin', 'business'] },
+      { label: 'Businesses', icon: 'users', to: '/fleet/businesses', roles: OPS },
+    ],
+  },
   {
     group: 'Operations',
     items: [
@@ -62,7 +69,7 @@ const CRUMBS: [string, string[]][] = [
   ['/live', ['Operations', 'Live operations']], ['/finances/revenue', ['Finances', 'Revenue']], ['/finances/ledger', ['Finances', 'Ledger']], ['/safety', ['Operations', 'Safety Center']], ['/customers', ['Users', 'Customers']],
   ['/trips', ['Trips']], ['/pricing', ['Setup', 'Trip Fees']], ['/setup/asset-types', ['Setup', 'Asset Type']], ['/setup/revenue', ['Setup', 'Revenue Setup']], ['/setup/cancellation', ['Setup', 'Cancellation Policy']],
   ['/finances/stakeholders', ['Finances', 'Stakeholder payouts']], ['/promo', ['Promo']], ['/support', ['Support']], ['/drivers', ['Users', 'Drivers']], ['/onboarding', ['Users', 'Drivers', 'Onboarding']],
-  ['/people', ['Users', 'Profile']], ['/vehicles', ['Vehicles']], ['/finances/wallet', ['Finances', 'Wallet']], ['/finances/payouts', ['Finances', 'Driver payouts']], ['/finances/vehicle-plans', ['Finances', 'Vehicle plans']],
+  ['/people', ['Users', 'Profile']], ['/vehicles', ['Vehicles']], ['/finances/wallet', ['Finances', 'Wallet']], ['/finances/payouts', ['Finances', 'Driver payouts']], ['/finances/vehicle-plans', ['Finances', 'Vehicle plans']], ['/fleet/businesses', ['Fleet', 'Businesses']], ['/fleet', ['Fleet']],
   ['/finances/adjustments', ['Finances', 'Adjustments']], ['/finances/reconciliation', ['Finances', 'Reconciliation']], ['/activity', ['Activity Logs']], ['/team/roles', ['Team', 'Roles']], ['/team', ['Team', 'Members']],
 ];
 export interface Me { name: string; role: string; email?: string; mustChangePassword?: boolean }
@@ -91,7 +98,7 @@ export default function Layout({ toggleTheme }: { toggleTheme: () => void }) {
   const [, newMinute] = useState(0);
   useEffect(() => { const t = setInterval(() => newMinute((n) => n + 1), 60_000); return () => clearInterval(t); }, []); // the date in the header moves on at midnight
   // Finance staff have no dashboard: send them to the money overview.
-  useEffect(() => { if (me?.role === 'finance' && loc.pathname === '/') nav('/finances/wallet', { replace: true }); }, [me, loc.pathname, nav]);
+  useEffect(() => { if (me?.role === 'finance' && loc.pathname === '/') nav('/finances/wallet', { replace: true }); if (me?.role === 'business' && loc.pathname === '/') nav('/fleet', { replace: true }); }, [me, loc.pathname, nav]);
   useEffect(() => { try { localStorage.setItem('side', collapsed ? '1' : '0'); } catch { /* not saved */ } }, [collapsed]);
   const trail = loc.pathname === '/' ? [] : (CRUMBS.find(([p]) => loc.pathname.startsWith(p))?.[1] ?? []);
   const today = new Date().toLocaleDateString('en-GB', { timeZone: 'Africa/Lagos', day: '2-digit', month: 'short', year: 'numeric' });
@@ -129,7 +136,7 @@ export default function Layout({ toggleTheme }: { toggleTheme: () => void }) {
                   );
                 }
                 return i.to
-                  ? <NavLink key={i.label} to={i.to} end={i.to === '/'} title={collapsed ? i.label : undefined} className={({ isActive }) => 'nav' + (isActive ? ' on' : '')}><Icon name={i.icon} size={19} /><span>{i.label}</span></NavLink>
+                  ? <NavLink key={i.label} to={i.to} end={i.to === '/' || i.end} title={collapsed ? i.label : undefined} className={({ isActive }) => 'nav' + (isActive ? ' on' : '')}><Icon name={i.icon} size={19} /><span>{i.label}</span></NavLink>
                   : <Soon key={i.label} icon={i.icon} label={i.label} collapsed={collapsed} />;
               })}
             </Fragment>

@@ -1,5 +1,8 @@
 import { Kobo, assertKobo, percentOf } from '../common/money';
 
+/** What the owner of a vehicle is paid out of a driver's share of one trip. */
+export interface OwnerDeduction { account: string; amountKobo: Kobo }
+
 export interface Posting {
   account: string; // ledger_accounts.code
   amountKobo: Kobo; // signed: credit positive, debit negative
@@ -35,15 +38,18 @@ function assertDiscount(discount: Kobo, fare: Kobo) {
 }
 
 /** Wallet trip: rider wallet -> driver wallet (fare minus tax minus commission), platform commission and tax. */
-export function planWalletTrip(riderId: string, driverId: string, fare: Kobo, tax: Kobo = 0, bps = COMMISSION_BPS, taxCommissionable = false, discount: Kobo = 0): Posting[] {
+export function planWalletTrip(riderId: string, driverId: string, fare: Kobo, tax: Kobo = 0, bps = COMMISSION_BPS, taxCommissionable = false, discount: Kobo = 0, deduction?: OwnerDeduction): Posting[] {
   assertKobo(fare, 'fare');
   assertDiscount(discount, fare);
   const { commission, driverShare } = splitFare(fare, tax, bps, taxCommissionable);
+  const owed = deduction?.amountKobo ?? 0;
+  if (owed < 0 || owed > driverShare) throw new RangeError(`the vehicle deduction ${owed} is more than the driver's share ${driverShare}`);
   // A promo code lowers what the rider pays; the platform makes up the difference, so the driver's share is untouched.
   const postings: Posting[] = [];
   if (fare - discount > 0) postings.push({ account: walletCode(riderId), amountKobo: -(fare - discount) });
   if (discount > 0) postings.push({ account: 'platform:promo', amountKobo: -discount });
-  if (driverShare > 0) postings.push({ account: walletCode(driverId), amountKobo: driverShare });
+  if (driverShare - owed > 0) postings.push({ account: walletCode(driverId), amountKobo: driverShare - owed });
+  if (owed > 0 && deduction) postings.push({ account: deduction.account, amountKobo: owed }); // the owner's part of what the driver earned
   if (commission > 0) postings.push({ account: 'platform:commission', amountKobo: commission });
   if (tax > 0) postings.push({ account: 'platform:tax', amountKobo: tax });
   return postings;
@@ -54,14 +60,18 @@ export function planWalletTrip(riderId: string, driverId: string, fare: Kobo, ta
  * they collected on the platform's behalf. It is a debt, so it can push their wallet negative
  * (spec: "Cash earnings and payouts").
  */
-export function planCashTrip(driverId: string, fare: Kobo, tax: Kobo = 0, bps = COMMISSION_BPS, taxCommissionable = false, discount: Kobo = 0): Posting[] {
+export function planCashTrip(driverId: string, fare: Kobo, tax: Kobo = 0, bps = COMMISSION_BPS, taxCommissionable = false, discount: Kobo = 0, deduction?: OwnerDeduction): Posting[] {
   assertKobo(fare, 'fare');
   assertDiscount(discount, fare);
-  const { commission } = splitFare(fare, tax, bps, taxCommissionable);
+  const { commission, driverShare } = splitFare(fare, tax, bps, taxCommissionable);
+  const toOwner = deduction?.amountKobo ?? 0;
+  if (toOwner < 0 || toOwner > driverShare) throw new RangeError(`the vehicle deduction ${toOwner} is more than the driver's share ${driverShare}`);
   // The rider paid the driver less cash because of the promo; the platform pays the driver the difference.
-  const owed = commission + tax - discount;
+  // The driver also holds the owner's part of the cash, so that comes off their wallet too and goes to the owner.
+  const owed = commission + tax - discount + toOwner;
   const postings: Posting[] = [];
   if (owed !== 0) postings.push({ account: walletCode(driverId), amountKobo: -owed });
+  if (toOwner > 0 && deduction) postings.push({ account: deduction.account, amountKobo: toOwner });
   if (discount > 0) postings.push({ account: 'platform:promo', amountKobo: -discount });
   if (commission > 0) postings.push({ account: 'platform:commission', amountKobo: commission });
   if (tax > 0) postings.push({ account: 'platform:tax', amountKobo: tax });
