@@ -97,7 +97,9 @@ export class NotificationsService {
           location: s.lat == null ? null : { lat: s.lat, lng: s.lng }, escalated: s.escalated_at != null,
         }))
       : [];
+    // The counter in the corner of the portal: every alert not yet resolved (open or being handled), however old. It never resets by day.
+    const unresolvedSos = allowed.has('sos') ? (await this.q<{ n: number }>(`SELECT count(*)::int AS n FROM sos_events WHERE status <> 'RESOLVED'`))[0].n : 0;
     const [{ now }] = await this.q<{ now: Date }>(`SELECT now() AS now`);
-    return { now, items: items.slice(0, 40), openSos: open };
+    return { now, items: items.slice(0, 40), openSos: open, unresolvedSos };
   }
 }

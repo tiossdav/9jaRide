@@ -2,14 +2,14 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NotificationBell, NotificationStack, useNotifications } from './Notifications';
+import { NotificationBell, NotificationStack, SosIndicator, useNotifications } from './Notifications';
 
 vi.mock('./api', async (orig) => ({ ...(await orig<typeof import('./api')>()), get: vi.fn(), post: vi.fn(async () => ({})) }));
 import { get, post } from './api';
 
 function Host() {
   const api = useNotifications(true);
-  return <MemoryRouter><NotificationBell api={api} /><NotificationStack api={api} /></MemoryRouter>;
+  return <MemoryRouter><SosIndicator api={api} /><NotificationBell api={api} /><NotificationStack api={api} /></MemoryRouter>;
 }
 
 const sos = { id: 'a1', at: new Date().toISOString(), role: 'driver', person: 'Ada Driver', phone: '+2348030000001', trip: 'K7XQ', tripId: 't1', location: { lat: 6.5, lng: 3.4 }, escalated: false };
@@ -49,5 +49,16 @@ describe('admin pop-ups', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(screen.getByLabelText('Notifications'));
     expect(screen.getByText(/Bayo requested/)).toBeInTheDocument();
+  });
+
+  it('keeps a count of unresolved SOS alerts in the corner, however old, and opens the Safety Center', async () => {
+    vi.mocked(get).mockResolvedValue({ now: new Date().toISOString(), items: [], openSos: [], unresolvedSos: 3 } as never);
+    render(<Host />);
+    const ind = await screen.findByRole('button', { name: /SOS Alerts: 3/ });
+    expect(ind).toHaveTextContent('SOS Alerts: 3');
+    // the count follows the server, going down when alerts are resolved
+    vi.mocked(get).mockResolvedValue({ now: new Date().toISOString(), items: [], openSos: [], unresolvedSos: 1 } as never);
+    await act(async () => { await vi.advanceTimersByTimeAsync(6_500); });
+    expect(screen.getByRole('button', { name: /SOS Alerts: 1/ })).toBeInTheDocument();
   });
 });

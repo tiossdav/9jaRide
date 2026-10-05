@@ -236,7 +236,7 @@ export class ConsoleService {
       driver: r.driver_name ? { id: r.driver_id, name: r.driver_name, phone: r.driver_phone, vehicle: r.plate ? `${r.colour} ${r.make} ${displayPlate(r.plate)}` : null } : null,
       fare: r.total_kobo == null ? null : {
         totalKobo: Number(r.total_kobo), distanceM: r.f_distance, durationS: r.f_duration, waitingS: r.waiting_s, outsideEstimate: r.outside_quote_range,
-        lines: lines.map((l) => ({ kind: l.kind, label: l.label, amountKobo: Number(l.amount_kobo) })),
+        lines: lines.map((l) => ({ kind: l.kind, label: l.kind === 'service' ? 'Booking Fee' : l.label, amountKobo: Number(l.amount_kobo) })),
         rates: r.pv_from ? { category: r.pv_category, effectiveFrom: r.pv_from } : null,
       },
       estimate: r.low_kobo == null ? null : { lowKobo: Number(r.low_kobo), highKobo: Number(r.high_kobo) },
@@ -361,7 +361,7 @@ export class ConsoleService {
       `SELECT u.id, u.full_name, u.phone, u.status, u.created_at, v.plate, v.make, v.colour, v.category,
               COALESCE(v.arrangement, (SELECT a.arrangement FROM driver_applications a WHERE a.driver_id = u.id ORDER BY a.submitted_at DESC LIMIT 1)) AS arrangement,
               (SELECT count(*)::int FROM rides r WHERE r.driver_id = u.id AND r.status = 'TRIP_COMPLETED') AS trips,
-              (SELECT round(avg(rt.stars)::numeric, 1)::float8 FROM ride_ratings rt JOIN rides r ON r.id = rt.ride_id WHERE r.driver_id = u.id) AS rating
+              (SELECT round(avg(rt.stars)::numeric, 1)::float8 FROM ride_ratings rt JOIN rides r ON r.id = rt.ride_id WHERE rt.direction = 'rider_to_driver' AND r.driver_id = u.id) AS rating
          FROM users u LEFT JOIN vehicles v ON v.driver_id = u.id AND v.active
         WHERE ${where} ORDER BY u.created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
@@ -388,7 +388,7 @@ export class ConsoleService {
          FROM rides r LEFT JOIN ride_fares f ON f.ride_id = r.id WHERE r.${col} = $1`, [id],
     );
     const [rt] = u.role === 'driver'
-      ? await this.q(`SELECT round(avg(rt.stars)::numeric, 2)::float8 AS avg, count(*)::int AS n FROM ride_ratings rt JOIN rides r ON r.id = rt.ride_id WHERE r.driver_id = $1`, [id])
+      ? await this.q(`SELECT round(avg(rt.stars)::numeric, 2)::float8 AS avg, count(*)::int AS n FROM ride_ratings rt JOIN rides r ON r.id = rt.ride_id WHERE rt.direction = 'rider_to_driver' AND r.driver_id = $1`, [id])
       : [{ avg: null, n: 0 }];
     const vehicles = await this.q(`SELECT id, category, make, colour, plate, active, arrangement, owner_name, owner_phone FROM vehicles WHERE driver_id = $1 ORDER BY active DESC`, [id]);
     const recent = await this.q(
@@ -545,24 +545,35 @@ export class ConsoleService {
 
   // ------------------------------------------------------------------ driver ratings
 
-  async ratings() {
-    const [s] = await this.q(`SELECT round(avg(stars)::numeric, 2)::float8 AS avg, count(*)::int AS n FROM ride_ratings`);
-    const dist = await this.q(`SELECT stars, count(*)::int AS n FROM ride_ratings GROUP BY stars`);
+  async ratings(direction: 'rider_to_driver' | 'driver_to_rider' = 'rider_to_driver') {
+    const dir = direction === 'driver_to_rider' ? 'driver_to_rider' : 'rider_to_driver';
+    const [s] = await this.q(`SELECT round(avg(stars)::numeric, 2)::float8 AS avg, count(*)::int AS n FROM ride_ratings WHERE direction = $1`, [dir]);
+    const dist = await this.q(`SELECT stars, count(*)::int AS n FROM ride_ratings WHERE direction = $1 GROUP BY stars`, [dir]);
+    // The ratee is who is rated; the rater is who gave the rating.
     const recent = await this.q(
-      `SELECT rt.stars, rt.tags, rt.created_at, r.id AS ride_id, r.short_code, d.id AS driver_id, d.full_name AS driver, u.full_name AS rider
-         FROM ride_ratings rt JOIN rides r ON r.id = rt.ride_id JOIN users u ON u.id = rt.rater_id LEFT JOIN users d ON d.id = r.driver_id
-        ORDER BY rt.created_at DESC LIMIT 30`,
+      `SELECT rt.stars, rt.tags, rt.comment, rt.created_at, r.id AS ride_id, r.short_code, ee.id AS ratee_id, ee.full_name AS ratee, er.full_name AS rater
+         FROM ride_ratings rt JOIN rides r ON r.id = rt.ride_id JOIN users er ON er.id = rt.rater_id LEFT JOIN users ee ON ee.id = rt.ratee_id
+        WHERE rt.direction = $1 ORDER BY rt.created_at DESC LIMIT 40`, [dir],
     );
     const low = await this.q(
-      `SELECT d.id, d.full_name, round(avg(rt.stars)::numeric, 2)::float8 AS avg, count(*)::int AS n
-         FROM ride_ratings rt JOIN rides r ON r.id = rt.ride_id JOIN users d ON d.id = r.driver_id
-        GROUP BY d.id, d.full_name HAVING count(*) >= 3 ORDER BY avg ASC LIMIT 5`,
+      `SELECT ee.id, ee.full_name, round(avg(rt.stars)::numeric, 2)::float8 AS avg, count(*)::int AS n
+         FROM ride_ratings rt JOIN users ee ON ee.id = rt.ratee_id WHERE rt.direction = $1
+        GROUP BY ee.id, ee.full_name HAVING count(*) >= 3 ORDER BY avg ASC LIMIT 5`, [dir],
     );
+    // Which quick comments come up, and how the ratings that chose them averaged: the pattern the team acts on.
+    const tags = await this.q(
+      `SELECT t.tag, count(*)::int AS n, round(avg(rt.stars)::numeric, 2)::float8 AS avg
+         FROM ride_ratings rt CROSS JOIN LATERAL unnest(rt.tags) AS t(tag) WHERE rt.direction = $1
+        GROUP BY t.tag ORDER BY n DESC, t.tag LIMIT 30`, [dir],
+    );
+    const [c] = await this.q(`SELECT count(*) FILTER (WHERE comment IS NOT NULL)::int AS written FROM ride_ratings WHERE direction = $1`, [dir]);
     return {
-      average: s.avg, total: s.n,
+      direction: dir,
+      average: s.avg, total: s.n, withComment: c.written,
       distribution: [5, 4, 3, 2, 1].map((n) => ({ stars: n, count: dist.find((d) => d.stars === n)?.n ?? 0 })),
       lowestRated: low.map((l) => ({ id: l.id, name: l.full_name, average: l.avg, ratings: l.n })),
-      recent: recent.map((r) => ({ stars: r.stars, tags: r.tags, at: r.created_at, rideId: r.ride_id, code: r.short_code, driverId: r.driver_id, driver: r.driver, rider: r.rider })),
+      topComments: tags.map((t) => ({ tag: t.tag, count: t.n, average: t.avg })),
+      recent: recent.map((r) => ({ stars: r.stars, tags: r.tags, comment: r.comment, at: r.created_at, rideId: r.ride_id, code: r.short_code, rateeId: r.ratee_id, ratee: r.ratee, rater: r.rater })),
     };
   }
 

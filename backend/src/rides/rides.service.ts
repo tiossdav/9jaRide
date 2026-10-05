@@ -96,7 +96,7 @@ export class RidesService {
               ST_Y(r.dropoff::geometry) AS dropoff_lat, ST_X(r.dropoff::geometry) AS dropoff_lng,
               r.created_at, r.scheduled_for, r.schedule_id, r.cancel_reason, r.pickup_address, r.dropoff_address, d.full_name AS driver_name, v.make, v.colour, v.plate,
               d.phone AS driver_phone,
-              (SELECT round(avg(x.stars)::numeric, 1) FROM ride_ratings x JOIN rides xr ON xr.id = x.ride_id WHERE xr.driver_id = r.driver_id) AS driver_rating,
+              (SELECT round(avg(x.stars)::numeric, 1) FROM ride_ratings x JOIN rides xr ON xr.id = x.ride_id WHERE x.direction = 'rider_to_driver' AND xr.driver_id = r.driver_id) AS driver_rating,
               (SELECT h.created_at FROM ride_status_history h WHERE h.ride_id = r.id ORDER BY h.id DESC LIMIT 1) AS status_changed_at,
               q.low_kobo, q.high_kobo, f.total_kobo, r.promo_discount_kobo, pc.code AS promo_code, f.distance_m AS fare_distance_m, f.duration_s AS fare_duration_s, rr.stars AS my_stars
          FROM rides r
@@ -105,7 +105,7 @@ export class RidesService {
          LEFT JOIN fare_quotes q ON q.id = r.fare_quote_id
          LEFT JOIN ride_fares f ON f.ride_id = r.id
          LEFT JOIN promo_codes pc ON pc.id = r.promo_code_id
-         LEFT JOIN ride_ratings rr ON rr.ride_id = r.id
+         LEFT JOIN ride_ratings rr ON rr.ride_id = r.id AND rr.direction = 'rider_to_driver'
         WHERE r.id = $1 AND (r.rider_id = $2 OR r.driver_id = $2 OR $3::boolean)`,
       [rideId, me.id, STAFF_ROLES.includes(me.role)],
     );
@@ -202,14 +202,17 @@ export class RidesService {
     return rows[0] ? { rideId: rows[0].id as string } : { rideId: null };
   }
 
-  /** One rating per completed ride, by its rider. */
-  async rate(riderId: string, rideId: string, stars: number, tags: string[]): Promise<{ saved: boolean }> {
-    const ride = await this.pool.query(`SELECT status FROM rides WHERE id = $1 AND rider_id = $2`, [rideId, riderId]);
+  /** One rating per completed ride per side: the rider rates the driver, the driver rates the rider. */
+  async rate(me: { id: string; role: string }, rideId: string, stars: number, tags: string[], comment?: string): Promise<{ saved: boolean }> {
+    const asRider = me.role === 'rider';
+    const ride = await this.pool.query(
+      `SELECT status, rider_id, driver_id FROM rides WHERE id = $1 AND ${asRider ? 'rider_id' : 'driver_id'} = $2`, [rideId, me.id]);
     if (!ride.rows[0]) throw new NotFoundException('ride not found');
     if (ride.rows[0].status !== 'TRIP_COMPLETED') throw new ConflictException({ code: 'wrong_state', message: 'only a finished trip can be rated' });
+    const text = comment?.trim() ? comment.trim().slice(0, 500) : null;
     const res = await this.pool.query(
-      `INSERT INTO ride_ratings (ride_id, rater_id, stars, tags) VALUES ($1, $2, $3, $4) ON CONFLICT (ride_id) DO NOTHING`,
-      [rideId, riderId, stars, tags],
+      `INSERT INTO ride_ratings (ride_id, rater_id, ratee_id, direction, stars, tags, comment) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (ride_id, direction) DO NOTHING`,
+      [rideId, me.id, asRider ? ride.rows[0].driver_id : ride.rows[0].rider_id, asRider ? 'rider_to_driver' : 'driver_to_rider', stars, tags, text],
     );
     return { saved: (res.rowCount ?? 0) > 0 };
   }
@@ -311,7 +314,7 @@ export class RidesService {
       `SELECT r.id, r.short_code, r.status, r.category, r.payment_method, r.pickup_address, r.dropoff_address, u.full_name AS rider_name,
               ST_Y(r.pickup::geometry) AS plat, ST_X(r.pickup::geometry) AS plng, ST_Y(r.dropoff::geometry) AS dlat, ST_X(r.dropoff::geometry) AS dlng,
               q.expected_kobo, q.low_kobo, q.high_kobo, a.label AS category_label,
-              (SELECT round(avg(x.stars)::numeric, 1)::float8 FROM ride_ratings x JOIN rides xr ON xr.id = x.ride_id WHERE xr.rider_id = r.rider_id) AS rider_rating
+              (SELECT round(avg(x.stars)::numeric, 1)::float8 FROM ride_ratings x WHERE x.direction = 'driver_to_rider' AND x.ratee_id = r.rider_id) AS rider_rating
          FROM rides r JOIN users u ON u.id = r.rider_id LEFT JOIN fare_quotes q ON q.id = r.fare_quote_id LEFT JOIN asset_types a ON a.code = r.category
         WHERE r.id = $1 AND r.status = 'SEARCHING_DRIVER'`, [rideId],
     );

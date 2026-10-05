@@ -30,7 +30,7 @@ export class DriverProfileService {
          FROM vehicles v LEFT JOIN asset_types t ON t.code = v.category WHERE v.driver_id = $1 AND v.active`, [driverId],
     )).rows[0];
     const r = (await this.pool.query(
-      `SELECT round(avg(x.stars)::numeric, 1)::float8 AS avg, count(*)::int AS n FROM ride_ratings x JOIN rides r ON r.id = x.ride_id WHERE r.driver_id = $1`, [driverId],
+      `SELECT round(avg(x.stars)::numeric, 1)::float8 AS avg, count(*)::int AS n FROM ride_ratings x JOIN rides r ON r.id = x.ride_id WHERE x.direction = 'rider_to_driver' AND r.driver_id = $1`, [driverId],
     )).rows[0];
     const plan = await this.plans.forDriver(driverId);
     return {

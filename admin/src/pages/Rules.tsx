@@ -102,14 +102,14 @@ function RevenueForm({ initial, onSubmit, onClose }: { initial: RevenueRules; on
   const valid = Number.isFinite(bps) && bps >= 0 && bps <= 5000 && Math.abs(total - 100) < 0.001 && shares.every((s) => s.name.trim().length >= 2 && Number.isFinite(num(s.pct)) && num(s.pct) >= 0);
   const set = (i: number, k: 'name' | 'pct', v: string) => setShares(shares.map((s, n) => (n === i ? { ...s, [k]: k === 'pct' ? v.replace(/[^0-9.]/g, '') : v } : s)));
   return (
-    <Shell title="Propose a revenue change" hint="Commission is the platform's share of each fare. The shares say who the commission is divided between." onClose={onClose} when={when} setWhen={setWhen} canSave={valid}
+    <Shell title="Propose a revenue change" hint="The 9jaRide service charge is the platform's share of each fare. The shares say who the commission is divided between." onClose={onClose} when={when} setWhen={setWhen} canSave={valid}
       onSave={() => onSubmit({ commissionBps: bps, taxBase, shares: shares.map((s) => ({ name: s.name.trim(), bps: Math.round(num(s.pct) * 100) })) }, new Date(when))}>
-      <div className="field"><label htmlFor="rc">Commission (% of the fare)</label><input id="rc" className="input" inputMode="decimal" value={commission} onChange={(e) => setCommission(e.target.value.replace(/[^0-9.]/g, ''))} />
+      <div className="field"><label htmlFor="rc">9jaRide service charge (% of the fare)</label><input id="rc" className="input" inputMode="decimal" value={commission} onChange={(e) => setCommission(e.target.value.replace(/[^0-9.]/g, ''))} />
         <div className="note">Between 0% and 50%.</div></div>
       <div className="field"><label htmlFor="tb">Worked out on</label>
         <select id="tb" className="select" value={taxBase} onChange={(e) => setTaxBase(e.target.value as 'excluded' | 'included')}>
           <option value="excluded">The fare without the tax line</option><option value="included">The whole fare, tax line included</option></select></div>
-      <div className="field"><label>Who shares the commission</label>
+      <div className="field"><label>Who shares the service charge</label>
         {shares.map((s, i) => (
           <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
             <input className="input" aria-label={`Party ${i + 1} name`} placeholder="Name" value={s.name} onChange={(e) => set(i, 'name', e.target.value)} />
@@ -134,7 +134,7 @@ export function RevenueSetup() {
     <RuleScreen<RevenueRules> settingKey="revenue" title="Revenue Setup" intro="How much the platform keeps from each trip, and who the commission is shared with" summary={revenueSummary} Form={RevenueForm}
       rows={(v) => (
         <>
-          <div className="line"><span className="note">Commission</span><b>{pct(v.commissionBps)}</b></div>
+          <div className="line"><span className="note">9jaRide service charge</span><b>{pct(v.commissionBps)}</b></div>
           <div className="line"><span className="note">Worked out on</span><span>{v.taxBase === 'included' ? 'The whole fare, tax line included' : 'The fare without the tax line'}</span></div>
           {v.shares.map((s) => <div className="line" key={s.name}><span className="note">{s.name}</span><span>{pct(s.bps)} of the commission</span></div>)}
         </>

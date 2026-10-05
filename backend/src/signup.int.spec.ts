@@ -48,7 +48,7 @@ suite('sign-up with the temporary code', () => {
 
   describe('driver onboarding by arrangement', () => {
     /** The documents a platform-plan driver shows: who they are, no vehicle papers. */
-    const personDocs = async (token: string) => (await h.ownerDocs(token)).filter((d) => ['drivers_licence', 'nin', 'lassdri'].includes(d.kind));
+    const personDocs = async (token: string) => (await h.ownerDocs(token)).filter((d) => ['selfie', 'drivers_licence', 'nin', 'lassdri'].includes(d.kind));
     const base = async (token: string, over: object = {}) => ({ arrangement: 'business_vehicle', vehicle: { category: 'regular' }, personal: h.personal(), documents: await personDocs(token), ...over });
 
     it('takes proof uploads, keeps them private, and lets staff look at them', async () => {
@@ -80,7 +80,7 @@ suite('sign-up with the temporary code', () => {
       await send({ vehicle: { category: 'comfort' } }).then((r) => expect(r.status).toBe(200));
       const mine = (await h.http().get('/driver/application').set(h.auth(driver.token)).expect(200)).body;
       expect(mine).toMatchObject({ status: 'SUBMITTED', vehicle: { category: 'comfort' }, personal: { nin: '12345678901', contactPreference: 'whatsapp', nextOfKin: { name: 'Ngozi Test', phone: '+2348031230000' } } });
-      expect(mine.documents.map((d: { kind: string }) => d.kind).sort()).toEqual(['drivers_licence', 'lassdri', 'nin']);
+      expect(mine.documents.map((d: { kind: string }) => d.kind).sort()).toEqual(['drivers_licence', 'lassdri', 'nin', 'selfie']);
     });
 
     it('lets the reviewer confirm a different category after inspecting the vehicle', async () => {
@@ -110,7 +110,7 @@ suite('sign-up with the temporary code', () => {
       await expect(h.pool.query(`DELETE FROM uploaded_files WHERE id = $1`, [f])).rejects.toThrow();
     });
 
-    it('asks the owner of a borrowed car for their details and permission', async () => {
+    it('asks the owner of a borrowed car for their details', async () => {
       const driver = await h.login('driver');
       const body = async (extra: object[] = []) => ({ arrangement: 'third_party', deductionBps: 2000, vehicle: { category: 'regular', make: 'Honda', colour: 'Grey', plate: plate() }, personal: h.personal(), documents: [...(await h.ownerDocs(driver.token)), ...extra] });
       const owner = { name: 'Mr Owner', phone: '08031234567' };
@@ -120,12 +120,8 @@ suite('sign-up with the temporary code', () => {
       const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send({ ...first, owner }).expect(200);
       const admin = await h.staff('admin');
       const detail = (await h.http().get(`/admin/driver-applications/${sub.body.id}`).set(h.auth(admin.token)).expect(200)).body;
-      expect(detail).toMatchObject({ arrangement: 'third_party', owner: { name: 'Mr Owner', phone: '+2348031234567' }, missingDocuments: ['owner_consent'] });
-      await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(admin.token)).send({}).expect(409);
-      await h.http().post(`/admin/driver-applications/${sub.body.id}/request-changes`).set(h.auth(admin.token)).send({ note: 'add the owner consent' }).expect(204);
-      await h.http().post('/driver/application').set(h.auth(driver.token)).send({ ...(await body([{ kind: 'owner_consent', fileId: await h.upload(driver.token) }])), owner }).expect(200);
-      const again = (await h.http().get('/driver/application').set(h.auth(driver.token)).expect(200)).body;
-      await h.http().post(`/admin/driver-applications/${again.id}/approve`).set(h.auth(admin.token)).send({}).expect(204);
+      expect(detail).toMatchObject({ arrangement: 'third_party', owner: { name: 'Mr Owner', phone: '+2348031234567' } });
+      await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(admin.token)).send({}).expect(204);
       const v = await h.pool.query(`SELECT arrangement, owner_name FROM vehicles WHERE driver_id = $1 AND active`, [driver.id]);
       expect(v.rows[0]).toEqual({ arrangement: 'third_party', owner_name: 'Mr Owner' });
       // who drives what is recorded, with the share the driver chose and the owner who is paid it
@@ -182,7 +178,7 @@ suite('sign-up with the temporary code', () => {
     it('asks a driver in someone else\'s car to agree, lets them choose the share, and holds them offline until they do', async () => {
       const driver = await h.login('driver');
       const admin = await h.staff('admin');
-      const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send({ arrangement: 'third_party', deductionBps: 1500, owner: { name: 'Mr Owner', phone: '08031234567' }, vehicle: { category: 'regular', make: 'Honda', colour: 'Grey', plate: plate() }, personal: h.personal(), documents: [...(await h.ownerDocs(driver.token)), { kind: 'owner_consent', fileId: await h.upload(driver.token) }] }).expect(200);
+      const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send({ arrangement: 'third_party', deductionBps: 1500, owner: { name: 'Mr Owner', phone: '08031234567' }, vehicle: { category: 'regular', make: 'Honda', colour: 'Grey', plate: plate() }, personal: h.personal(), documents: [...(await h.ownerDocs(driver.token))] }).expect(200);
       await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(admin.token)).send({}).expect(204);
 
       const s0 = (await h.http().get('/driver/settlement').set(h.auth(driver.token)).expect(200)).body;
@@ -282,7 +278,7 @@ suite('sign-up with the temporary code', () => {
       await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(admin.token)).send({}).expect(204);
       const me = (await h.http().get('/driver/profile').set(h.auth(driver.token)).expect(200)).body;
       expect(me).toMatchObject({
-        name: 'Ada Profile', phone: driver.phone, photoFileId: null, application: { status: 'APPROVED', arrangement: 'own' },
+        name: 'Ada Profile', phone: driver.phone, photoFileId: expect.any(String), application: { status: 'APPROVED', arrangement: 'own' },
         personal: { email: 'driver@example.com', nin: '12345678901', lassdri: 'LAS-778899', address: '12 Marina Road, Lagos', nextOfKin: { name: 'Ngozi Test', phone: '+2348031230000' } },
         vehicle: { plate: p.toUpperCase(), make: 'Honda Accord', colour: 'Grey', category: 'comfort', arrangement: 'own' },
       });

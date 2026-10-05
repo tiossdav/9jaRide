@@ -41,6 +41,8 @@ import com.ninejaride.core.format.nairaMinus
 import com.ninejaride.core.format.nairaSigned
 import com.ninejaride.core.ui.components.Btn
 import com.ninejaride.core.ui.components.BtnKind
+import com.ninejaride.core.ui.components.FeedbackForm
+import com.ninejaride.core.ui.components.FeedbackThanks
 import com.ninejaride.core.ui.components.CarDot
 import com.ninejaride.core.ui.components.CircleIconButton
 import com.ninejaride.core.ui.components.Divider
@@ -305,7 +307,7 @@ fun ReceiptCard(r: FareReceipt, paymentIsCash: Boolean) {
         Divider()
         Box(Modifier.padding(vertical = 9.dp)) { MoneyLine("Fare", naira(r.total), bold = false, labelColor = C.Ink) }
         Box(Modifier.padding(vertical = 9.dp)) {
-            MoneyLine("9jaRide Pro service charge · ${r.serviceRatePercent}%", nairaMinus(r.serviceCharge), amountColor = C.RedText, labelColor = C.RedText)
+            MoneyLine("9jaRide service charge · ${r.serviceRatePercent}%", nairaMinus(r.serviceCharge), amountColor = C.RedText, labelColor = C.RedText)
         }
         Box(Modifier.padding(vertical = 9.dp)) { MoneyLine("You earn", naira(r.earn, true), bold = false, labelColor = C.Ink) }
         if (r.vehicleDeduction > 0) {
@@ -355,23 +357,12 @@ fun RateRiderScreen(vm: DriverViewModel) {
             verticalArrangement = Arrangement.spacedBy(14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Txt("How was ${o.rider.name}?", 16f, 700)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (i in 1..5) {
-                    Box(Modifier.size(40.dp).tap({ vm.rating = i }, "$i stars"), contentAlignment = Alignment.Center) {
-                        if (i <= vm.rating) StarFilled(C.OrangeIcon, 32.dp) else Icon24(Ic.Star, C.Disabled, 32.dp, 1.6f)
-                    }
-                }
+            if (vm.feedbackThanks) FeedbackThanks()
+            else {
+                Txt("How was ${o.rider.name}?", 16f, 700)
+                FeedbackForm(vm.rating, vm::setStars, vm.ratingTags, vm::toggleTag, vm.ratingComment, { vm.ratingComment = it }, starSize = 32.dp)
+                Btn("Submit rating", vm::submitRating, Modifier.fillMaxWidth())
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Polite", "On time").forEach { t ->
-                    val on = t in vm.ratingTags
-                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (on) C.Green else C.GreenTint).tap({ vm.toggleTag(t) }, t).padding(horizontal = 11.dp, vertical = 5.dp)) {
-                        Txt(t, 12.5f, 600, if (on) Color.White else C.Green)
-                    }
-                }
-            }
-            Btn("Submit rating", vm::finishRide, Modifier.fillMaxWidth())
             Txt("Report a problem", 14.5f, 700, C.Green, Modifier.padding(4.dp).tap({ vm.push(com.ninejaride.driver.state.Dest.Help) }))
         }
         Btn("Back to home", vm::finishRide, Modifier.fillMaxWidth(), kind = BtnKind.Outline, height = 46.dp)

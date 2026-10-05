@@ -117,7 +117,7 @@ suite('business vehicles and the share taken from drivers', () => {
 
     // an approved driver, with their own car to begin with
     const driver = await h.login('driver', 'Fleet Driver');
-    const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send({ arrangement: 'business_vehicle', vehicle: { category: 'regular' }, personal: h.personal(), documents: (await h.ownerDocs(driver.token)).filter((d) => d.kind !== 'nin' && ['drivers_licence', 'lassdri'].includes(d.kind)) }).expect(200);
+    const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send({ arrangement: 'business_vehicle', vehicle: { category: 'regular' }, personal: h.personal(), documents: (await h.ownerDocs(driver.token)).filter((d) => d.kind !== 'nin' && ['selfie', 'drivers_licence', 'lassdri'].includes(d.kind)) }).expect(200);
     const assign = (body: object, who = business) => h.http().post(`/fleet/vehicles/${id}/assign`).set(h.auth(who.token)).send({ driverId: driver.id, deductionBps: 2000, ...body });
 
     await assign({}).expect(409); // not verified yet, and the driver is not approved
@@ -134,7 +134,7 @@ suite('business vehicles and the share taken from drivers', () => {
     // it is taken now: not offered again, and not given to a second driver
     expect((await h.http().get('/fleet/vehicles').query({ available: 'true' }).set(h.auth(business.token)).expect(200)).body.items.map((v: { id: string }) => v.id)).not.toContain(id);
     const other = await h.login('driver');
-    const subB = await h.http().post('/driver/application').set(h.auth(other.token)).send({ arrangement: 'business_vehicle', vehicle: { category: 'regular' }, personal: h.personal(), documents: (await h.ownerDocs(other.token)).filter((d) => ['drivers_licence', 'lassdri'].includes(d.kind)) }).expect(200);
+    const subB = await h.http().post('/driver/application').set(h.auth(other.token)).send({ arrangement: 'business_vehicle', vehicle: { category: 'regular' }, personal: h.personal(), documents: (await h.ownerDocs(other.token)).filter((d) => ['selfie', 'drivers_licence', 'lassdri'].includes(d.kind)) }).expect(200);
     await h.http().post(`/admin/driver-applications/${subB.body.id}/approve`).set(h.auth(admin.token)).send({}).expect(204);
     expect((await h.http().post(`/fleet/vehicles/${id}/assign`).set(h.auth(business.token)).send({ driverId: other.id, deductionBps: 1000 }).expect(409)).body.code).toBe('already_assigned');
     await h.http().post(`/fleet/vehicles/${id}/status`).set(h.auth(business.token)).send({ status: 'retired' }).expect(409); // in use

@@ -84,6 +84,20 @@ suite('rider app endpoints', () => {
     await rate(rider.token, { stars: 1 }).expect(200, { saved: false }); // the first rating stands
     expect((await h.http().get(`/rides/${rideId}`).set(h.auth(rider.token)).expect(200)).body).toMatchObject({ myRating: 5, fareKobo: 100_000 });
 
+    // the driver rates the rider on the same ride, separately, with a written comment
+    await rate(driver.token, { stars: 4, tags: ['Polite'], comment: '  Waited at the gate  ' }).expect(200, { saved: true });
+    await rate(driver.token, { stars: 1 }).expect(200, { saved: false });
+    const rows = (await h.pool.query(`SELECT direction, ratee_id, comment, tags FROM ride_ratings WHERE ride_id = $1 ORDER BY direction`, [rideId])).rows;
+    expect(rows).toEqual([
+      { direction: 'driver_to_rider', ratee_id: rider.id, comment: 'Waited at the gate', tags: ['Polite'] },
+      { direction: 'rider_to_driver', ratee_id: driver.id, comment: null, tags: ['Polite', 'On time'] },
+    ]);
+    const staff = await h.staff('admin');
+    const analysis = (await h.http().get('/admin/console/ratings').query({ direction: 'driver_to_rider' }).set(h.auth(staff.token)).expect(200)).body;
+    expect(analysis.direction).toBe('driver_to_rider'); // the database is shared with other suites, so only presence is checked
+    expect(analysis.withComment).toBeGreaterThanOrEqual(1);
+    expect(analysis.topComments.find((t: { tag: string }) => t.tag === 'Polite').count).toBeGreaterThanOrEqual(1);
+
     const unfinished = (await h.http().post('/rides/quote').set(h.auth(rider.token)).send({ category: 'package', distanceM: 2000, durationS: 300 }).expect(200)).body;
     const live = await h.http().post('/rides').set(h.auth(rider.token)).set('Idempotency-Key', h.key())
       .send({ quoteId: unfinished.quoteId, category: 'package', paymentMethod: 'cash', pickup, dropoff }).expect(200);

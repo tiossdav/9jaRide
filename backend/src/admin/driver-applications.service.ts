@@ -24,11 +24,12 @@ export const REQUESTABLE_CATEGORIES = ['regular', 'comfort'];
  */
 export function requiredDocuments(arrangement: string): DocumentKind[] {
   // the NIN is checked by a verification service, so no photo of it is asked for
-  const person: DocumentKind[] = ['drivers_licence', 'lassdri'];
+  // the driver's own photo ("selfie") is how riders and staff recognise them
+  const person: DocumentKind[] = ['selfie', 'drivers_licence', 'lassdri'];
   // a business supplies the vehicle and answers for it, so the driver only proves who they are
   if (arrangement === 'platform_plan' || arrangement === 'business_vehicle') return person;
   const car: DocumentKind[] = [...person, 'vehicle_photo', 'insurance', 'inspection_certificate'];
-  return arrangement === 'third_party' ? [...car, 'owner_consent'] : car;
+  return car;
 }
 const NEEDS_EXPIRY: DocumentKind[] = ['drivers_licence', 'insurance', 'inspection_certificate', 'road_worthiness'];
 
@@ -125,6 +126,11 @@ export class DriverApplicationsService {
       if (d.kind === 'drivers_licence' && !d.number?.trim()) throw new BadRequestException('enter the driver licence number');
     }
     if (!(await this.files.ownedBy(driverId, input.documents.map((d) => d.fileId)))) throw new BadRequestException('one of the uploaded files is not yours or does not exist');
+    const photo = input.documents.find((d) => d.kind === 'selfie');
+    if (photo) {
+      const m = (await this.pool.query(`SELECT mime_type FROM uploaded_files WHERE id = $1`, [photo.fileId])).rows[0]?.mime_type as string | undefined;
+      if (!m?.startsWith('image/')) throw new BadRequestException('the driver photo must be a picture (JPG or PNG)');
+    }
 
     // The NIN is checked before anything is saved: a wrong number is the driver's to fix now, not a reviewer's to chase later.
     const who = (await this.pool.query(`SELECT full_name FROM users WHERE id = $1`, [driverId])).rows[0]?.full_name ?? '';
@@ -306,6 +312,11 @@ export class DriverApplicationsService {
         `UPDATE driver_applications SET status = 'APPROVED', approved_category = $2, category_confirmed_by = $3, category_confirmed_at = now(),
                 reviewed_by = $3, reviewed_at = now(), updated_at = now() WHERE id = $1`,
         [id, category, staffId],
+      );
+      // the photo they sent becomes their profile picture, seen by riders, staff and the business
+      await client.query(
+        `UPDATE users SET avatar_file_id = d.file_id FROM application_documents d WHERE d.application_id = $1 AND d.kind = 'selfie' AND d.file_id IS NOT NULL AND users.id = $2`,
+        [id, app.driver_id],
       );
       if (business) {
         if (opts.fleet) await this.fleet.assignInTx(client, opts.fleet.fleetVehicleId, app.driver_id, { deductionBps: opts.fleet.deductionBps, targetKobo: opts.fleet.targetKobo ?? null, setBy: 'owner' }, staffId);

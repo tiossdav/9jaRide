@@ -5,7 +5,7 @@ import { dateTime, title } from './ui';
 
 export interface Notice { id: string; type: string; severity: 'critical' | 'warning' | 'info'; title: string; text: string; at: string; link: string }
 export interface OpenSos { id: string; at: string; role: string; person: string; phone: string; trip: string | null; tripId: string | null; location: { lat: number; lng: number } | null; escalated: boolean }
-interface Feed { now: string; items: Notice[]; openSos: OpenSos[] }
+interface Feed { now: string; items: Notice[]; openSos: OpenSos[]; unresolvedSos: number }
 
 const EVERY_MS = 6000;
 const SHOW_MS = 9000;
@@ -34,6 +34,7 @@ export function useNotifications(enabled: boolean) {
   const [history, setHistory] = useState<Notice[]>([]);
   const [unread, setUnread] = useState(0);
   const [sos, setSos] = useState<OpenSos[]>([]);
+  const [unresolved, setUnresolved] = useState(0);
   const since = useRef<string | null>(null);
   const seen = useRef(new Set<string>());
   const announced = useRef(new Set<string>());
@@ -45,6 +46,7 @@ export function useNotifications(enabled: boolean) {
       const first = since.current === null; // the first answer is just "what is open now"; old events are not replayed as pop-ups
       since.current = f.now;
       setSos(f.openSos);
+      setUnresolved(f.unresolvedSos ?? 0);
       if (f.openSos.some((s) => !announced.current.has(s.id))) { beep(); f.openSos.forEach((s) => announced.current.add(s.id)); }
       if (first) { f.items.forEach((n) => seen.current.add(n.id)); return; }
       const fresh = f.items.filter((n) => !seen.current.has(n.id));
@@ -68,7 +70,7 @@ export function useNotifications(enabled: boolean) {
   }, [enabled, poll]);
 
   return {
-    toasts, history, unread, sos,
+    toasts, history, unread, sos, unresolved,
     dismiss: (id: string) => setToasts((t) => t.filter((x) => x.id !== id)),
     markRead: () => setUnread(0),
     clear: () => { setHistory([]); setUnread(0); },
@@ -77,6 +79,21 @@ export function useNotifications(enabled: boolean) {
 }
 
 type Api = ReturnType<typeof useNotifications>;
+
+/**
+ * Always in the top right corner: how many emergency alerts nobody has resolved yet (new and being handled). It counts every
+ * unresolved alert however old, never resets at midnight, and falls only when an alert is marked resolved.
+ */
+export function SosIndicator({ api }: { api: Api }) {
+  const nav = useNavigate();
+  const n = api.unresolved;
+  return (
+    <button className={'sos-ind' + (n > 0 ? ' live' : '')} onClick={() => nav('/safety')} title="Open the Safety Center" aria-label={`SOS Alerts: ${n}. Open the Safety Center`}>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3 2.5 20h19L12 3z" /><path d="M12 10v4" /><path d="M12 17.5h.01" /></svg>
+      <span className="sos-t">SOS Alerts: <b>{n}</b></span>
+    </button>
+  );
+}
 
 const mapLink = (l: { lat: number; lng: number }) => `https://www.google.com/maps?q=${l.lat},${l.lng}`;
 

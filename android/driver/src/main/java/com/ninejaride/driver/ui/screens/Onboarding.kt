@@ -101,6 +101,7 @@ fun ApplyScreen(vm: DriverViewModel) {
                         helper = "We check this number for you. There is no card photo to upload.")
                     InputField("LASSDRI number (Lagos State)", vm.lassdri, edit { vm.lassdri = it.uppercase() }, "Your LASSDRI card number")
                     InputField("Email address", vm.email, edit { vm.email = it.trim() }, "you@example.com", KeyboardType.Email)
+                    DriverPhoto(vm)
                     Txt("HOW SHOULD WE REACH YOU ABOUT YOUR APPLICATION?", 11f, 500, C.Muted, letterSpacing = 1f)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         PillChoice("WhatsApp", vm.contactPreference == "whatsapp", { vm.contactPreference = "whatsapp" }, Modifier.weight(1f))
@@ -150,6 +151,42 @@ fun ApplyScreen(vm: DriverViewModel) {
     }
 }
 
+/** The driver's own photo: taken with the camera or chosen from the gallery. Riders see it when the driver is on the way. */
+@Composable
+private fun DriverPhoto(vm: DriverViewModel) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var camUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> if (uri != null) vm.uploadDocument("selfie", uri) }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) camUri?.let { vm.uploadDocument("selfie", it) } }
+    fun takePhoto() {
+        val dir = java.io.File(ctx.cacheDir, "photos").apply { mkdirs() }
+        val file = java.io.File(dir, "driver_${System.currentTimeMillis()}.jpg")
+        val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", file)
+        camUri = uri
+        camera.launch(uri)
+    }
+    val has = vm.uploads["selfie"] != null
+    Txt("YOUR PHOTO", 11f, 500, C.Muted, letterSpacing = 1f)
+    Card {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Box(Modifier.size(84.dp).clip(androidx.compose.foundation.shape.CircleShape).background(C.GreenTint).border(1.5.dp, if (has) C.GreenAccent else C.Border, androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
+                val img = vm.photoPreview
+                if (img != null) androidx.compose.foundation.Image(img, "Your photo", Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                else com.ninejaride.core.ui.components.Icon24(com.ninejaride.core.ui.components.Ic.User, if (has) C.GreenAccent else C.Disabled, 38.dp)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Txt(if (has) "Photo added" else "Add a clear photo of your face", 14.5f, 700)
+                Txt("Face the camera in good light, with no sunglasses or hat. This is the photo riders and our team will see.", 12.5f, 500, C.Muted)
+            }
+        }
+        Gap(10.dp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Btn(if (vm.uploading == "selfie") "Uploading..." else "Take photo", ::takePhoto, Modifier.weight(1f), enabled = vm.uploading == null, height = 44.dp, size = 14f)
+            Btn("Gallery", { gallery.launch("image/*") }, Modifier.weight(1f), kind = BtnKind.Outline, enabled = vm.uploading == null, height = 44.dp, size = 14f)
+        }
+    }
+}
+
 @Composable
 private fun DocumentsStep(vm: DriverViewModel) {
     var pending by remember { mutableStateOf<String?>(null) }
@@ -178,7 +215,6 @@ private fun DocumentsStep(vm: DriverViewModel) {
                     Gap(8.dp); DateField("Expiry date", vm.insuranceExpiry, { vm.insuranceExpiry = it; vm.applyError = null }, earliest = java.time.LocalDate.now().plusDays(1), opensAt = java.time.LocalDate.now().plusYears(1))
                 }
                 "inspection_certificate" -> DateField("Expiry date", vm.inspectionExpiry, { vm.inspectionExpiry = it; vm.applyError = null }, earliest = java.time.LocalDate.now().plusDays(1), opensAt = java.time.LocalDate.now().plusYears(1))
-                "owner_consent" -> Txt("A letter or photo showing the owner agrees you can drive this car for 9jaRide Pro.", 12.5f, 500, C.Muted)
                 "lassdri" -> Txt("Both sides of your LASSDRI card.", 12.5f, 500, C.Muted)
                 "vehicle_photo" -> Txt("A clear photo of the car showing the plate number.", 12.5f, 500, C.Muted)
             }

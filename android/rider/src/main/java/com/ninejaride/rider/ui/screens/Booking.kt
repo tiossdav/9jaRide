@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -85,9 +86,9 @@ private fun categoryIcon(c: String) = if (c == "package") Ic.Box else Ic.Car
 @Composable
 fun HomeTab(vm: RiderViewModel) {
     val here = vm.location.point
-    // The map takes the top 60% of the screen; the booking card gets the rest.
+    // The map takes the top 40% of the screen; booking and the promotions below it get the other 60%.
     Column(Modifier.fillMaxSize().background(C.Bg)) {
-      Box(Modifier.weight(0.6f).fillMaxWidth()) {
+      Box(Modifier.weight(0.4f).fillMaxWidth()) {
         MapPanel(
             Modifier.fillMaxSize(),
             markers = here?.let { listOf(MapMarker(it, MarkerKind.Pickup)) } ?: emptyList(),
@@ -107,24 +108,76 @@ fun HomeTab(vm: RiderViewModel) {
             contentAlignment = Alignment.Center,
         ) { Icon24(Ic.Locate, C.GreenAccent, 24.dp) }
       }
-      Column(Modifier.weight(0.4f).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Card(padding = 14.dp) {
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Raised).tap({ vm.prepareBooking(); vm.push(Dest.WhereTo) }, "Where to").padding(horizontal = 14.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Icon24(Ic.Pin, C.GreenAccent)
-                    Txt("Where to?", 16f, 700, modifier = Modifier.weight(1f))
-                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(C.GreenTint).padding(horizontal = 10.dp, vertical = 5.dp)) { Txt("Now", 12f, 700, C.GreenAccent) }
+      Column(Modifier.weight(0.6f).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(top = 16.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // booking comes first: where to, then the pickup it starts from, then scheduling
+            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Txt("Where are you going?", 20f, 800)
+                Card(padding = 12.dp) {
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Raised).tap({ vm.prepareBooking(); vm.activeField = 0; vm.push(Dest.WhereTo) }, "Pickup location").padding(horizontal = 14.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(C.Green))
+                        Column(Modifier.weight(1f)) { Txt("Pickup", 11.5f, 600, C.Muted); Txt(vm.pickupText.ifBlank { if (here != null) "Current location" else "Finding your location..." }, 14f, 700, maxLines = 1) }
+                    }
+                    Gap(8.dp)
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Raised).tap({ vm.prepareBooking(); vm.push(Dest.WhereTo) }, "Where to").padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon24(Ic.Pin, C.Orange)
+                        Txt("Where to?", 16f, 700, modifier = Modifier.weight(1f))
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(C.GreenTint).padding(horizontal = 10.dp, vertical = 5.dp)) { Txt("Now", 12f, 700, C.GreenAccent) }
+                    }
+                    Gap(8.dp)
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).border(1.dp, C.Border, RoundedCornerShape(14.dp)).tap(vm::openSchedule, "Schedule a ride").padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon24(Ic.Calendar, C.GreenAccent)
+                        Column(Modifier.weight(1f)) { Txt("Schedule a ride", 14.5f, 700); Txt("Book for later, or every week", 12f, 500, C.Muted) }
+                        Icon24(Ic.Chevron, C.Faint, 18.dp)
+                    }
                 }
-                Gap(10.dp)
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).border(1.dp, C.Border, RoundedCornerShape(14.dp)).tap(vm::openSchedule, "Schedule a ride").padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+            }
+            PromoCarousel(vm)
+      }
+    }
+}
+
+/** One card in the strip under the booking box. */
+private class Promo(val title: String, val text: String, val tint: Color, val accent: Color, val action: () -> Unit)
+
+/**
+ * Things worth knowing, in a row that scrolls sideways. Kept below booking so it never gets in the way. The cards are written
+ * into the app for now; offers set up in the admin portal can fill this strip later.
+ */
+@Composable
+private fun PromoCarousel(vm: RiderViewModel) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val invite = {
+        val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+            .putExtra(android.content.Intent.EXTRA_TEXT, "Ride with 9jaRide: safe, fairly priced rides in Lagos. Get the app and book your first trip.")
+        runCatching { ctx.startActivity(android.content.Intent.createChooser(send, "Invite friends").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        Unit
+    }
+    val cards = listOf(
+        Promo("Invite & Earn", "Share 9jaRide with friends and family. Reward details are coming soon.", C.GreenTint, C.GreenAccent, invite),
+        Promo("Promo codes", "Got a code? Enter it when you book to take money off the fare.", Color(0xFFFFF3E0), C.Orange) { vm.prepareBooking(); vm.push(Dest.WhereTo) },
+        Promo("Plan ahead", "Schedule a ride for later, or set it to repeat every week.", Color(0xFFE8F0FE), Color(0xFF2F5FD0), vm::openSchedule),
+        Promo("Safety tip", "Check the plate and driver photo before you get in, and keep the SOS button within reach.", Color(0xFFFDECEC), C.RedText) {},
+        Promo("Pay your way", "Pay from your wallet or in cash. Top up your wallet in a few taps.", C.Raised, C.Ink) {},
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Txt("For you", 15f, 800, modifier = Modifier.padding(horizontal = 16.dp))
+        Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            cards.forEach { c ->
+                Column(
+                    Modifier.width(232.dp).height(118.dp).clip(RoundedCornerShape(16.dp)).background(c.tint).tap(c.action, c.title).padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Icon24(Ic.Calendar, C.GreenAccent)
-                    Column(Modifier.weight(1f)) { Txt("Schedule a ride", 14.5f, 700); Txt("Book for later, or every week", 12f, 500, C.Muted) }
-                    Icon24(Ic.Chevron, C.Faint, 18.dp)
+                    Txt(c.title, 15f, 800, c.accent)
+                    Txt(c.text, 12.5f, 500, C.Ink, maxLines = 4)
                 }
             }
         }

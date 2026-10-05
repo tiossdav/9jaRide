@@ -69,7 +69,6 @@ sealed interface Dest {
 enum class Dialog { OtpDone, NotAllowed, CancelRide, NoDriver, Logout, Appearance, SchedDate, SchedTime, SchedFirstDate, ScheduleDone, CancelScheduled, TripsFilter, Notice }
 
 val CANCEL_REASONS = listOf("Driver is taking too long", "I changed my plans", "Booked by mistake", "Driver asked me to cancel", "Other")
-val TRIP_TAGS = listOf("Polite", "On time", "Clean car", "Safe driving")
 /** The categories on offer right now, in the order an admin set. Filled from the server; these three are only the first-run fallback. */
 var CATEGORY_NAMES: Map<String, String> = linkedMapOf("regular" to "Regular", "comfort" to "Comfort", "package" to "Send Package")
 val CATEGORIES: List<String> get() = CATEGORY_NAMES.keys.toList()
@@ -437,6 +436,9 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     var rating by mutableIntStateOf(5)
     var ratingTags by mutableStateOf(setOf<String>())
     var ratingSent by mutableStateOf(false)
+    var ratingComment by mutableStateOf("")
+    /** True for the moment after feedback is sent, so the thank-you shows. */
+    var feedbackThanks by mutableStateOf(false)
     var sosOpen by mutableStateOf(false)
     var sosSteps by mutableIntStateOf(0)
     var tripDone by mutableStateOf<RideView?>(null) // a finished ride waiting to be rated
@@ -543,8 +545,10 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     fun submitRating() {
         val r = tripDone ?: return
         viewModelScope.launch {
-            try { if (r.myRating == null) api.rate(r.id, rating, ratingTags.toList()); ratingSent = true } catch (e: ApiException) { say(words(e)) }
-            finishTrip(showReceipt = true)
+            try {
+                if (r.myRating == null) { api.rate(r.id, rating, ratingTags.toList(), ratingComment); feedbackThanks = true }
+                ratingSent = true
+            } catch (e: ApiException) { say(words(e)); finishTrip(showReceipt = true) }
         }
     }
 
@@ -558,11 +562,13 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     fun endRide() {
         pollJob?.cancel()
         ride = null; tripDone = null; driverPoint = null; driverEtaMin = null; tripEtaMin = null; tripRoute = emptyList(); tripRouteFor = null
-        rating = 5; ratingTags = emptySet(); ratingSent = false; sosOpen = false; sosSteps = 0; cancelReason = null
+        rating = 5; ratingTags = emptySet(); ratingComment = ""; feedbackThanks = false; ratingSent = false; sosOpen = false; sosSteps = 0; cancelReason = null
         clearBooking()
         if (dialog == Dialog.CancelRide || dialog == Dialog.NoDriver) dialog = null
         etaAt = 0
     }
+
+    fun setStars(n: Int) { rating = n; ratingTags = com.ninejaride.core.ui.components.QuickComments.keep(n, ratingTags) }
 
     fun toggleTag(t: String) { ratingTags = if (t in ratingTags) ratingTags - t else ratingTags + t }
 

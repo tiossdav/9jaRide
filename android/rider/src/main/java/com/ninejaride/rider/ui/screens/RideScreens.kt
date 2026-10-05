@@ -49,7 +49,8 @@ import com.ninejaride.rider.data.RideView
 import com.ninejaride.rider.state.CANCEL_REASONS
 import com.ninejaride.rider.state.Dialog
 import com.ninejaride.rider.state.RiderViewModel
-import com.ninejaride.rider.state.TRIP_TAGS
+import com.ninejaride.core.ui.components.FeedbackForm
+import com.ninejaride.core.ui.components.FeedbackThanks
 import com.ninejaride.rider.state.categoryLabel
 
 /** True while a ride covers the whole screen: finding a driver, on the way, in the car, or just finished. */
@@ -219,33 +220,16 @@ private fun TripCompleteScreen(vm: RiderViewModel, r: RideView) {
             if (r.discountKobo > 0) Txt("${r.promoCode ?: "Promo"} saved you ${naira(r.discountKobo)}", 13.5f, 700, C.GreenAccent)
             Txt(if (r.paymentMethod == "wallet") "Paid from your wallet" else "Pay your driver in cash", 13.5f, 600, C.Muted)
             Card(Modifier.fillMaxWidth()) { com.ninejaride.core.ui.components.RouteBlock(r.pickupAddress ?: "Pickup", r.dropoffAddress ?: "Drop-off") }
-            if (r.myRating == null) {
+            if (vm.feedbackThanks) FeedbackThanks()
+            else if (r.myRating == null) {
                 Txt("How was ${r.driver?.name?.substringBefore(' ') ?: "your driver"}?", 16f, 800)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (i in 1..5) {
-                        Box(Modifier.size(46.dp).tap({ vm.rating = i }, "$i stars"), contentAlignment = Alignment.Center) {
-                            StarFilled(if (i <= vm.rating) C.OrangeIcon else C.ToggleOff, 38.dp)
-                        }
-                    }
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TRIP_TAGS.chunked(2).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            row.forEach { t ->
-                                val on = t in vm.ratingTags
-                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (on) C.GreenTint else C.Raised).border(1.dp, if (on) C.GreenAccent else C.Border, RoundedCornerShape(999.dp)).tap({ vm.toggleTag(t) }, t).padding(horizontal = 16.dp, vertical = 10.dp)) {
-                                    Txt(t, 13.5f, 700, if (on) C.GreenAccent else C.Ink)
-                                }
-                            }
-                        }
-                    }
-                }
+                FeedbackForm(vm.rating, vm::setStars, vm.ratingTags, vm::toggleTag, vm.ratingComment, { vm.ratingComment = it }, starSize = 38.dp)
             }
         }
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (r.myRating == null) Btn("Submit rating", vm::submitRating, Modifier.fillMaxWidth())
+            if (r.myRating == null && !vm.feedbackThanks) Btn("Submit rating", vm::submitRating, Modifier.fillMaxWidth())
             else Btn("View receipt", { vm.finishTrip(true) }, Modifier.fillMaxWidth())
-            Btn(if (r.myRating == null) "Skip" else "Done", { vm.finishTrip(showReceipt = false) }, Modifier.fillMaxWidth(), kind = BtnKind.Outline)
+            Btn(if (r.myRating == null && !vm.feedbackThanks) "Skip" else "Done", { vm.finishTrip(showReceipt = false) }, Modifier.fillMaxWidth(), kind = BtnKind.Outline)
         }
     }
 }

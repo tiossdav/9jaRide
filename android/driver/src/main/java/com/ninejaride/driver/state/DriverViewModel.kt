@@ -1,5 +1,6 @@
 package com.ninejaride.driver.state
 
+import androidx.compose.ui.graphics.asImageBitmap
 import com.ninejaride.core.format.Kobo
 import com.ninejaride.core.format.naira
 import android.Manifest
@@ -247,16 +248,17 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     var inspectionExpiry by mutableStateOf("")
     val uploads = androidx.compose.runtime.mutableStateMapOf<String, String>() // document kind -> uploaded file id
     var uploading by mutableStateOf<String?>(null)
+    /** The driver's photo as picked, shown on the "About you" step. */
+    var photoPreview by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
 
     val chosen: Arrangement? get() = arrangements.firstOrNull { it.code == arrangementCode }
 
-    /** The documents asked for, in order. Mirrors what the server requires for this way of driving. */
+    /** The documents asked for on the last step, in order. The driver's own photo is asked for on the "About you" step. */
     fun neededDocuments(): List<String> {
         val a = chosen ?: return emptyList()
         return buildList {
             add("drivers_licence"); add("lassdri") // the NIN is checked by a service, so no photo of it is asked for
             if (a.asksForVehicle) { add("vehicle_photo"); add("insurance"); add("inspection_certificate") }
-            if (a.asksForOwner) add("owner_consent")
         }
     }
 
@@ -398,6 +400,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                 nin.filter { it.isDigit() }.length != 11 -> "Your NIN is 11 digits."
                 lassdri.trim().length < 4 -> "Enter your LASSDRI number."
                 !emailOk -> "Enter a valid email address."
+                uploads["selfie"] == null -> "Add your photo. Riders and our team need to recognise you."
                 else -> null
             }
             2 -> when {
@@ -441,6 +444,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val bytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { shrinkedJpeg(uri) } ?: throw ApiException(0, null, "That photo could not be read. Try another.")
                 uploads[kind] = api.uploadFile(bytes, "$kind.jpg", "image/jpeg")
+                if (kind == "selfie") photoPreview = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, android.graphics.BitmapFactory.Options().apply { inSampleSize = 4 })?.asImageBitmap()
             } catch (e: ApiException) { applyError = if (e.status >= 500) "The upload did not work. Please try again." else e.message } finally { uploading = null }
         }
     }
@@ -461,7 +465,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     private fun submitApplication() {
         val a = chosen ?: return
         fun doc(kind: String, number: String? = null, expires: String? = null) = ServerDoc(kind, number?.trim()?.takeIf { it.isNotEmpty() }, uploads[kind], expires?.let { dateOrNull(it) })
-        val docs = neededDocuments().map {
+        val docs = (listOf("selfie") + neededDocuments()).map {
             when (it) {
                 "drivers_licence" -> doc(it, licenceNumber, licenceExpiry)
                 "insurance" -> doc(it, insuranceNumber, insuranceExpiry)
@@ -680,7 +684,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             if (!demo) {
                 if (!com.ninejaride.driver.alert.BookingAlert.notificationsAllowed(app)) out += Check(false, "Booking alerts are off", "Allow notifications so new bookings can ring", "Allow", soft = true, fix = "notifications")
                 if (!com.ninejaride.driver.alert.BookingAlert.fullScreenAllowed(app)) out += Check(false, "Bookings cannot open the screen", "Allow full-screen alerts so a booking shows over other apps", "Allow", soft = true, fix = "fullscreen")
-                if (com.ninejaride.driver.alert.BookingAlert.dndSettingsAvailable(app) && com.ninejaride.driver.alert.BookingAlert.needsDndAccess(app)) out += Check(false, "Bookings may stay silent in Do Not Disturb", "Allow Do Not Disturb access so the booking ring is heard", "Allow", soft = true, fix = "dnd")
+                if (!dndAsked() && com.ninejaride.driver.alert.BookingAlert.dndSettingsAvailable(app) && com.ninejaride.driver.alert.BookingAlert.needsDndAccess(app)) out += Check(false, "Bookings may stay silent in Do Not Disturb", "Allow Do Not Disturb access so the booking ring is heard", "Allow", soft = true, fix = "dnd")
             }
             return out
         }
@@ -738,6 +742,10 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     /** True when something about booking alerts is not set up. Shown as advice when going online. */
     val alertAdvice: Boolean get() = goOnlineChecks.any { it.soft && !it.ok }
 
+    private fun dndPrefs() = getApplication<Application>().getSharedPreferences("driver_state", android.content.Context.MODE_PRIVATE)
+    /** Some phones list the Do Not Disturb page but then say it is not available. So it is offered once and never pushed again. */
+    private fun dndAsked() = dndPrefs().getBoolean("dnd_asked", false)
+
     /** Opens the phone setting that fixes a booking-alert check. */
     fun openAlertSetting(kind: String) {
         if (kind == "agreement") { openAgreement(); return }
@@ -745,7 +753,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         val intent = when (kind) {
             "notifications" -> android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, app.packageName)
             "fullscreen" -> if (android.os.Build.VERSION.SDK_INT >= 34) android.content.Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, android.net.Uri.parse("package:${app.packageName}")) else null
-            else -> android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+            else -> { dndPrefs().edit().putBoolean("dnd_asked", true).apply(); android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS) }
         } ?: return
         runCatching { app.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
@@ -853,7 +861,9 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     var tripKm by mutableStateOf(0.0)
     var stopReason by mutableStateOf<String?>(null)
     var rating by mutableIntStateOf(5)
-    var ratingTags by mutableStateOf(setOf("Polite", "On time"))
+    var ratingTags by mutableStateOf(setOf<String>())
+    var ratingComment by mutableStateOf("")
+    var feedbackThanks by mutableStateOf(false)
     var sosSteps by mutableIntStateOf(1)
     var sosAdmin by mutableStateOf<String?>(null)
     private var rideJob: Job? = null
@@ -1075,7 +1085,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         if (!demo) { rating = 5; phase = Phase.Rate; return } // the server settled the trip when it ended
         val r = DEMO_RECEIPT
         walletKobo -= r.serviceCharge
-        transactions.add(0, WalletTx("Service charge · trip ${offer.code}", "Just now", r.serviceCharge, TxDirection.Out))
+        transactions.add(0, WalletTx("9jaRide service charge · trip ${offer.code}", "Just now", r.serviceCharge, TxDirection.Out))
         earningsKobo += r.earn
         tripsToday += 1
         kmToday += 0.65
@@ -1084,9 +1094,19 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         phase = Phase.Rate
     }
 
+    fun setStars(n: Int) { rating = n; ratingTags = com.ninejaride.core.ui.components.QuickComments.keep(n, ratingTags) }
+
+    /** Sends the driver's rating of the rider (stars, quick comments, optional note), then shows the thank-you. */
+    fun submitRating() {
+        val id = realRideId
+        if (!demo && id != null) server("Your feedback could not be sent.") { api.rateRider(id, rating, ratingTags.toList(), ratingComment) }
+        feedbackThanks = true
+    }
+
     fun toggleTag(tag: String) { ratingTags = if (tag in ratingTags) ratingTags - tag else ratingTags + tag }
 
     fun finishRide() {
+        ratingTags = emptySet(); ratingComment = ""; feedbackThanks = false
         clearRide()
         realRideId = null
         phase = Phase.None

@@ -39,7 +39,7 @@ suite('admin essentials', () => {
       expect(queue.body.map((a: { id: string }) => a.id)).toContain(sub.body.id);
       const detail = await h.http().get(`/admin/driver-applications/${sub.body.id}`).set(h.auth(support.token)).expect(200);
       expect(detail.body).toMatchObject({ status: 'SUBMITTED', missingDocuments: [] });
-      expect(detail.body.documents).toHaveLength(6);
+      expect(detail.body.documents).toHaveLength(7);
 
       await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(support.token)).expect(204);
       await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(support.token)).expect(409); // decided

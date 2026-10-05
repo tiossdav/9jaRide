@@ -189,8 +189,8 @@ class RiderApi(private val client: ApiClient) {
         client.call("POST", "/rides/$rideId/cancel", buildJsonObject { reason?.let { put("reason", it) } }.toString(), auth = true)
     }
 
-    suspend fun rate(rideId: String, stars: Int, tags: List<String>) {
-        client.call("POST", "/rides/$rideId/rating", buildJsonObject { put("stars", stars); put("tags", buildJsonArray { tags.forEach { add(JsonPrimitive(it)) } }) }.toString(), auth = true)
+    suspend fun rate(rideId: String, stars: Int, tags: List<String>, comment: String) {
+        client.call("POST", "/rides/$rideId/rating", buildJsonObject { put("stars", stars); put("tags", buildJsonArray { tags.forEach { add(JsonPrimitive(it)) } }); if (comment.isNotBlank()) put("comment", comment.trim()) }.toString(), auth = true)
     }
 
     suspend fun receipt(rideId: String): Receipt {

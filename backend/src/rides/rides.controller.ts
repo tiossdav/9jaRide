@@ -59,7 +59,8 @@ class BatchDto {
 
 class RateDto {
   @IsInt() @Min(1) @Max(5) stars!: number;
-  @IsOptional() @IsArray() @ArrayMaxSize(6) @IsString({ each: true }) @MaxLength(30, { each: true }) tags?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(8) @IsString({ each: true }) @MaxLength(40, { each: true }) tags?: string[];
+  @IsOptional() @IsString() @MaxLength(500) comment?: string;
 }
 
 class ListQuery {
@@ -172,9 +173,9 @@ export class RidesController {
     return this.rides.activeForRider(me.id);
   }
 
-  @Roles('rider') @Post('rides/:id/rating') @HttpCode(200)
+  @Roles('rider', 'driver') @Post('rides/:id/rating') @HttpCode(200)
   rate(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RateDto) {
-    return this.rides.rate(me.id, id, dto.stars, dto.tags ?? []);
+    return this.rides.rate(me, id, dto.stars, dto.tags ?? [], dto.comment);
   }
 
   /**

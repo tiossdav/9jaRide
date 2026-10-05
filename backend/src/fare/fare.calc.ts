@@ -58,7 +58,7 @@ export function computeFare(rates: Rates, measured: Measured): Fare {
   const waitingFee = Math.round((rates.waitingPerMinuteKobo * chargeableWaitS) / 60);
 
   const lines: FareLine[] = [
-    { kind: 'service', label: 'Service charge', amountKobo: rates.baseKobo },
+    { kind: 'service', label: 'Booking Fee', amountKobo: rates.baseKobo },
     { kind: 'distance', label: 'Distance fee', amountKobo: distanceFee },
     { kind: 'time', label: 'Time fee', amountKobo: timeFee },
     { kind: 'waiting', label: 'Waiting fee', amountKobo: waitingFee },

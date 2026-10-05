@@ -216,7 +216,7 @@ fun DailyEarningsScreen(vm: DriverViewModel) {
                     "Cash trips" to naira(cash, true),
                     "Daily tax" to naira(tax, true),
                 ).forEach { (l, v) -> Box(Modifier.padding(vertical = 9.dp)) { MoneyLine(l, v, labelColor = C.Ink) } }
-                Box(Modifier.padding(vertical = 9.dp)) { MoneyLine("Service charge · 12%", nairaMinus(service), amountColor = C.RedText, labelColor = C.RedText) }
+                Box(Modifier.padding(vertical = 9.dp)) { MoneyLine("9jaRide service charge · 12%", nairaMinus(service), amountColor = C.RedText, labelColor = C.RedText) }
                 listOf("Toll fee" to naira(0, true), "Trip bonus" to naira(vm.bonusKobo, true)).forEach { (l, v) -> Box(Modifier.padding(vertical = 9.dp)) { MoneyLine(l, v, labelColor = C.Ink) } }
                 Divider()
                 Box(Modifier.padding(vertical = 9.dp)) { MoneyLine("You earned", naira(earned, true), bold = true) }

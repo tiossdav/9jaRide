@@ -254,6 +254,10 @@ class Api(context: Context) {
         client.call("POST", "/sos", buildJsonObject { at?.let { put("location", buildJsonObject { put("lat", it.lat); put("lng", it.lng) }) } }.toString(), auth = true, headers = mapOf("Idempotency-Key" to key))
     }
 
+    suspend fun rateRider(rideId: String, stars: Int, tags: List<String>, comment: String) {
+        client.call("POST", "/rides/$rideId/rating", kotlinx.serialization.json.buildJsonObject { put("stars", stars); put("tags", kotlinx.serialization.json.buildJsonArray { tags.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } }); if (comment.isNotBlank()) put("comment", comment.trim()) }.toString(), auth = true)
+    }
+
     /** This phone is now the one the driver is online on. Any other phone with the account is told to go offline. */
     suspend fun claimOnline() { client.call("POST", "/driver/online", "{}", auth = true) }
     suspend fun releaseOnline() { client.call("POST", "/driver/offline", "{}", auth = true) }

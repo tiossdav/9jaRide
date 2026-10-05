@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { get, logout, signedIn } from './api';
-import { NotificationBell, NotificationStack, useNotifications } from './Notifications';
+import { NotificationBell, NotificationStack, SosIndicator, useNotifications } from './Notifications';
 import { useConfirm } from './bits';
 import { ChangePassword } from './ChangePassword';
 import { Icon, IconName } from './ui';
@@ -153,6 +153,7 @@ export default function Layout({ toggleTheme }: { toggleTheme: () => void }) {
             {trail.map((t, n) => <Fragment key={t}><span className="sep">/</span><span className={n === trail.length - 1 ? 'last' : ''}>{t}</span></Fragment>)}
           </nav>
           <div className="grow" />
+          {(me?.role === 'support' || me?.role === 'admin') && <SosIndicator api={notices} />}
           <NotificationBell api={notices} />
           <button className="icon-btn" onClick={toggleTheme} aria-label="Switch light or dark"><Icon name="sun" /></button>
           <span className="vr" />

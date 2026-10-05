@@ -133,3 +133,15 @@ While online, the app watches for bookings even when it is behind another app. A
 
 ## Verifying a NIN
 No card photo is needed. The NIN is checked by a service (`NIN_PROVIDER`; today a stand-in that accepts any 11 digits: a number ending 999 fails, ending 000 stays "checking" for a minute). A failed NIN is refused at once with a message; a pending one settles by itself, or an admin can accept it by hand.
+
+## Ratings and feedback
+After a trip, **riders rate drivers and drivers rate riders**: 1 to 5 stars, quick comments that change with the stars (5 stars: "Great service", "Smooth ride"...; 1 star: "Very poor service", "Safety concern"...; several can be picked), and an optional written comment. A thank-you shows once it is sent. Staff see it in **Insights, Ratings**: switch between riders rating drivers and drivers rating riders, the stars spread, which quick comments are picked most (with the average stars of those ratings), the lowest rated people, and the written comments.
+
+## Booking Fee and the 9jaRide service charge
+The base amount of a fare is the **Booking Fee** (older receipts that said "Service charge" now read "Booking Fee"). The **9jaRide service charge** (12%) is the platform's share, taken from the driver; it is shown separately on the driver's receipt, earnings and the admin Revenue Setup.
+
+## Driver photo
+"About you" asks for the driver's photo (camera or gallery). Staff see it with the application; once approved it becomes the driver's profile picture. The owner's signed consent is no longer asked for.
+
+## SOS counter in the admin portal
+Top right, always: **SOS Alerts: N**, the alerts that are not resolved (new or acknowledged). It never resets at midnight and falls only when an alert is resolved. Click it to open the Safety Center.

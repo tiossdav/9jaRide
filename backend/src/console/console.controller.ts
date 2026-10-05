@@ -90,7 +90,7 @@ export class ConsoleController {
   @Roles('finance', 'admin') @Get('revenue') revenue(@Query() q: DaysQuery) { return this.console.revenue(q.days ?? 30); }
   @Roles('finance', 'admin') @Get('ledger') ledger(@Query() q: LedgerQuery) { return this.console.ledger({ search: q.search, kind: q.kind, page: q.page ?? 1, pageSize: q.pageSize ?? 25 }); }
   @Roles('finance', 'admin') @Get('ledger/:id') ledgerEntries(@Param('id', ParseUUIDPipe) id: string) { return this.console.ledgerEntries(id); }
-  @Get('ratings') ratings() { return this.console.ratings(); }
+  @Get('ratings') ratings(@Query('direction') direction?: string) { return this.console.ratings(direction === 'driver_to_rider' ? 'driver_to_rider' : 'rider_to_driver'); }
   @Get('trips.csv') @Header('Content-Type', 'text/csv; charset=utf-8') @Header('Content-Disposition', 'attachment; filename="trips.csv"')
   tripsCsv(@Query() q: TripsQuery) { return this.console.tripsCsv(q.status); }
   @Roles('admin') @Get('activity.csv') @Header('Content-Type', 'text/csv; charset=utf-8') @Header('Content-Disposition', 'attachment; filename="activity.csv"')

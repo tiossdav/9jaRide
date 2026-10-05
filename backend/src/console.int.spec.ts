@@ -82,9 +82,14 @@ suite('admin console endpoints', () => {
     expect(later.items).toEqual([]);
     expect(later.openSos.some((o: { person: string }) => o.person === 'Notice Driver')).toBe(true);
 
+    // the corner counter counts everything unresolved, and does not care how old it is
+    const before = (await feed(support, later.now)).unresolvedSos;
+    expect(before).toBeGreaterThanOrEqual(1);
+    expect((await feed(finance)).unresolvedSos).toBe(0);
     // once somebody acknowledges it, it leaves the sticky list
     await h.http().post(`/admin/sos/${sos.link.split('/').pop()}/acknowledge`).set(h.auth(support.token)).expect(200);
     expect((await feed(support, later.now)).openSos.some((o: { person: string }) => o.person === 'Notice Driver')).toBe(false);
+    expect((await feed(support, later.now)).unresolvedSos).toBe(before); // acknowledged is still unresolved
     expect(rider.id).toBeTruthy();
   });
 

@@ -22,7 +22,7 @@ export function Wallet() {
       <div className="head"><div><h1>Wallet</h1><div className="sub">Where the money sits right now</div></div></div>
       <div className="stats">
         <Stat icon="wallet" label="Held in user wallets" value={naira(d.walletsKobo)} />
-        <Stat icon="trend" label="Commission earned" value={naira(d.commissionKobo)} tone="green" />
+        <Stat icon="trend" label="9jaRide service charge" value={naira(d.commissionKobo)} tone="green" />
         <Stat icon="book" label="Tax to remit" value={naira(d.taxKobo)} />
         <Stat icon="card" label="Paid to drivers" value={naira(d.payouts.paidKobo)} />
       </div>

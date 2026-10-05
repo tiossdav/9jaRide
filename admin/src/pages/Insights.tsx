@@ -18,20 +18,20 @@ export function Revenue() {
   const { data: d, error, reload } = useLoad<Rev>(`/admin/console/revenue?days=${days}`);
   return (
     <>
-      <div className="head"><div><h1>Revenue</h1><div className="sub">Completed trips only. Fares are what riders paid; commission and tax are what the platform kept or owes.</div></div><div className="grow" />
+      <div className="head"><div><h1>Revenue</h1><div className="sub">Completed trips only. Fares are what riders paid; the 9jaRide service charge and tax are what the platform kept or owes.</div></div><div className="grow" />
         <Segmented options={[['7', '7 days'], ['30', '30 days'], ['90', '90 days']] as const} value={days} onChange={setDays} /></div>
       {!d ? <Loading error={error} retry={reload} /> : (
         <>
           <div className="stats">
             <Stat icon="pin" label="Completed trips" value={d.trips} />
             <Stat icon="wallet" label="Fares paid" value={naira(d.faresKobo)} />
-            <Stat icon="trend" label="Commission earned" value={naira(d.commissionKobo, true)} tone="green" />
+            <Stat icon="trend" label="9jaRide service charge" value={naira(d.commissionKobo, true)} tone="green" />
             <Stat icon="book" label="Tax collected" value={naira(d.taxKobo, true)} />
           </div>
           <div className="grid g2" style={{ marginTop: 14 }}>
             <div className="card"><div className="cardhead"><div><h3>Fares by day</h3><div className="hint">Last {d.days} days</div></div><Pill>{days} days</Pill></div>
               <LineChart letters={false} labels={d.byDay.map((r) => new Date(r.day + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }))} values={d.byDay.map((r) => r.faresKobo)} format={(n) => naira(n)} /></div>
-            <div className="card"><div className="cardhead"><div><h3>Commission by day</h3><div className="hint">Platform share of each fare</div></div><Pill tone="green">{days} days</Pill></div>
+            <div className="card"><div className="cardhead"><div><h3>Service charge by day</h3><div className="hint">Platform share of each fare</div></div><Pill tone="green">{days} days</Pill></div>
               <LineChart letters={false} labels={d.byDay.map((r) => new Date(r.day + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }))} values={d.byDay.map((r) => r.commissionKobo)} format={(n) => naira(n, true)} /></div>
           </div>
           <div className="grid g2" style={{ marginTop: 14 }}>
@@ -105,23 +105,31 @@ export function LedgerPage() {
 // ---------------------------------------------------------------- driver ratings
 
 interface Ratings {
-  average: number | null; total: number; distribution: { stars: number; count: number }[];
+  direction: 'rider_to_driver' | 'driver_to_rider';
+  average: number | null; total: number; withComment: number; distribution: { stars: number; count: number }[];
   lowestRated: { id: string; name: string; average: number; ratings: number }[];
-  recent: { stars: number; tags: string[]; at: string; rideId: string; code: string; driverId: string | null; driver: string | null; rider: string }[];
+  topComments: { tag: string; count: number; average: number }[];
+  recent: { stars: number; tags: string[]; comment: string | null; at: string; rideId: string; code: string; rateeId: string | null; ratee: string | null; rater: string }[];
 }
 
 export function RatingsTab() {
-  const { data: d, error, reload } = useLoad<Ratings>('/admin/console/ratings');
-  if (!d) return <Loading error={error} retry={reload} />;
+  const [dir, setDir] = useState<'rider_to_driver' | 'driver_to_rider'>('rider_to_driver');
+  const { data: d, error, reload } = useLoad<Ratings>(`/admin/console/ratings?direction=${dir}`);
+  const who = dir === 'rider_to_driver' ? 'drivers' : 'riders';
+  const picker = <div style={{ marginBottom: 14 }}><Segmented options={[['rider_to_driver', 'Riders rating drivers'], ['driver_to_rider', 'Drivers rating riders']] as const} value={dir} onChange={setDir} /></div>;
+  if (!d) return <>{picker}<Loading error={error} retry={reload} /></>;
   const max = Math.max(1, ...d.distribution.map((x) => x.count));
+  const topMax = Math.max(1, ...d.topComments.map((x) => x.count));
   return (
     <>
+      {picker}
       <div className="stats">
         <Stat icon="activity" label="Average rating" value={d.average ?? '-'} note={`${d.total} rating${d.total === 1 ? '' : 's'}`} />
-        <Stat icon="warn" label="Drivers under 4.0" value={d.lowestRated.filter((l) => l.average < 4).length} tone={d.lowestRated.some((l) => l.average < 4) ? 'amber' : undefined} note="with 3 or more ratings" />
+        <Stat icon="warn" label={`Low-rated ${who} (under 4.0)`} value={d.lowestRated.filter((l) => l.average < 4).length} tone={d.lowestRated.some((l) => l.average < 4) ? 'amber' : undefined} note="with 3 or more ratings" />
+        <Stat icon="help" label="With a written comment" value={d.withComment} note={d.total ? `${Math.round((d.withComment / d.total) * 100)}% of ratings` : ''} />
       </div>
       <div className="grid g2" style={{ marginTop: 14 }}>
-        <div className="card"><h3>How riders rate drivers</h3>
+        <div className="card"><h3>{dir === 'rider_to_driver' ? 'How riders rate drivers' : 'How drivers rate riders'}</h3>
           {d.distribution.map((x) => (
             <div key={x.stars} style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
               <span style={{ width: 48 }}>{x.stars} star{x.stars === 1 ? '' : 's'}</span>
@@ -130,19 +138,28 @@ export function RatingsTab() {
             </div>
           ))}
         </div>
-        <div className="card" style={{ padding: 0 }}><div style={{ padding: '16px 18px 4px' }}><h3>Lowest rated drivers</h3><div className="hint">At least 3 ratings</div></div>
-          {d.lowestRated.length === 0 ? <div className="empty">Not enough ratings yet.</div> : (
-            <table><tbody>{d.lowestRated.map((l) => <tr key={l.id}><td><Link to={`/people/${l.id}`} style={{ color: 'var(--accent)' }}>{l.name}</Link></td><td className="num">{l.average} <span className="note">({l.ratings})</span></td></tr>)}</tbody></table>
-          )}</div>
+        <div className="card"><h3>What people pick most</h3><div className="hint">Quick comments, with the average stars of the ratings that chose them</div>
+          {d.topComments.length === 0 ? <div className="empty">No quick comments yet.</div> : d.topComments.slice(0, 10).map((x) => (
+            <div key={x.tag} style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9 }}>
+              <span style={{ width: 170, fontSize: 13 }}>{x.tag}</span>
+              <div style={{ flex: 1, height: 8, background: 'var(--raised)', borderRadius: 999 }}><div style={{ width: `${(x.count / topMax) * 100}%`, height: '100%', background: x.average >= 4 ? 'var(--accent)' : x.average >= 3 ? 'var(--gold)' : 'var(--red)', borderRadius: 999 }} /></div>
+              <span className="note" style={{ width: 62, textAlign: 'right' }}>{x.count} · {x.average}★</span>
+            </div>
+          ))}
+        </div>
       </div>
-      <div className="card" style={{ padding: 0, marginTop: 14 }}><div style={{ padding: '16px 18px 4px' }}><h3>Recent ratings</h3></div>
+      <div className="card" style={{ padding: 0, marginTop: 14 }}><div style={{ padding: '16px 18px 4px' }}><h3>Lowest rated {who}</h3><div className="hint">At least 3 ratings</div></div>
+        {d.lowestRated.length === 0 ? <div className="empty">Not enough ratings yet.</div> : (
+          <table><tbody>{d.lowestRated.map((l) => <tr key={l.id}><td><Link to={`/people/${l.id}`} style={{ color: 'var(--accent)' }}>{l.name}</Link></td><td className="num">{l.average} <span className="note">({l.ratings})</span></td></tr>)}</tbody></table>
+        )}</div>
+      <div className="card" style={{ padding: 0, marginTop: 14 }}><div style={{ padding: '16px 18px 4px' }}><h3>Recent ratings and feedback</h3></div>
         {d.recent.length === 0 ? <div className="empty">No ratings yet.</div> : (
-          <table><thead><tr><th>When</th><th>Driver</th><th>Rider</th><th>Trip</th><th>Stars</th><th>Tags</th></tr></thead><tbody>
+          <table><thead><tr><th>When</th><th>{dir === 'rider_to_driver' ? 'Driver' : 'Rider'}</th><th>{dir === 'rider_to_driver' ? 'Rated by' : 'Rated by driver'}</th><th>Trip</th><th>Stars</th><th>Quick comments</th><th>Comment</th></tr></thead><tbody>
             {d.recent.map((r, i) => (
               <tr key={i}><td>{dateTime(r.at)}</td>
-                <td>{r.driverId ? <Link to={`/people/${r.driverId}`} style={{ color: 'var(--accent)' }}><span className="avatar" style={{ display: 'inline-flex', marginRight: 6 }}>{initials(r.driver)}</span>{r.driver}</Link> : '-'}</td>
-                <td>{r.rider}</td><td><Link to={`/trips/${r.rideId}`} style={{ color: 'var(--accent)' }}>{r.code}</Link></td>
-                <td><span className={'chip' + (r.stars <= 2 ? ' red' : r.stars === 3 ? ' amber' : '')}>{r.stars} ★</span></td><td className="note">{r.tags.join(', ') || '-'}</td></tr>
+                <td>{r.rateeId ? <Link to={`/people/${r.rateeId}`} style={{ color: 'var(--accent)' }}><span className="avatar" style={{ display: 'inline-flex', marginRight: 6 }}>{initials(r.ratee)}</span>{r.ratee}</Link> : '-'}</td>
+                <td>{r.rater}</td><td><Link to={`/trips/${r.rideId}`} style={{ color: 'var(--accent)' }}>{r.code}</Link></td>
+                <td><span className={'chip' + (r.stars <= 2 ? ' red' : r.stars === 3 ? ' amber' : '')}>{r.stars} ★</span></td><td className="note">{r.tags.join(', ') || '-'}</td><td style={{ maxWidth: 260 }}>{r.comment || <span className="note">-</span>}</td></tr>
             ))}
           </tbody></table>
         )}

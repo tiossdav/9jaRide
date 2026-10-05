@@ -175,7 +175,7 @@ export class FareService {
     ).rows;
     return {
       rideId,
-      lines: lines.map((l) => ({ kind: l.kind, label: l.label, amountKobo: Number(l.amount_kobo) })),
+      lines: lines.map((l) => ({ kind: l.kind, label: l.kind === 'service' ? 'Booking Fee' : l.label, amountKobo: Number(l.amount_kobo) })),
       subtotalKobo: Number(fare.subtotal_kobo),
       roundingKobo: Number(fare.rounding_kobo),
       taxKobo: Number(fare.tax_kobo),

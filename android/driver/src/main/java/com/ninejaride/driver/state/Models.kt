@@ -117,7 +117,7 @@ val DEMO_OFFER = RideOffer(
 /** The trip in the design: 0.65 km, 9m 15s, cash. Service charge is 12% of the fare. */
 val DEMO_RECEIPT = FareReceipt(
     lines = listOf(
-        FareLine("Service charge", 100_000),
+        FareLine("Booking Fee", 100_000),
         FareLine("Distance fee · 0.65 km", 11_700),
         FareLine("Time fee · 9m 15s", 110_976),
         FareLine("Waiting fee · 1m 20s", 0),
@@ -137,6 +137,6 @@ fun documentLabel(kind: String): String = when (kind) {
     "vehicle_photo" -> "Vehicle photo"
     "insurance" -> "Insurance certificate"
     "inspection_certificate" -> "Inspection certificate"
-    "owner_consent" -> "Owner's signed consent"
+    "selfie" -> "Your photo"
     else -> kind.replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
