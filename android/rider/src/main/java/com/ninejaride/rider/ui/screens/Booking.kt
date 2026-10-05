@@ -87,90 +87,139 @@ private fun categoryIcon(c: String) = if (c == "package") Ic.Box else Ic.Car
 @Composable
 fun HomeTab(vm: RiderViewModel) {
     val here = vm.location.point
-    // The map takes the top 40% of the screen; booking and the promotions below it get the other 60%.
+    LaunchedEffect(Unit) { if (!vm.historyLoaded) vm.refreshTrips() }
+    // 40 / 60: the map owns the top 40% of the screen, and one continuous container owns the whole bottom 60%.
     Column(Modifier.fillMaxSize().background(C.Bg)) {
-      Box(Modifier.weight(0.4f).fillMaxWidth()) {
-        MapPanel(
-            Modifier.fillMaxSize(),
-            markers = here?.let { listOf(MapMarker(it, MarkerKind.Pickup)) } ?: emptyList(),
-            center = here ?: IBADAN,
-            zoom = 15.5 + (vm.focusTick % 2) * 0.0001, // a tiny change is what makes the map move back after the rider panned away
-            interactive = true,
-        )
-        Row(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(C.Surface).border(1.dp, C.Border, RoundedCornerShape(999.dp)).padding(horizontal = 14.dp, vertical = 9.dp)) {
+        Box(Modifier.weight(0.4f).fillMaxWidth()) {
+            MapPanel(
+                Modifier.fillMaxSize(),
+                markers = here?.let { listOf(MapMarker(it, MarkerKind.Pickup)) } ?: emptyList(),
+                center = here ?: IBADAN,
+                zoom = 15.5 + (vm.focusTick % 2) * 0.0001, // a tiny change is what makes the map move back after the rider panned away
+                interactive = true,
+            )
+            Box(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(16.dp).clip(RoundedCornerShape(999.dp)).background(C.Surface).border(1.dp, C.Border, RoundedCornerShape(999.dp)).padding(horizontal = 14.dp, vertical = 9.dp)) {
                 Txt("Hi, " + (vm.profile?.name?.substringBefore(' ')?.ifBlank { null } ?: "there"), 13.5f, 700)
             }
+            // the usual "find me" button, top right of the map
+            Box(
+                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp).size(46.dp).clip(CircleShape).background(C.Surface)
+                    .border(1.dp, C.Border, CircleShape).tap(vm::locateMe, "Use my location"),
+                contentAlignment = Alignment.Center,
+            ) { Icon24(Ic.Locate, C.GreenAccent, 24.dp) }
         }
-        // the usual "find me" button, top right of the map
-        Box(
-            Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp).size(46.dp).clip(CircleShape).background(C.Surface)
-                .border(1.dp, C.Border, CircleShape).tap(vm::locateMe, "Use my location"),
-            contentAlignment = Alignment.Center,
-        ) { Icon24(Ic.Locate, C.GreenAccent, 24.dp) }
-      }
-      Column(Modifier.weight(0.6f).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(top = 16.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // booking comes first: where to, then the pickup it starts from, then scheduling
+        // The bottom 60%: a single full-width, full-height container (not a card on top of the map) that scrolls as one.
+        Column(
+            Modifier.weight(0.6f).fillMaxWidth().background(C.Surface).verticalScroll(rememberScrollState()).padding(top = 20.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            // where to, with scheduling right under it
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Txt("Where are you going?", 20f, 800)
-                Card(padding = 12.dp) {
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Raised).tap({ vm.prepareBooking(); vm.activeField = 0; vm.push(Dest.WhereTo) }, "Pickup location").padding(horizontal = 14.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(C.Green))
-                        Column(Modifier.weight(1f)) { Txt("Pickup", 11.5f, 600, C.Muted); Txt(vm.pickupText.ifBlank { if (here != null) "Current location" else "Finding your location..." }, 14f, 700, maxLines = 1) }
-                    }
-                    Gap(8.dp)
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Raised).tap({ vm.prepareBooking(); vm.push(Dest.WhereTo) }, "Where to").padding(horizontal = 14.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Icon24(Ic.Pin, C.Orange)
-                        Txt("Where to?", 16f, 700, modifier = Modifier.weight(1f))
-                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(C.GreenTint).padding(horizontal = 10.dp, vertical = 5.dp)) { Txt("Now", 12f, 700, C.GreenAccent) }
-                    }
-                    Gap(8.dp)
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).border(1.dp, C.Border, RoundedCornerShape(14.dp)).tap(vm::openSchedule, "Schedule a ride").padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Icon24(Ic.Calendar, C.GreenAccent)
-                        Column(Modifier.weight(1f)) { Txt("Schedule a ride", 14.5f, 700); Txt("Book for later, or every week", 12f, 500, C.Muted) }
-                        Icon24(Ic.Chevron, C.Faint, 18.dp)
-                    }
+                Txt("Where are you going?", 22f, 800)
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(C.Raised).border(1.5.dp, C.GreenAccent, RoundedCornerShape(16.dp))
+                        .tap({ vm.prepareBooking(); vm.push(Dest.WhereTo) }, "Where to").padding(horizontal = 16.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon24(Ic.Pin, C.Orange)
+                    Txt("Where to?", 17f, 700, modifier = Modifier.weight(1f))
+                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(C.GreenTint).padding(horizontal = 10.dp, vertical = 5.dp)) { Txt("Now", 12f, 700, C.GreenAccent) }
+                }
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).border(1.dp, C.Border, RoundedCornerShape(16.dp)).tap(vm::openSchedule, "Schedule a ride").padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon24(Ic.Calendar, C.GreenAccent)
+                    Column(Modifier.weight(1f)) { Txt("Schedule a ride", 14.5f, 700); Txt("Book for later, or every week", 12f, 500, C.Muted) }
+                    Icon24(Ic.Chevron, C.Faint, 18.dp)
                 }
             }
-            PromoCarousel(vm)
-      }
+            RecentPlaces(vm)
+            QuickActions(vm)
+            HomeCards(vm)
+        }
+    }
+}
+
+/** The last few places the rider went to, so a repeat trip is one tap. Tapping fills the drop-off and starts the search. */
+@Composable
+private fun RecentPlaces(vm: RiderViewModel) {
+    val recent = vm.history.mapNotNull { it.dropoffAddress?.takeIf { a -> a.isNotBlank() } }.distinct().take(3)
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        Txt("Recent locations", 15f, 800)
+        if (recent.isEmpty()) {
+            Gap(8.dp)
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Raised).padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon24(Ic.Clock, C.Muted, 20.dp)
+                Txt("Places you ride to will show up here.", 13f, 500, C.Muted, modifier = Modifier.weight(1f))
+            }
+        } else recent.forEach { addr ->
+            Row(
+                Modifier.fillMaxWidth().tap({ vm.prepareBooking(); vm.onFieldText(1, addr); vm.push(Dest.WhereTo) }, addr).padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                RoundIconTile(Ic.Clock, C.GreenAccent, C.GreenTint, 38.dp, iconSize = 20.dp)
+                Txt(addr, 14f, 600, maxLines = 2, modifier = Modifier.weight(1f))
+                Icon24(Ic.Chevron, C.Faint, 16.dp)
+            }
+        }
+    }
+}
+
+/** Ride types as one-tap shortcuts: pick one and go straight to choosing where to. */
+@Composable
+private fun QuickActions(vm: RiderViewModel) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Txt("Ride options", 15f, 800, modifier = Modifier.padding(horizontal = 16.dp))
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            CATEGORIES.forEach { c ->
+                Column(
+                    Modifier.width(150.dp).clip(RoundedCornerShape(16.dp)).background(C.Raised).border(1.dp, C.Border, RoundedCornerShape(16.dp))
+                        .tap({ vm.chooseCategory(c); vm.prepareBooking(); vm.push(Dest.WhereTo) }, categoryLabel(c)).padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    RoundIconTile(categoryIcon(c), C.GreenAccent, C.GreenTint, 40.dp, iconSize = 22.dp)
+                    Txt(categoryLabel(c), 14.5f, 800)
+                    Txt(categoryBlurb(c), 12f, 500, C.Muted, maxLines = 2)
+                }
+            }
+            Column(
+                Modifier.width(150.dp).clip(RoundedCornerShape(16.dp)).background(C.Raised).border(1.dp, C.Border, RoundedCornerShape(16.dp)).tap(vm::openSchedule, "Schedule").padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                RoundIconTile(Ic.Calendar, C.Orange, C.GreenTint, 40.dp, iconSize = 22.dp)
+                Txt("Schedule", 14.5f, 800)
+                Txt("Plan a ride for later", 12f, 500, C.Muted, maxLines = 2)
+            }
+        }
     }
 }
 
 /**
- * Things worth knowing, under the booking box, in rows that swipe sideways with dots to show where you are. The words come from
- * the server (staff change them in the admin portal); a built-in set is shown until they arrive. Booking stays first on the screen.
+ * "For you" swipes sideways, then the Invite and Earn promo, then announcements and safety tips. The words in the carousel rows come from
+ * the server (staff change them in the admin portal); a built-in set is shown until they arrive.
  */
 @Composable
-private fun PromoCarousel(vm: RiderViewModel) {
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    val invite = {
-        val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
-            .putExtra(android.content.Intent.EXTRA_TEXT, "Ride with 9jaRide: safe, fairly priced rides in Lagos. Get the app and book your first trip.")
-        runCatching { ctx.startActivity(android.content.Intent.createChooser(send, "Invite friends").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
-        Unit
-    }
+private fun HomeCards(vm: RiderViewModel) {
     val cards = vm.homeCards
-    val forYou = cards.filter { it.kind == "invite" || it.kind == "promo" || it.kind == "feature" }
+    val forYou = cards.filter { it.kind == "promo" || it.kind == "feature" }
     val notes = cards.filter { it.kind == "announcement" }
     val tips = cards.filter { it.kind == "safety" }
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        CardRow("For you", forYou, vm, invite)
-        CardRow("Ride announcements", notes, vm, invite)
-        CardRow("Safety tips", tips, vm, invite)
-        // more content is on its way; this keeps the end of the screen from looking unfinished
-        Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).border(1.dp, C.Border, RoundedCornerShape(16.dp)).padding(16.dp)) {
-            Txt("More offers and updates will appear here soon.", 12.5f, 500, C.Muted)
+    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        CardRow("For you", forYou, vm) {}
+        Row(
+            Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(C.GreenTint).tap({ vm.push(Dest.Refer) }, "Invite and earn").padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            RoundIconTile(Ic.Gift, C.GreenAccent, C.Surface, 48.dp, iconSize = 26.dp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Txt("Invite and Earn ${naira(1000_00)}", 16f, 800, C.GreenAccent)
+                Txt("Share 9jaRide with a friend and earn when they finish their first eligible ride.", 12.5f, 500, C.Ink, maxLines = 3)
+            }
+            Icon24(Ic.Chevron, C.GreenAccent, 18.dp)
         }
+        CardRow("Ride announcements", notes, vm) {}
+        CardRow("Safety tips", tips, vm) {}
     }
 }
 
