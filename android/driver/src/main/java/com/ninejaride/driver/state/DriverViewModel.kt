@@ -27,6 +27,7 @@ import com.ninejaride.core.format.properName
 import com.ninejaride.driver.data.ApplicationForm
 import com.ninejaride.driver.data.Arrangement
 import com.ninejaride.driver.data.ServerDoc
+import com.ninejaride.driver.data.ServerSettlement
 import com.ninejaride.driver.data.BatteryGuidance
 import com.ninejaride.driver.data.ServerApplication
 import com.ninejaride.driver.data.BatteryTip
@@ -312,49 +313,69 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun settlementDone(): Boolean = runCatching { api.settlement().done }.getOrDefault(false)
 
-    /** "Continue" in the congratulations box: on to settlement, or past it if it was already finished. */
+    /**
+     * "Continue" in the congratulations box. A driver with their own vehicle goes straight on; one with someone else's car, or
+     * a business's vehicle that has been assigned, first sees the vehicle payment and earnings agreement.
+     */
     fun continueAfterApproval() {
         dialog = null
         viewModelScope.launch {
-            if (settlementDone()) { loadAccount(); reset(Dest.LocationPermission) } else openSettlement()
+            val s = runCatching { api.settlement() }.getOrNull()
+            when {
+                s == null -> openSettlement()
+                s.done && !s.needsAgreement -> { loadAccount(); reset(Dest.LocationPermission) }
+                s.needsAgreement -> openSettlement()
+                else -> { // nothing to agree to (own vehicle, or a business has not given a vehicle yet): finish the step and go on
+                    runCatching { api.completeSettlement() }
+                    loadAccount(); reset(Dest.LocationPermission)
+                }
+            }
         }
     }
 
-    // ---- settlement: where the driver is paid
-    var bankName by mutableStateOf("")
-    var accountNumber by mutableStateOf("")
-    var accountName by mutableStateOf("")
-    var settlementVehicle by mutableStateOf("")
-    var settlementTerms by mutableStateOf("")
+    // ---- the vehicle payment and earnings agreement
+    var agreement by mutableStateOf<ServerSettlement?>(null)
+    var agreementShare by mutableStateOf("")
+    var agreementTicked by mutableStateOf(false)
     var settling by mutableStateOf(false)
     var settleError by mutableStateOf<String?>(null)
 
+    /** Opens the agreement for the vehicle the driver has. Used after approval, and later when a business gives them a vehicle. */
+    fun openAgreement() { viewModelScope.launch { openSettlement() } }
+
     private suspend fun openSettlement() {
-        runCatching { api.settlement() }.getOrNull()?.let {
-            bankName = it.bank; accountNumber = it.number; accountName = it.holder.ifBlank { properName(runCatching { api.profile().name }.getOrDefault(fullName)).uppercase() }
-            settlementVehicle = it.vehicle; settlementTerms = it.terms
-        }
+        val s = runCatching { api.settlement() }.getOrNull()
+        agreement = s
+        agreementShare = s?.percent?.let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() } ?: ""
+        agreementTicked = false
         settleError = null
         reset(Dest.Settlement)
     }
 
+    /** What the share comes to on a round sum, so the driver can see it in naira before agreeing. */
+    fun agreementExample(forEarned: Long = 1_000_000): Pair<Long, Long> {
+        val pct = agreementShare.toDoubleOrNull() ?: agreement?.percent ?: 0.0
+        val cut = Math.floor(forEarned * pct / 100.0).toLong()
+        return cut to (forEarned - cut)
+    }
+
     fun finishSettlement() {
-        when {
-            bankName.trim().length < 2 -> { settleError = "Enter your bank's name."; return }
-            accountNumber.length != 10 -> { settleError = "An account number has 10 digits."; return }
-            accountName.trim().length < 2 -> { settleError = "Enter the name on the account."; return }
-        }
+        val a = agreement
+        val pct = agreementShare.toDoubleOrNull()
+        if (a != null && a.canChange && (pct == null || pct < 1.0 || pct > 90.0)) { settleError = "Choose a share between 1% and 90%."; return }
+        if (!agreementTicked) { settleError = "Tick the box to say you agree."; return }
         viewModelScope.launch {
             settling = true; settleError = null
             try {
-                api.saveAccount(bankName.trim(), accountNumber, accountName.trim())
+                api.acceptAgreement(if (a?.canChange == true && pct != null) Math.round(pct * 100).toInt() else null)
                 api.completeSettlement()
-                toast = "You are all set" to "Your payout account is saved."
+                toast = "Agreement accepted" to "You are ready to go online."
                 loadAccount()
                 reset(Dest.LocationPermission)
             } catch (e: ApiException) { settleError = if (e.status >= 500) "We could not save that. Please try again." else e.message } finally { settling = false }
         }
     }
+
 
     private fun dateOrNull(text: String, future: Boolean = true): String? {
         val m = Regex("^([0-9]{1,2})[/.-]([0-9]{1,2})[/.-]([0-9]{4})$").matchEntire(text.trim()) ?: return null
@@ -465,6 +486,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+
     // ------------------------------------------------------------------ start-up
     fun boot() {
         watchAlerts()
@@ -571,6 +593,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                 tripsToday = today.trips; earningsKobo = if (today.vehicleKobo > 0) today.keptKobo else today.earnedKobo; vehicleSharedToday = today.vehicleKobo; kmToday = today.distanceM / 1000.0; hoursToday = today.durationS / 3600.0
             }
             vehicleTerms = runCatching { api.vehicleTerms() }.getOrNull()
+            if (vehicleTerms?.accepted == false && current == Dest.Main && phase == Phase.None) openSettlement()
             runCatching { api.walletBalance() }.getOrNull()?.let { walletKobo = it }
             runCatching { api.walletTransactions() }.getOrNull()?.let { transactions.clear(); transactions.addAll(it) }
         }
@@ -649,6 +672,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             out += if (walletKobo >= 0) Check(true, "Wallet is clear", "Balance ${naira(walletKobo)}")
             else Check(false, "Wallet balance is ${naira(walletKobo)}", "Top up at least ${naira(-walletKobo)} to continue", "Top up")
             if (walletKobo < 0 && !profile.emailVerified) out += Check(false, "Email not verified", "Needed to fund your wallet", "Verify")
+            if (vehicleTerms?.accepted == false) out += Check(false, "Agree to your vehicle arrangement", "You pay a share of your earnings toward this vehicle", "Review", fix = "agreement")
             // Booking alerts. These do not stop you going online, but without them a booking can be missed.
             checksTick
             val app = getApplication<Application>()
@@ -690,6 +714,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Opens the phone setting that fixes a booking-alert check. */
     fun openAlertSetting(kind: String) {
+        if (kind == "agreement") { openAgreement(); return }
         val app = getApplication<Application>()
         val intent = when (kind) {
             "notifications" -> android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, app.packageName)

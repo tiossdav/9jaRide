@@ -328,7 +328,7 @@ export class DriverApplicationsService {
           ownerId = (await client.query(`INSERT INTO vehicle_owners (kind, name, phone) VALUES ('individual', $1, $2) RETURNING id`, [app.owner_name, app.owner_phone])).rows[0].id;
         }
         await client.query(
-          `INSERT INTO vehicle_assignments (driver_id, vehicle_id, owner_id, deduction_bps, deduction_set_by, assigned_by) VALUES ($1, $2, $3, $4, 'driver', $5)`,
+          `INSERT INTO vehicle_assignments (driver_id, vehicle_id, owner_id, deduction_bps, deduction_set_by, assigned_by, agreement_accepted_at) VALUES ($1, $2, $3, $4, 'driver', $5, CASE WHEN $3::uuid IS NULL THEN now() END)`,
           [app.driver_id, vehicleId, ownerId, ownerId ? (app.deduction_bps ?? 0) : 0, staffId],
         );
         if (arr.needs_plan) await this.plans.createInTx(client, app.driver_id, vehicleId, assignment!.plan, staffId);

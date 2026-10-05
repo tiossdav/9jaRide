@@ -8,7 +8,7 @@ data class Vehicle(
 )
 
 /** The share of earnings that goes toward the vehicle, who chose it, and whether the driver may change it. */
-data class VehicleTerms(val percent: Double, val setByOwner: Boolean, val canChange: Boolean, val ownerName: String, val targetKobo: Long?, val paidKobo: Long, val remainingKobo: Long?)
+data class VehicleTerms(val percent: Double, val setByOwner: Boolean, val canChange: Boolean, val ownerName: String, val targetKobo: Long?, val paidKobo: Long, val remainingKobo: Long?, val accepted: Boolean = true)
 
 /** Where a driver stands on a vehicle payment plan. */
 data class PlanSummary(val status: String, val totalKobo: Long, val paidKobo: Long, val outstandingKobo: Long, val overdueKobo: Long, val nextDueOn: String?)

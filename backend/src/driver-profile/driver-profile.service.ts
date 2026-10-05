@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Pool } from 'pg';
 import { PG_POOL } from '../common/infra.module';
 import { FilesService } from '../files/files.service';
@@ -84,46 +84,37 @@ export class DriverProfileService {
 
   // ------------------------------------------------------------------ settlement (the step after approval)
 
-  /** What the settlement page shows: the payout account, the vehicle and how it is paid for, and whether the step is finished. */
+  /**
+   * The vehicle payment and earnings agreement. A driver with their own vehicle has nothing to agree to and goes straight on.
+   * For someone else's car the driver sees the vehicle, the owner and the share (and may set the share); for a business's
+   * vehicle they see what the business decided and can only accept it.
+   */
   async settlement(driverId: string) {
-    const acct = (await this.pool.query(`SELECT bank_name, account_number, account_name FROM driver_payout_accounts WHERE driver_id = $1`, [driverId])).rows[0];
     const done = (await this.pool.query(`SELECT settlement_done_at FROM users WHERE id = $1`, [driverId])).rows[0]?.settlement_done_at;
     const me = await this.profile(driverId);
+    const t = await this.fleet.driverTerms(driverId);
     return {
       done: done != null,
-      account: acct ? { bankName: acct.bank_name, accountNumber: acct.account_number, accountName: acct.account_name } : null,
       vehicle: me.vehicle,
-      plan: me.plan,
-      // how the vehicle is paid for: who set the share, and whether the driver can change it
-      terms: await this.vehicleTerms(driverId, me.application?.arrangement ?? null, !!me.vehicle),
+      terms: await this.vehicleTerms(me.application?.arrangement ?? null, !!me.vehicle, t),
+      needsAgreement: !!t?.agreementPending,
     };
   }
 
   /** The share of earnings that goes toward the vehicle, and who controls it. */
-  private async vehicleTerms(driverId: string, arrangement: string | null, hasVehicle: boolean) {
-    const t = await this.fleet.driverTerms(driverId);
-    if (arrangement === 'business_vehicle') {
-      return t ? { kind: 'business', setBy: t.setBy, canChange: false, percent: t.percent, owner: t.owner?.name ?? null, targetKobo: t.targetKobo, paidKobo: t.paidKobo }
-        : { kind: 'business', setBy: 'owner', canChange: false, percent: null, owner: null, waiting: !hasVehicle };
-    }
-    if (arrangement === 'third_party' && t) return { kind: 'owner', setBy: t.setBy, canChange: t.canChange, percent: t.percent, owner: t.owner?.name ?? null, targetKobo: t.targetKobo, paidKobo: t.paidKobo };
-    return { kind: 'own', setBy: 'driver', canChange: false, percent: 0 };
+  private async vehicleTerms(arrangement: string | null, hasVehicle: boolean, t: Awaited<ReturnType<FleetService['driverTerms']>>) {
+    const common = t ? { percent: t.percent, owner: t.owner, targetKobo: t.targetKobo, paidKobo: t.paidKobo, accepted: t.accepted, canChange: t.canChange, setBy: t.setBy } : null;
+    if (arrangement === 'business_vehicle') return common ? { kind: 'business', ...common, canChange: false } : { kind: 'business', setBy: 'owner', canChange: false, percent: null, owner: null, waiting: !hasVehicle };
+    if (arrangement === 'third_party' && common) return { kind: 'owner', ...common };
+    return { kind: 'own', setBy: 'driver', canChange: false, percent: 0, accepted: true };
   }
 
-  async saveAccount(driverId: string, a: { bankName: string; accountNumber: string; accountName: string }): Promise<void> {
-    await this.pool.query(
-      `INSERT INTO driver_payout_accounts (driver_id, bank_name, account_number, account_name) VALUES ($1, $2, $3, $4)
-       ON CONFLICT (driver_id) DO UPDATE SET bank_name = $2, account_number = $3, account_name = $4, updated_at = now()`,
-      [driverId, a.bankName.trim(), a.accountNumber, a.accountName.trim()],
-    );
-  }
-
-  /** Finishes the step. A driver who is not approved yet, or who has not given a payout account, cannot. */
+  /** Finishes the step. Needs an approved profile, and the agreement accepted if there is one to accept. */
   async completeSettlement(driverId: string): Promise<void> {
-    const ok = await this.pool.query(
-      `SELECT 1 FROM driver_applications a JOIN driver_payout_accounts p ON p.driver_id = a.driver_id WHERE a.driver_id = $1 AND a.status = 'APPROVED'`, [driverId],
-    );
-    if (!ok.rowCount) throw new BadRequestException('add your payout account first, once your profile is approved');
+    const ok = await this.pool.query(`SELECT 1 FROM driver_applications WHERE driver_id = $1 AND status = 'APPROVED'`, [driverId]);
+    if (!ok.rowCount) throw new BadRequestException('your profile has not been approved yet');
+    const t = await this.fleet.driverTerms(driverId);
+    if (t?.agreementPending) throw new ConflictException({ code: 'agreement_needed', message: 'accept the vehicle payment arrangement to continue' });
     await this.pool.query(`UPDATE users SET settlement_done_at = COALESCE(settlement_done_at, now()) WHERE id = $1`, [driverId]);
   }
 }

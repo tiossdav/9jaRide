@@ -167,19 +167,59 @@ suite('sign-up with the temporary code', () => {
       await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(admin.token)).send({}).expect(204);
     });
 
-    it('takes an approved driver through settlement: a payout account first, then done', async () => {
+    it('sends a driver with their own vehicle straight on: nothing to agree to', async () => {
+      const driver = await h.login('driver');
+      const admin = await h.staff('admin');
+      const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send({ ...(await base(driver.token, { arrangement: 'own', vehicle: { category: 'regular', make: 'Kia Rio', colour: 'Red', plate: plate() } })), documents: await h.ownerDocs(driver.token) }).expect(200);
+      await h.http().post('/driver/settlement/complete').set(h.auth(driver.token)).expect(400); // not approved yet
+      await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(admin.token)).send({}).expect(204);
+      const s0 = (await h.http().get('/driver/settlement').set(h.auth(driver.token)).expect(200)).body;
+      expect(s0).toMatchObject({ done: false, needsAgreement: false, terms: { kind: 'own', percent: 0 } });
+      await h.http().post('/driver/settlement/complete').set(h.auth(driver.token)).expect(204);
+      await h.http().post('/driver/location').set(h.auth(driver.token)).send({ lat: 6.5, lng: 3.3 }).expect(204); // free to go online
+    });
+
+    it('asks a driver in someone else\'s car to agree, lets them choose the share, and holds them offline until they do', async () => {
+      const driver = await h.login('driver');
+      const admin = await h.staff('admin');
+      const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send({ arrangement: 'third_party', deductionBps: 1500, owner: { name: 'Mr Owner', phone: '08031234567' }, vehicle: { category: 'regular', make: 'Honda', colour: 'Grey', plate: plate() }, personal: h.personal(), documents: [...(await h.ownerDocs(driver.token)), { kind: 'owner_consent', fileId: await h.upload(driver.token) }] }).expect(200);
+      await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(admin.token)).send({}).expect(204);
+
+      const s0 = (await h.http().get('/driver/settlement').set(h.auth(driver.token)).expect(200)).body;
+      expect(s0).toMatchObject({ needsAgreement: true, vehicle: { arrangement: 'third_party' }, terms: { kind: 'owner', percent: 15, setBy: 'driver', canChange: true, accepted: false, owner: { name: 'Mr Owner' } } });
+      await h.http().post('/driver/settlement/complete').set(h.auth(driver.token)).expect(409);
+      expect((await h.http().post('/driver/location').set(h.auth(driver.token)).send({ lat: 6.5, lng: 3.3 }).expect(409)).body.code).toBe('agreement_pending');
+
+      await h.http().post('/driver/vehicle-terms/accept').set(h.auth(driver.token)).send({ deductionBps: 9500 }).expect(400); // more than 90%
+      const accepted = (await h.http().post('/driver/vehicle-terms/accept').set(h.auth(driver.token)).send({ deductionBps: 2500 }).expect(200)).body.terms;
+      expect(accepted).toMatchObject({ percent: 25, accepted: true, agreementPending: false });
+      await h.http().post('/driver/settlement/complete').set(h.auth(driver.token)).expect(204);
+      await h.http().post('/driver/location').set(h.auth(driver.token)).send({ lat: 6.5, lng: 3.3 }).expect(204);
+      expect((await h.pool.query(`SELECT agreed_bps, deduction_bps FROM vehicle_assignments WHERE driver_id = $1 AND ended_at IS NULL`, [driver.id])).rows[0]).toEqual({ agreed_bps: 2500, deduction_bps: 2500 });
+    });
+
+    it('lets a driver approved for a business\'s vehicle in, then asks them to accept what the business decided', async () => {
       const driver = await h.login('driver');
       const admin = await h.staff('admin');
       const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send(await base(driver.token)).expect(200);
-      await h.http().post('/driver/settlement/complete').set(h.auth(driver.token)).expect(400); // not approved, no account
       await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(admin.token)).send({}).expect(204);
-      const before = (await h.http().get('/driver/settlement').set(h.auth(driver.token)).expect(200)).body;
-      expect(before).toMatchObject({ done: false, account: null, terms: { kind: 'business', setBy: 'owner', canChange: false, waiting: true } });
-      await h.http().post('/driver/settlement/complete').set(h.auth(driver.token)).expect(400); // still no account
-      await h.http().post('/driver/settlement/account').set(h.auth(driver.token)).send({ bankName: 'GTBank', accountNumber: '123', accountName: 'Ada' }).expect(400);
-      await h.http().post('/driver/settlement/account').set(h.auth(driver.token)).send({ bankName: 'GTBank', accountNumber: '0123456789', accountName: 'Ada Driver' }).expect(204);
-      await h.http().post('/driver/settlement/complete').set(h.auth(driver.token)).expect(204);
-      expect((await h.http().get('/driver/settlement').set(h.auth(driver.token)).expect(200)).body).toMatchObject({ done: true, account: { accountNumber: '0123456789' } });
+      const s0 = (await h.http().get('/driver/settlement').set(h.auth(driver.token)).expect(200)).body;
+      expect(s0).toMatchObject({ needsAgreement: false, terms: { kind: 'business', waiting: true, canChange: false } });
+      await h.http().post('/driver/settlement/complete').set(h.auth(driver.token)).expect(204); // nothing to accept until a vehicle comes
+
+      const biz = (await h.http().post('/fleet/businesses').set(h.auth(admin.token)).send({ name: `Agree Co ${plate()}` }).expect(200)).body.id;
+      const fv = (await h.http().post('/fleet/vehicles').set(h.auth(admin.token)).send({ businessId: biz, plate: plate(), makeModel: 'Toyota Hiace', colour: 'White', category: 'regular' }).expect(200)).body.id;
+      await h.http().post(`/fleet/vehicles/${fv}/status`).set(h.auth(admin.token)).send({ status: 'verified' }).expect(204);
+      await h.http().post(`/fleet/vehicles/${fv}/assign`).set(h.auth(admin.token)).send({ driverId: driver.id, deductionBps: 3000 }).expect(200);
+
+      // the business decided 30%; the driver sees it, cannot change it, and cannot go online until they accept
+      expect((await h.http().get('/driver/settlement').set(h.auth(driver.token)).expect(200)).body).toMatchObject({ needsAgreement: true, terms: { kind: 'business', percent: 30, canChange: false, accepted: false } });
+      expect((await h.http().post('/driver/location').set(h.auth(driver.token)).send({ lat: 6.5, lng: 3.3 }).expect(409)).body.code).toBe('agreement_pending');
+      expect((await h.http().post('/driver/vehicle-terms/accept').set(h.auth(driver.token)).send({ deductionBps: 1000 }).expect(409)).body.code).toBe('set_by_owner');
+      await h.http().post('/driver/vehicle-terms/accept').set(h.auth(driver.token)).send({}).expect(200);
+      await h.http().post('/driver/vehicle-terms/accept').set(h.auth(driver.token)).send({}).expect(200); // pressing it twice is harmless
+      await h.http().post('/driver/location').set(h.auth(driver.token)).send({ lat: 6.5, lng: 3.3 }).expect(204);
+      expect((await h.http().get('/driver/vehicle-terms').set(h.auth(driver.token)).expect(200)).body.terms).toMatchObject({ percent: 30, accepted: true });
     });
 
     /** The earlier fixed-instalment plans are switched off for new drivers but still work for old records, so these tests turn them on for a moment. */

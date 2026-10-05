@@ -332,7 +332,7 @@ export class FleetService {
     if (driverShareKobo <= 0) return null;
     const a = (await client.query(
       `SELECT a.id, a.owner_id, a.deduction_bps, a.target_kobo, COALESCE((SELECT sum(d.amount_kobo) FROM vehicle_deductions d WHERE d.assignment_id = a.id), 0)::bigint AS paid
-         FROM vehicle_assignments a WHERE a.driver_id = $1 AND a.ended_at IS NULL AND a.deduction_bps > 0 AND a.owner_id IS NOT NULL FOR UPDATE OF a`, [driverId],
+         FROM vehicle_assignments a WHERE a.driver_id = $1 AND a.ended_at IS NULL AND a.deduction_bps > 0 AND a.owner_id IS NOT NULL AND a.agreement_accepted_at IS NOT NULL FOR UPDATE OF a`, [driverId],
     )).rows[0];
     if (!a) return null;
     let amount = Math.floor((driverShareKobo * a.deduction_bps) / 10_000);
@@ -354,18 +354,39 @@ export class FleetService {
 
   async driverTerms(driverId: string) {
     const a = (await this.pool.query(
-      `SELECT a.id, a.deduction_bps, a.target_kobo, a.deduction_set_by, a.started_at, o.name AS owner, o.kind AS owner_kind, o.phone AS owner_phone, v.plate,
+      `SELECT a.id, a.deduction_bps, a.target_kobo, a.deduction_set_by, a.started_at, a.agreement_accepted_at, o.name AS owner, o.kind AS owner_kind, o.phone AS owner_phone, v.plate,
               COALESCE((SELECT sum(d.amount_kobo) FROM vehicle_deductions d WHERE d.assignment_id = a.id), 0)::bigint AS paid
          FROM vehicle_assignments a JOIN vehicles v ON v.id = a.vehicle_id LEFT JOIN vehicle_owners o ON o.id = a.owner_id WHERE a.driver_id = $1 AND a.ended_at IS NULL`, [driverId],
     )).rows[0];
     if (!a) return null;
     return {
       assignmentId: a.id, bps: a.deduction_bps, percent: a.deduction_bps / 100, setBy: a.deduction_set_by,
+      // a share to an owner is only taken, and the driver only goes online, once the driver has agreed to it
+      accepted: a.agreement_accepted_at != null || a.owner == null, agreementPending: a.owner != null && a.agreement_accepted_at == null,
       canChange: a.deduction_set_by === 'driver' && a.owner != null, // a share chosen by a business cannot be changed by the driver
       owner: a.owner ? { name: a.owner, kind: a.owner_kind, phone: a.owner_phone } : null, plate: a.plate,
       targetKobo: a.target_kobo == null ? null : Number(a.target_kobo), paidKobo: Number(a.paid),
       remainingKobo: a.target_kobo == null ? null : Math.max(0, Number(a.target_kobo) - Number(a.paid)),
     };
+  }
+
+  /**
+   * The driver agrees to the arrangement for the vehicle they have. When the share is theirs to choose they may set it in the
+   * same step; when a business set it, they can only accept it as it is. Safe to repeat.
+   */
+  async acceptAgreement(driverId: string, bps?: number) {
+    const a = (await this.pool.query(`SELECT id, deduction_set_by, owner_id, deduction_bps, agreement_accepted_at FROM vehicle_assignments WHERE driver_id = $1 AND ended_at IS NULL`, [driverId])).rows[0];
+    if (!a) throw new NotFoundException('you do not have a vehicle assigned');
+    if (!a.owner_id) return this.driverTerms(driverId); // your own vehicle: nothing to agree to
+    let share: number = a.deduction_bps;
+    if (bps !== undefined && bps !== a.deduction_bps) {
+      if (a.deduction_set_by !== 'driver') throw new ConflictException({ code: 'set_by_owner', message: 'the owner of this vehicle sets this share, so you cannot change it' });
+      if (!Number.isInteger(bps) || bps < 100 || bps > MAX_DEDUCTION_BPS) throw new BadRequestException(`the share must be between 1% and ${MAX_DEDUCTION_BPS / 100}%`);
+      share = bps;
+    }
+    await this.pool.query(`UPDATE vehicle_assignments SET deduction_bps = $2, agreed_bps = $2, agreement_accepted_at = COALESCE(agreement_accepted_at, now()) WHERE id = $1`, [a.id, share]);
+    await this.redis.del(`driver:${driverId}:category`);
+    return this.driverTerms(driverId);
   }
 
   /** Only a share the driver chose themselves can be changed by them, and only for the next trips, never the past. */

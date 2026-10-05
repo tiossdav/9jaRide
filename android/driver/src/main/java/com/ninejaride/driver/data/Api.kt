@@ -56,7 +56,10 @@ class ApplicationForm(
 )
 
 /** The settlement page: where the driver is paid, and how the vehicle is paid for. */
-class ServerSettlement(val done: Boolean, val bank: String, val number: String, val holder: String, val vehicle: String, val terms: String)
+class ServerSettlement(
+    val done: Boolean, val needsAgreement: Boolean, val kind: String, val vehicle: String, val ownerName: String, val ownerPhone: String,
+    val percent: Double, val canChange: Boolean, val waiting: Boolean, val targetKobo: Long?,
+)
 
 class AppConfig(val forceUpdate: Boolean, val updateUrl: String?, val batteryTips: List<BatteryTip>)
 
@@ -174,23 +177,17 @@ class Api(context: Context) {
 
     suspend fun settlement(): ServerSettlement {
         val o = client.call("GET", "/driver/settlement", auth = true)
-        val a = o.obj("account"); val v = o.obj("vehicle"); val pl = o.obj("plan"); val t = o.obj("terms")
+        val v = o.obj("vehicle"); val t = o.obj("terms"); val ow = t?.obj("owner")
         val vehicle = v?.let { listOfNotNull(it.str("make"), it.str("colour"), com.ninejaride.core.format.formatPlate(it.str("plate") ?: "").ifBlank { null }).joinToString(" · ") } ?: ""
-        val percent = t?.let { (it["percent"] as? JsonPrimitive)?.doubleOrNull }?.let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() }
-        val by = t?.str("owner")
-        val target = t?.lng("targetKobo")?.let { " Deductions stop once " + com.ninejaride.core.format.naira(it) + " has been paid." } ?: ""
-        val terms = when (t?.str("kind")) {
-            "business" ->
-                if (percent != null) (by ?: "A business") + " owns this vehicle. $percent% of what you earn on each trip goes toward it." + target + " The business sets this share, so you cannot change it."
-                else "A business will give you a vehicle. Until it does you cannot go online. Its share of your earnings is set by the business when it does."
-            "owner" -> "You drive a car that belongs to " + (by ?: "someone else") + ". $percent% of what you earn on each trip goes to them." + target + " You chose this share and can change it on the Vehicle page."
-            "payment_plan" -> "You are paying for this vehicle through 9jaRide in instalments."
-            else -> "You drive your own vehicle. Nothing is deducted from your earnings for it."
-        }
-        return ServerSettlement(o["done"]?.jsonPrimitive?.booleanOrNull == true, a?.str("bankName") ?: "", a?.str("accountNumber") ?: "", a?.str("accountName") ?: "", vehicle, terms)
+        return ServerSettlement(
+            o["done"]?.jsonPrimitive?.booleanOrNull == true, o["needsAgreement"]?.jsonPrimitive?.booleanOrNull == true, t?.str("kind") ?: "own", vehicle,
+            ow?.str("name") ?: "", ow?.str("phone") ?: "", t?.dbl2("percent") ?: 0.0, (t?.get("canChange") as? JsonPrimitive)?.booleanOrNull == true,
+            (t?.get("waiting") as? JsonPrimitive)?.booleanOrNull == true, t?.lng("targetKobo"),
+        )
     }
-    suspend fun saveAccount(bank: String, number: String, holder: String) {
-        client.call("POST", "/driver/settlement/account", buildJsonObject { put("bankName", bank); put("accountNumber", number); put("accountName", holder) }.toString(), auth = true)
+    /** "I agree". The share is sent only when the driver is allowed to choose it. */
+    suspend fun acceptAgreement(bps: Int?) {
+        client.call("POST", "/driver/vehicle-terms/accept", buildJsonObject { bps?.let { put("deductionBps", it) } }.toString(), auth = true)
     }
     suspend fun completeSettlement() { client.call("POST", "/driver/settlement/complete", "{}", auth = true) }
 
@@ -199,7 +196,7 @@ class Api(context: Context) {
         val t = client.call("GET", "/driver/vehicle-terms", auth = true).obj("terms") ?: return null
         return com.ninejaride.driver.state.VehicleTerms(
             t.dbl2("percent") ?: 0.0, t.str("setBy") == "owner", (t["canChange"] as? JsonPrimitive)?.booleanOrNull == true, t.obj("owner")?.str("name") ?: "",
-            t.lng("targetKobo"), t.lng("paidKobo") ?: 0, t.lng("remainingKobo"),
+            t.lng("targetKobo"), t.lng("paidKobo") ?: 0, t.lng("remainingKobo"), (t["accepted"] as? JsonPrimitive)?.booleanOrNull != false,
         )
     }
     suspend fun setVehicleShare(bps: Int) { client.call("PUT", "/driver/vehicle-terms", buildJsonObject { put("deductionBps", bps) }.toString(), auth = true) }

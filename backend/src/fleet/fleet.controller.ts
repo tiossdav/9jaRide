@@ -119,6 +119,7 @@ export class FleetController {
   async end(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() dto: EndDto) { await this.fleet.endAssignment(await this.fleet.scopeFor(me), id, dto.reason); }
 }
 
+class AgreeDto { @IsOptional() @IsInt() @Min(100) @Max(MAX_DEDUCTION_BPS) deductionBps?: number; }
 class ShareDto { @IsInt() @Min(100) @Max(MAX_DEDUCTION_BPS) deductionBps!: number; }
 
 /** What a driver sees and may change about paying toward their vehicle. */
@@ -129,6 +130,10 @@ export class DriverVehicleTermsController {
 
   @Get()
   async terms(@CurrentUser() me: Principal) { return { terms: await this.fleet.driverTerms(me.id) }; }
+
+  /** "I agree": accepts the arrangement, setting the share in the same step when it is the driver's to set. */
+  @Post('accept') @HttpCode(200)
+  async accept(@CurrentUser() me: Principal, @Body() dto: AgreeDto) { return { terms: await this.fleet.acceptAgreement(me.id, dto.deductionBps) }; }
 
   @Put() @HttpCode(204)
   async set(@CurrentUser() me: Principal, @Body() dto: ShareDto) { await this.fleet.setDriverShare(me.id, dto.deductionBps); }

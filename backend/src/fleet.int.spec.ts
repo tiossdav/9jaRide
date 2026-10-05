@@ -167,9 +167,9 @@ suite('business vehicles and the share taken from drivers', () => {
     const plateNo = plate();
     const vehicleId = (await h.pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate, arrangement) VALUES ($1, 'package', 'Toyota', 'Blue', $2, 'business_vehicle') RETURNING id`, [driver.id, plateNo])).rows[0].id;
     const ownerId = (await h.pool.query(`INSERT INTO vehicle_owners (kind, name) VALUES ('individual', 'Mr Owner') RETURNING id`)).rows[0].id;
-    // 20% of what the driver earns, until 1,500 kobo have been paid
+    // 20% of what the driver earns, until 1,500 kobo have been paid (the driver has agreed to it)
     const assignmentId = (await h.pool.query(
-      `INSERT INTO vehicle_assignments (driver_id, vehicle_id, owner_id, deduction_bps, target_kobo, deduction_set_by) VALUES ($1, $2, $3, 2000, 1500, 'owner') RETURNING id`, [driver.id, vehicleId, ownerId])).rows[0].id;
+      `INSERT INTO vehicle_assignments (driver_id, vehicle_id, owner_id, deduction_bps, target_kobo, deduction_set_by, agreement_accepted_at) VALUES ($1, $2, $3, 2000, 1500, 'owner', now()) RETURNING id`, [driver.id, vehicleId, ownerId])).rows[0].id;
 
     const trip = async (method: 'cash' | 'wallet') => {
       await h.http().post('/driver/location').set(h.auth(driver.token)).send({ lat: pickup.lat + 0.002, lng: pickup.lng + 0.002, accuracyM: 8 }).expect(204);
@@ -189,6 +189,7 @@ suite('business vehicles and the share taken from drivers', () => {
     const ownerBalance = async () => h.platform(`owner:${ownerId}`);
 
     // trip 1 (cash): 20% of the driver share goes to the owner, taken from the driver's wallet because the driver holds the cash
+    const walletBefore = await h.wallet(driver.id);
     const first = await trip('cash');
     const share = first.done.driverEarnKobo;
     const cut = Math.floor((share * 2000) / 10_000);
@@ -196,7 +197,7 @@ suite('business vehicles and the share taken from drivers', () => {
     expect(first.done).toMatchObject({ vehicleDeductionKobo: Math.min(cut, 1500), driverKeepsKobo: share - Math.min(cut, 1500) });
     expect(await ownerBalance()).toBe(Math.min(cut, 1500));
     const walletAfterFirst = await h.wallet(driver.id);
-    expect(walletAfterFirst).toBe(-(first.done.commissionKobo + first.done.taxKobo + Math.min(cut, 1500)));
+    expect(walletAfterFirst - walletBefore).toBe(-(first.done.commissionKobo + first.done.taxKobo + Math.min(cut, 1500)));
 
     // trip 2 (wallet): paid into the wallet minus the owner share, and the target (1,500) is reached, so the deduction is capped
     const second = await trip('wallet');
@@ -226,7 +227,7 @@ suite('business vehicles and the share taken from drivers', () => {
     const driver = await h.login('driver');
     const vehicleId = (await h.pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate, arrangement) VALUES ($1, 'regular', 'Honda', 'Grey', $2, 'third_party') RETURNING id`, [driver.id, plate()])).rows[0].id;
     const ownerId = (await h.pool.query(`INSERT INTO vehicle_owners (kind, name) VALUES ('individual', 'Aunty') RETURNING id`)).rows[0].id;
-    await h.pool.query(`INSERT INTO vehicle_assignments (driver_id, vehicle_id, owner_id, deduction_bps, deduction_set_by) VALUES ($1, $2, $3, 1500, 'driver')`, [driver.id, vehicleId, ownerId]);
+    await h.pool.query(`INSERT INTO vehicle_assignments (driver_id, vehicle_id, owner_id, deduction_bps, deduction_set_by, agreement_accepted_at) VALUES ($1, $2, $3, 1500, 'driver', now())`, [driver.id, vehicleId, ownerId]);
     expect((await h.http().get('/driver/vehicle-terms').set(h.auth(driver.token)).expect(200)).body.terms).toMatchObject({ percent: 15, setBy: 'driver', canChange: true });
     await h.http().put('/driver/vehicle-terms').set(h.auth(driver.token)).send({ deductionBps: 2500 }).expect(204);
     expect((await h.http().get('/driver/vehicle-terms').set(h.auth(driver.token)).expect(200)).body.terms.percent).toBe(25);

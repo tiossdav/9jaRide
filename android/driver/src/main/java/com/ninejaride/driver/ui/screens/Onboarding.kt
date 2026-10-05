@@ -3,6 +3,12 @@ package com.ninejaride.driver.ui.screens
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import com.ninejaride.core.format.naira
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -246,23 +252,71 @@ fun ApplicationStatusScreen(vm: DriverViewModel) {
     }
 }
 
-/** Settlement: where earnings are paid out, and a plain statement of how the vehicle is paid for. */
+/**
+ * Vehicle Payment & Earnings Agreement. It appears only when there is an arrangement to agree to: a car owned by someone
+ * else (the driver may choose the share) or a business's vehicle (the business decided it; the driver can only accept).
+ */
 @Composable
 fun SettlementScreen(vm: DriverViewModel) {
+    val a = vm.agreement
+    val owner = a?.ownerName?.ifBlank { null } ?: if (a?.kind == "business") "the business" else "the owner"
+    val (cut, keep) = vm.agreementExample()
     Column(Modifier.fillMaxSize().background(C.Bg).imePadding()) {
-        ScreenHeader("Settlement", "Set up how you get paid")
+        ScreenHeader("Vehicle Payment & Earnings Agreement", "Please read this, then accept to start driving")
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (vm.settlementVehicle.isNotBlank()) Card { Txt("YOUR VEHICLE", 11f, 500, C.Muted, letterSpacing = 1f); Gap(4.dp); Txt(vm.settlementVehicle, 15f, 700) }
-            if (vm.settlementTerms.isNotBlank()) Card { Txt("VEHICLE PAYMENT", 11f, 500, C.Muted, letterSpacing = 1f); Gap(4.dp); Txt(vm.settlementTerms, 13.5f, 500) }
-            Txt("PAYOUT ACCOUNT", 11f, 500, C.Muted, letterSpacing = 1f)
-            InputField("Bank name", vm.bankName, { vm.bankName = it; vm.settleError = null }, "e.g. GTBank")
-            InputField("Account number", vm.accountNumber, { vm.accountNumber = it.filter { c -> c.isDigit() }.take(10); vm.settleError = null }, "10 digits", KeyboardType.Number)
-            InputField("Account name", vm.accountName, { vm.accountName = it.uppercase(); vm.settleError = null }, "Name on the account")
-            Txt("Your earnings are paid to this account when you ask for a payout.", 12.5f, 500, C.Muted)
-            vm.settleError?.let { Txt(it, 13f, 600, C.Red) }
+            if (a == null) Txt("We could not load your arrangement. Check your connection and go back.", 13.5f, 600, C.Red)
+            else {
+                Card { Txt("YOUR VEHICLE", 11f, 500, C.Muted, letterSpacing = 1f); Gap(4.dp); Txt(a.vehicle.ifBlank { "Not assigned yet" }, 15f, 700) }
+                Card {
+                    Txt(if (a.kind == "business") "THE BUSINESS" else "THE OWNER", 11f, 500, C.Muted, letterSpacing = 1f); Gap(4.dp)
+                    Txt(owner.replaceFirstChar { it.uppercase() }, 15f, 700)
+                    if (a.ownerPhone.isNotBlank()) Txt(a.ownerPhone, 13f, 500, C.Muted)
+                }
+                Card {
+                    Txt("THE ARRANGEMENT", 11f, 500, C.Muted, letterSpacing = 1f); Gap(4.dp)
+                    Txt(
+                        if (a.kind == "business") "$owner owns this vehicle and gives it to you to drive. A share of what you earn on every trip goes to $owner toward it."
+                        else "This car belongs to $owner. A share of what you earn on every trip goes to them toward it.", 13.5f, 500,
+                    )
+                    a.targetKobo?.let { Gap(6.dp); Txt("Payments stop once ${naira(it)} has been paid.", 13f, 600, C.Muted) }
+                }
+                if (a.canChange) {
+                    InputField("Your share of each trip's earnings (%)", vm.agreementShare, { vm.agreementShare = it.filter { c -> c.isDigit() || c == '.' }.take(5); vm.settleError = null }, "1 to 90", KeyboardType.Decimal,
+                        helper = "You choose this. You can change it later from the Vehicle page; the change applies from your next trip.")
+                } else {
+                    Card {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Txt("Share of your earnings", 13.5f, 600, modifier = Modifier.weight(1f))
+                            Txt("${vm.agreementShare}%", 18f, 800)
+                        }
+                        Gap(4.dp)
+                        Txt("Set by $owner. You cannot change it here; ask them if it needs to change.", 12.5f, 500, C.Muted)
+                    }
+                }
+                Card {
+                    Txt("WHAT THIS MEANS", 11f, 500, C.Muted, letterSpacing = 1f); Gap(4.dp)
+                    Txt("For every ${naira(1_000_000)} you earn:", 13.5f, 600)
+                    Gap(4.dp)
+                    Row { Txt("Goes to $owner", 13.5f, 500, C.Muted, Modifier.weight(1f)); Txt(naira(cut), 14f, 700, C.RedText) }
+                    Row { Txt("You keep", 13.5f, 500, C.Muted, Modifier.weight(1f)); Txt(naira(keep), 14f, 800) }
+                    Gap(6.dp)
+                    Txt("This is taken from your earnings on each trip, automatically. You will see it on every receipt.", 12.5f, 500, C.Muted)
+                }
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (vm.agreementTicked) C.GreenTint else C.Surface)
+                        .border(1.5.dp, if (vm.agreementTicked) C.GreenAccent else C.Border, RoundedCornerShape(14.dp)).tap({ vm.agreementTicked = !vm.agreementTicked; vm.settleError = null }, "I agree").padding(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(22.dp).clip(RoundedCornerShape(6.dp)).background(if (vm.agreementTicked) C.GreenAccent else C.Raised).border(1.5.dp, if (vm.agreementTicked) C.GreenAccent else C.Border, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
+                        if (vm.agreementTicked) Txt("\u2713", 14f, 800, androidx.compose.ui.graphics.Color.White)
+                    }
+                    Txt("I have read this and I agree to the arrangement above.", 13.5f, 600, modifier = Modifier.weight(1f))
+                }
+                vm.settleError?.let { Txt(it, 13f, 600, C.Red) }
+            }
         }
         Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp).navigationBarsPadding().padding(bottom = 12.dp)) {
-            Btn(if (vm.settling) "Saving..." else "Finish", vm::finishSettlement, Modifier.fillMaxWidth(), enabled = !vm.settling)
+            Btn(if (vm.settling) "Saving..." else "Accept and continue", vm::finishSettlement, Modifier.fillMaxWidth(), enabled = !vm.settling && a != null)
         }
     }
 }

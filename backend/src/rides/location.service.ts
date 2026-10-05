@@ -47,6 +47,9 @@ export class LocationService {
       [driverId],
     );
     if (!rows[0]) throw new ConflictException({ code: 'no_active_vehicle', message: 'you need an approved, unsuspended vehicle and an active account to go online' });
+    // a vehicle someone else owns comes with an arrangement the driver must agree to first
+    const pending = await this.pool.query(`SELECT 1 FROM vehicle_assignments WHERE driver_id = $1 AND ended_at IS NULL AND owner_id IS NOT NULL AND agreement_accepted_at IS NULL`, [driverId]);
+    if (pending.rowCount) throw new ConflictException({ code: 'agreement_pending', message: 'agree to the vehicle payment arrangement before you go online' });
     await this.redis.set(cacheKey, rows[0].category, 'EX', CATEGORY_CACHE_SECONDS);
     return rows[0].category;
   }
