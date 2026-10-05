@@ -250,7 +250,7 @@ export class DriverApplicationsService {
       phone: rows[0].phone,
       accountStatus: rows[0].user_status,
       documents: docs.rows.map((d) => ({ kind: d.kind, fileRef: d.file_ref, number: d.number, fileId: d.file_id, expiresOn: d.expires_on, expired: d.expired })),
-      missingDocuments: requiredDocuments(rows[0].arrangement).filter((k) => k !== 'selfie' && !docs.rows.some((d) => d.kind === k)),
+      missingDocuments: requiredDocuments(rows[0].arrangement).filter((k) => !docs.rows.some((d) => d.kind === k)),
     };
   }
 
@@ -274,7 +274,7 @@ export class DriverApplicationsService {
         await client.query(`SELECT kind, expires_on < current_date AS expired FROM application_documents WHERE application_id = $1`, [id])
       ).rows;
       const problems = [
-        ...requiredDocuments(app.arrangement).filter((k) => k !== 'selfie' && !docs.some((d) => d.kind === k)).map((k) => `${k} is missing`),
+        ...requiredDocuments(app.arrangement).filter((k) => !docs.some((d) => d.kind === k)).map((k) => `${k} is missing`),
         ...docs.filter((d) => d.expired).map((d) => `${d.kind} has expired`),
       ];
       if (problems.length) throw new ConflictException({ code: 'documents_not_ready', message: problems.join('; ') });
