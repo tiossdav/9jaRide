@@ -337,6 +337,44 @@ suite('scheduled rides, cancellation, background location, app config', () => {
       return rideId;
     }
 
+    it('adds up the distance actually driven, apart for the way to the pickup and the trip, ignoring GPS jumps, and arrives by itself', async () => {
+      const spot = randomSpot();
+      const driver = await onlineDriver(spot);
+      const rider = await h.login('rider');
+      const q = await h.http().post('/rides/quote').set(h.auth(rider.token)).send({ category: 'package', distanceM: 3000, durationS: 600 }).expect(200);
+      const ride = await h.http().post('/rides').set(h.auth(rider.token)).set('Idempotency-Key', h.key())
+        .send({ quoteId: q.body.quoteId, category: 'package', paymentMethod: 'cash', pickup: spot, dropoff }).expect(200);
+      const rideId = ride.body.rideId as string;
+      await acceptWhenOffered(driver, rideId);
+      const m = (metres: number) => metres / 111_195; // degrees of latitude
+
+      // 600 m towards the pickup in 10 s steps, with one wild reading 300 km away in the middle
+      const now = Date.now();
+      const approach = [600, 500, 400, 300, 200, 100, 0].map((away, i) => ({ lat: spot.lat - m(away), lng: spot.lng, accuracyM: 8, recordedAt: new Date(now - 70_000 + i * 10_000).toISOString() }));
+      approach.splice(4, 0, { lat: spot.lat + 3, lng: spot.lng, accuracyM: 8, recordedAt: new Date(now - 35_000).toISOString() });
+      await upload(driver.token, approach).expect(200);
+      let view = (await h.http().get(`/rides/${rideId}`).set(h.auth(rider.token)).expect(200)).body;
+      expect(view.status).toBe('DRIVER_ARRIVED'); // reached the pickup point, no tap needed
+      expect(view.tracking.pickupTravelledM).toBeGreaterThan(590);
+      expect(view.tracking.pickupTravelledM).toBeLessThan(615);
+      expect(view.tracking.tripTravelledM).toBe(0);
+      const pos = (await h.http().get(`/rides/${rideId}/driver-location`).set(h.auth(rider.token)).expect(200)).body;
+      expect(pos.pickupTravelledM).toBe(view.tracking.pickupTravelledM);
+
+      await h.http().post(`/driver/rides/${rideId}/start`).set(h.auth(driver.token)).expect(204);
+      await sleep(5500);
+      const t0 = Date.now() - 5000;
+      const trip = [0, 12, 24, 36, 48].map((north, i) => ({ lat: spot.lat + m(north), lng: spot.lng, accuracyM: 8, recordedAt: new Date(t0 + i * 1000).toISOString() }));
+      trip.splice(3, 0, { lat: spot.lat + 3, lng: spot.lng, accuracyM: 8, recordedAt: new Date(t0 + 2500).toISOString() }); // a jump
+      await upload(driver.token, trip).expect(200);
+      await h.http().post(`/driver/rides/${rideId}/complete`).set(h.auth(driver.token)).send({ distanceM: 3000, durationS: 600, waitingS: 0 }).expect(200);
+      view = (await h.http().get(`/rides/${rideId}`).set(h.auth(rider.token)).expect(200)).body;
+      expect(view.tracking.finished).toBe(true);
+      expect(view.tracking.tripTravelledM).toBeGreaterThan(44);
+      expect(view.tracking.tripTravelledM).toBeLessThan(54);
+      expect(view.tracking.pickupTravelledM).toBeGreaterThan(590); // the two distances stay separate
+    }, 60_000);
+
     it('flags a reported distance far above the recorded route, and not an honest one', async () => {
       const honest = await runTrip(3200);
       const padded = await runTrip(9000);

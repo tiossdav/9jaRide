@@ -5,6 +5,7 @@ import { LedgerModule } from '../ledger/ledger.module';
 import { RidesController, AdminTripChecksController } from './rides.controller';
 import { LocationService } from './location.service';
 import { RidesService } from './rides.service';
+import { TrackingService } from './tracking.service';
 import { SCHEDULE_NOTIFIER, ScheduleNotifier, ScheduledRidesService } from './scheduled-rides.service';
 import { ScheduledRidesWorker } from './scheduled-rides.worker';
 
@@ -16,6 +17,6 @@ const logNotifier: ScheduleNotifier = {
 @Module({
   imports: [DispatchModule, FareModule, LedgerModule],
   controllers: [RidesController, AdminTripChecksController],
-  providers: [RidesService, LocationService, ScheduledRidesService, ScheduledRidesWorker, { provide: SCHEDULE_NOTIFIER, useValue: logNotifier }],
+  providers: [RidesService, LocationService, TrackingService, ScheduledRidesService, ScheduledRidesWorker, { provide: SCHEDULE_NOTIFIER, useValue: logNotifier }],
 })
 export class RidesModule {}

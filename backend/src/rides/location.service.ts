@@ -4,6 +4,7 @@ import { Pool } from 'pg';
 import { PG_POOL, REDIS } from '../common/infra.module';
 import { DispatchService } from '../dispatch/dispatch.service';
 import { Category, keys } from '../dispatch/dispatch.types';
+import { TrackingService } from './tracking.service';
 
 const CATEGORY_CACHE_SECONDS = 300;
 /** Only a point this fresh may put a driver on the map. An older one (an offline batch) is history, not presence. */
@@ -38,6 +39,7 @@ export class LocationService {
     @Inject(PG_POOL) private readonly pool: Pool,
     @Inject(REDIS) private readonly redis: Redis,
     private readonly dispatch: DispatchService,
+    private readonly tracking: TrackingService,
   ) {}
 
   private deviceKey = (driverId: string) => `driver:${driverId}:device`;
@@ -108,7 +110,10 @@ export class LocationService {
       await this.dispatch.recordPing({ driverId, category, lat: newest.lat, lng: newest.lng, accuracyM: newest.accuracyM, speedKmh: newest.speedKmh });
     }
 
-    if (await this.redis.exists(keys.driverRide(driverId))) {
+    const rideId = await this.redis.get(keys.driverRide(driverId));
+    if (rideId) {
+      // distance driven, kept apart for the way to the pickup and the trip itself
+      await this.tracking.record(driverId, rideId, valid.map((p) => ({ lat: p.lat, lng: p.lng, atMs: p.recordedAt.getTime(), accuracyM: p.accuracyM })));
       await this.pool.query(
         `INSERT INTO driver_location_points (driver_id, recorded_at, location, accuracy_m, speed_kmh)
          SELECT $1, t.ts, ST_SetSRID(ST_MakePoint(t.lng, t.lat), 4326)::geography, t.acc, t.spd

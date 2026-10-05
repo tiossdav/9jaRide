@@ -3,6 +3,7 @@ import Redis from 'ioredis';
 import { Pool } from 'pg';
 import { PG_POOL, REDIS } from '../common/infra.module';
 import { DispatchService } from '../dispatch/dispatch.service';
+import { TrackingService } from './tracking.service';
 import { Category, keys } from '../dispatch/dispatch.types';
 import { PromoService } from '../promo/promo.service';
 import { SettingsService } from '../settings/settings.service';
@@ -46,6 +47,7 @@ export class RidesService {
     private readonly ledger: LedgerService,
     private readonly promo: PromoService,
     private readonly settings: SettingsService,
+    private readonly tracking: TrackingService,
   ) {}
 
   async checkPromo(riderId: string, code: string, category: Category, trip: { distanceM: number; durationS: number }) {
@@ -132,6 +134,8 @@ export class RidesService {
       distanceM: r.fare_distance_m ?? null,
       durationS: r.fare_duration_s ?? null,
       myRating: r.my_stars ?? null,
+      // distance the driver really drove (from GPS), apart for the way to the pickup and the trip; final once the trip is done
+      tracking: await this.tracking.progress(r.id),
       scheduledFor: r.scheduled_for,
       scheduleId: r.schedule_id,
       cancelReason: r.cancel_reason,
@@ -149,7 +153,7 @@ export class RidesService {
   }
 
   /** Where the rider's driver is right now, from the live position the driver app sends. Null when there is none to show. */
-  async driverPosition(me: Principal, rideId: string): Promise<{ lat: number; lng: number; at: number } | null> {
+  async driverPosition(me: Principal, rideId: string) {
     const { rows } = await this.pool.query(
       `SELECT driver_id, status FROM rides WHERE id = $1 AND rider_id = $2`,
       [rideId, me.id],
@@ -159,7 +163,7 @@ export class RidesService {
     if (!ride.driver_id || !['DRIVER_ASSIGNED', 'DRIVER_ARRIVED', 'TRIP_STARTED'].includes(ride.status)) return null;
     const state = await this.redis.hgetall(keys.driverState(ride.driver_id));
     if (!state.lat || !state.lng) return null;
-    return { lat: Number(state.lat), lng: Number(state.lng), at: Number(state.at) };
+    return { lat: Number(state.lat), lng: Number(state.lng), at: Number(state.at), ...(await this.tracking.progress(rideId)) };
   }
 
   /** The rider's rides, newest first. `scope=active` is the ones still in progress; `history` is everything else. */
@@ -262,6 +266,7 @@ export class RidesService {
     const { rows } = await this.pool.query(`SELECT 1 FROM rides WHERE id = $1 AND driver_id = $2`, [rideId, driverId]);
     if (!rows[0]) throw new NotFoundException('ride not found');
     const fare = await this.settlement.settleCompletedTrip(rideId, measured);
+    await this.tracking.finish(rideId).catch((e) => this.log.error(`could not close tracking for ${rideId}: ${e}`));
     const earnings = await this.driverEarnings(rideId, fare.totalKobo, fare.taxKobo);
     // Free the driver for matching again; their next ping puts them back on the map.
     await this.redis.del(keys.driverState(driverId), keys.driverRide(driverId));
@@ -345,6 +350,7 @@ export class RidesService {
       rideId: r.id, code: r.short_code, status: r.status, category: r.category_label ?? r.category, paymentMethod: r.payment_method,
       pickup: { lat: r.plat, lng: r.plng, address: r.pickup_address }, dropoff: { lat: r.dlat, lng: r.dlng, address: r.dropoff_address },
       expectedKobo: r.expected_kobo == null ? null : Number(r.expected_kobo), rider: { name: String(r.rider_name).split(' ')[0], phone: r.rider_phone },
+      tracking: await this.tracking.progress(r.id),
     };
   }
 
