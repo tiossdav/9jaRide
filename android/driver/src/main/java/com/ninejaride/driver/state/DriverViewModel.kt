@@ -190,9 +190,11 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Shown at the top of whatever comes next, with no button to press. */
     var toast by mutableStateOf<Pair<String, String>?>(null)
+    /** True for a notice about something that went wrong: it gets a warning icon, not a tick. */
+    var toastWarn by mutableStateOf(false)
 
     private fun signedIn() {
-        toast = "Sign in successful" to "You have signed in to your account."
+        toastWarn = false; toast = "Sign in successful" to "You have signed in to your account."
         finishSignIn()
     }
 
@@ -443,7 +445,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 api.acceptAgreement(if (a?.canChange == true && pct != null) Math.round(pct * 100).toInt() else null)
                 api.completeSettlement()
-                toast = "Agreement accepted" to "You are ready to go online."
+                toastWarn = false; toast = "Agreement accepted" to "You are ready to go online."
                 loadAccount()
                 reset(Dest.LocationPermission)
             } catch (e: ApiException) { settleError = if (e.status >= 500) "We could not save that. Please try again." else e.message } finally { settling = false }
@@ -865,7 +867,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         offerJob?.cancel()
         if (!demo) {
             // With a real server, "online" means the service is sharing the phone's position. No permission, no online.
-            if (on && !LocationService.start(getApplication())) { online = false; dialog = Dialog.LocationDenied; return }
+            if (on && !LocationService.start(getApplication(), takeOver = true)) { online = false; dialog = Dialog.LocationDenied; return }
             if (on) viewModelScope.launch { runCatching { api.claimOnline() } } // this phone takes over from any other with the account
             if (!on) { LocationService.stop(getApplication()); viewModelScope.launch { runCatching { api.releaseOnline() } } }
             if (on) stopDeviceLocation()
@@ -982,7 +984,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     private var pollJob: Job? = null
     private var tripStartedPoint: MapPoint? = null
 
-    private fun say(title: String, text: String) { toast = title to text }
+    private fun say(title: String, text: String) { toastWarn = true; toast = title to text }
 
     /** While online: pick up a ride already in progress, then keep asking the server for offers and watching the ride. */
     private fun startRealRideLoop() {

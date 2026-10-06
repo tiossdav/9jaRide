@@ -219,6 +219,12 @@ class LocationService : Service() {
             } catch (e: ApiException) {
                 failures++
                 // These are not hiccups: the server has said this phone cannot be online, so stop and say why rather than look online.
+                // Just after the driver tapped "go online" the phone's takeover may not have reached the server before this report did.
+                // Claim again, once, and carry on: the driver asked for this phone to be the online one.
+                if (e.code == "other_device" && System.currentTimeMillis() < takeOverUntil) {
+                    runCatching { api.call("POST", "/driver/online", "{}", auth = true) }
+                    continue
+                }
                 if (e.code in STOP_CODES || e.status == 403) { stopBecause(e.message); return }
                 LocationStatus.problem = when {
                     e.isNetwork -> "No connection. Your location will be sent when you are back online."
@@ -294,6 +300,8 @@ class LocationService : Service() {
         private const val ACTION_STOP = "com.ninejaride.driver.STOP_LOCATION"
         private const val IDLE_UPLOAD_EVERY_MS = 15_000L // waiting for a booking: the server counts a driver online for 45 s after a report
         private const val TRIP_UPLOAD_EVERY_MS = 5_000L  // on a trip: the rider is watching the car move
+        /** Until this moment (set when the driver taps "go online"), being refused as "online on another phone" means: claim again. */
+        @Volatile private var takeOverUntil = 0L
         private val STOP_CODES = setOf("other_device", "no_active_vehicle", "agreement_pending")
         private const val ACTION_MODE = "com.ninejaride.driver.LOCATION_MODE"
         private const val BATCH = 100
@@ -316,8 +324,9 @@ class LocationService : Service() {
         fun isOnline(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("online", false)
 
         /** Remembers that the driver is online, then starts sharing. Returns false if location permission is missing. */
-        fun start(context: Context): Boolean {
+        fun start(context: Context, takeOver: Boolean = false): Boolean {
             if (!hasLocationPermission(context)) return false
+            if (takeOver) takeOverUntil = System.currentTimeMillis() + 20_000L
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("online", true).apply()
             ContextCompat.startForegroundService(context, Intent(context, LocationService::class.java))
             return true

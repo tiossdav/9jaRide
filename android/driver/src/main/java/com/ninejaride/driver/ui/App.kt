@@ -124,7 +124,7 @@ fun App(vm: DriverViewModel = viewModel()) {
         if (vm.phase != Phase.None) {
             Box(Modifier.fillMaxSize().background(C.Bg)) { RideFlow(vm) }
         }
-        vm.toast?.let { com.ninejaride.core.ui.components.TopToast(it.first, it.second) }
+        vm.toast?.let { com.ninejaride.core.ui.components.TopToast(it.first, it.second, warning = vm.toastWarn) }
         vm.pendingConfirm?.let { com.ninejaride.core.ui.components.ConfirmSheet(it) { vm.pendingConfirm = null } }
     }
 }

@@ -396,14 +396,14 @@ fun ConfirmSheet(request: ConfirmRequest, onDismiss: () -> Unit) {
 
 /** A notification that slides in at the top, needs no tap, and is cleared by its owner after a few seconds. */
 @Composable
-fun TopToast(title: String, text: String) {
+fun TopToast(title: String, text: String, warning: Boolean = false) {
     Box(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
         Row(
             Modifier.fillMaxWidth().shadow(10.dp, RoundedCornerShape(18.dp)).clip(RoundedCornerShape(18.dp)).background(C.Surface)
                 .border(BorderStroke(1.dp, C.Border), RoundedCornerShape(18.dp)).padding(14.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Box(Modifier.size(38.dp).clip(CircleShape).background(C.GreenAccent), contentAlignment = Alignment.Center) { Icon24(Ic.Check, Color.White, 20.dp, 2.6f) }
+            Box(Modifier.size(38.dp).clip(CircleShape).background(if (warning) C.Orange else C.GreenAccent), contentAlignment = Alignment.Center) { if (warning) Icon24(Ic.Warning, Color.White, 20.dp, 2.2f) else Icon24(Ic.Check, Color.White, 20.dp, 2.6f) }
             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) { Txt(title, 15f, 800); Txt(text, 12.5f, 500, C.Muted) }
         }
     }
