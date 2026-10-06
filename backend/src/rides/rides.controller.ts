@@ -8,6 +8,7 @@ import { StaffAuditInterceptor } from '../common/audit.interceptor';
 import { AssetTypesService } from '../catalog/asset-types.service';
 import { IdempotencyKey } from '../common/idempotency-key';
 import { ChatService } from './chat.service';
+import { ExtensionsService } from './extensions.service';
 import { LocationService, MAX_BATCH } from './location.service';
 import { RidesService } from './rides.service';
 import { ScheduledRidesService } from './scheduled-rides.service';
@@ -78,6 +79,18 @@ class ReadDto {
   @IsInt() @Min(0) upTo!: number;
 }
 
+class ExtensionDto {
+  @IsNumber() @Min(-90) @Max(90) lat!: number;
+  @IsNumber() @Min(-180) @Max(180) lng!: number;
+  @IsOptional() @IsString() @MaxLength(200) address?: string;
+  @IsInt() @Min(1) @Max(500_000) distanceM!: number;
+  @IsInt() @Min(0) @Max(86_400) durationS!: number;
+}
+
+class ExtensionAnswerDto {
+  @IsOptional() @IsString() @MaxLength(200) reason?: string;
+}
+
 class ListQuery {
   @IsOptional() @IsIn(['active', 'history']) scope?: 'active' | 'history';
 }
@@ -114,6 +127,8 @@ class CompleteDto {
 const cleanDevice = (v?: string): string | undefined => (v && /^[A-Za-z0-9-]{8,64}$/.test(v) ? v : undefined);
 
 class WaitQuery {
+  /** The extensionVersion the app already shows: the held answer is also released when an extension is asked or answered. */
+  @IsOptional() @IsString() @MaxLength(80) ext?: string;
   @IsOptional() @IsString() @MaxLength(40) waitFor?: string;
   /** How long the server may hold the answer, in seconds. Capped at 25 so connections never sit open for long. */
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(25) wait?: number;
@@ -127,6 +142,7 @@ export class RidesController {
     private readonly scheduled: ScheduledRidesService,
     private readonly assetTypes: AssetTypesService,
     private readonly chat: ChatService,
+    private readonly extensions: ExtensionsService,
   ) {}
 
   // ------------------------------------------------------------------ rider
@@ -191,6 +207,29 @@ export class RidesController {
 
   // ------------------------------------------------------------------ chat between the rider and driver of a ride
 
+  // ------------------------------------------------------------------ going further than the booked destination
+
+  /** Either side proposes a new destination; the other is asked. Only one question is open at a time. */
+  @Roles('rider', 'driver') @Post('rides/:id/extension') @HttpCode(200)
+  askExtension(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ExtensionDto) {
+    return this.extensions.request(me.id, id, dto);
+  }
+
+  @Roles('rider', 'driver') @Post('rides/:id/extension/:extId/accept') @HttpCode(200)
+  acceptExtension(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Param('extId', ParseUUIDPipe) extId: string) {
+    return this.extensions.respond(me.id, id, extId, true);
+  }
+
+  @Roles('rider', 'driver') @Post('rides/:id/extension/:extId/decline') @HttpCode(200)
+  declineExtension(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Param('extId', ParseUUIDPipe) extId: string, @Body() dto: ExtensionAnswerDto) {
+    return this.extensions.respond(me.id, id, extId, false, dto.reason);
+  }
+
+  @Roles('rider', 'driver') @Post('rides/:id/extension/:extId/withdraw') @HttpCode(200)
+  withdrawExtension(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Param('extId', ParseUUIDPipe) extId: string) {
+    return this.extensions.withdraw(me.id, id, extId);
+  }
+
   /** Messages after `after`; with `wait` the answer is held until a new one arrives. Only this ride's rider and driver may read. */
   @Roles('rider', 'driver') @Get('rides/:id/messages')
   messages(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Query() q: MessagesQuery) {
@@ -221,7 +260,7 @@ export class RidesController {
   async get(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Query() q: WaitQuery) {
     const first = await this.rides.get(me, id); // also checks this person may see the ride
     if (!q.waitFor || first.status !== q.waitFor) return first;
-    const changed = await this.rides.waitForStatusChange(id, q.waitFor, q.wait ?? 20);
+    const changed = await this.rides.waitForStatusChange(id, q.waitFor, q.wait ?? 20, q.ext);
     return changed ? this.rides.get(me, id) : first;
   }
 

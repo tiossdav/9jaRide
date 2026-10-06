@@ -149,6 +149,24 @@ export class LedgerService {
     await client.query(`UPDATE rides SET payment_status = 'HELD', updated_at = now() WHERE id = $1`, [rideId]);
   }
 
+  /**
+   * Raises the money held for a trip by [extra] (the trip was extended). Fails with InsufficientFundsError when the wallet cannot
+   * cover it, in which case nothing changes. A ride that has no active hold (paid in cash) is left alone.
+   */
+  async extendHold(client: PoolClient, riderId: string, rideId: string, extra: number): Promise<void> {
+    assertKobo(extra, 'hold');
+    const code = walletCode(riderId);
+    await client.query(`SELECT 1 FROM ledger_accounts WHERE code = $1 FOR UPDATE`, [code]);
+    const available = await this.availableKobo(client, code);
+    if (available < extra) throw new InsufficientFundsError(code, available, extra);
+    await client.query(`UPDATE wallet_holds SET amount_kobo = amount_kobo + $2 WHERE ride_id = $1 AND status = 'ACTIVE'`, [rideId, extra]);
+  }
+
+  /** Can this wallet cover [extra] more on top of what is already held? Nothing is changed. */
+  async canHold(client: PoolClient, riderId: string, extra: number): Promise<boolean> {
+    return (await this.availableKobo(client, walletCode(riderId))) >= extra;
+  }
+
   async releaseHold(client: PoolClient, rideId: string): Promise<void> {
     await client.query(`UPDATE wallet_holds SET status = 'RELEASED' WHERE ride_id = $1 AND status = 'ACTIVE'`, [rideId]);
   }

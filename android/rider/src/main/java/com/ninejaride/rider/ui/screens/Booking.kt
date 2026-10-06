@@ -233,17 +233,19 @@ fun WhereToScreen(vm: RiderViewModel) {
             AddressInput("Drop-off", vm.dropoffText, vm.activeField == 1, "Where to?", C.Orange, { vm.onFieldText(1, it) }, dropFocus)
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 36.dp)) {
-            if (vm.activeField == 0 && vm.location.point != null) {
-                PlaceRow("Use my current location", null) {
+            if (vm.location.point != null) {
+                PlaceRow("Use my current location", "Where you are right now") {
                     val p = vm.location.point!!
                     vm.choosePlace(com.ninejaride.core.data.Place("Current location", p))
                 }
             }
-            PlaceRow("Set ${if (vm.activeField == 0) "pickup" else "drop-off"} on map", "Move the map to place the pin") { vm.mapPinAddress = null; vm.push(Dest.SetOnMap) }
+            PlaceRow("Set ${if (vm.activeField == 0) "pickup" else "drop-off"} on map", "Move the map to place the pin") { vm.mapPinAddress = null; vm.previewStart = null; vm.push(Dest.SetOnMap) }
             if (vm.searching) Txt("Searching...", 13f, 500, C.Muted, Modifier.padding(vertical = 12.dp))
+            if (vm.suggestions.isNotEmpty()) Txt(if (vm.location.point != null) "NEARBY RESULTS" else "RESULTS", 11f, 700, C.Muted, Modifier.padding(top = 14.dp, bottom = 2.dp), letterSpacing = 1.2f)
             vm.suggestions.forEach { p ->
                 val parts = p.address.split(", ")
-                PlaceRow(parts.first(), parts.drop(1).joinToString(", ").ifEmpty { null }) { vm.choosePlace(p) }
+                val away = p.distanceKm?.let { if (it < 1) "${(it * 1000).toInt().coerceAtLeast(50) / 10 * 10} m away" else "${"%.1f".format(it)} km away" }
+                PlaceRow(parts.first(), (listOf(parts.drop(1).joinToString(", ")) + listOfNotNull(away)).filter { it.isNotEmpty() }.joinToString("  ·  ").ifEmpty { null }) { vm.previewPlace(p) }
             }
             if (!vm.searching && vm.suggestions.isEmpty() && (if (vm.activeField == 0) vm.pickupText else vm.dropoffText).length >= 3 && (if (vm.activeField == 0) vm.pickup else vm.dropoff) == null) {
                 Txt("No places found. Try another spelling, or set it on the map.", 13f, 500, C.Muted, Modifier.padding(vertical = 12.dp))
@@ -254,16 +256,19 @@ fun WhereToScreen(vm: RiderViewModel) {
 
 @Composable
 fun SetOnMapScreen(vm: RiderViewModel) {
-    val start = (if (vm.activeField == 0) vm.pickup?.point else vm.dropoff?.point) ?: vm.location.point ?: IBADAN
+    val start = vm.previewStart ?: (if (vm.activeField == 0) vm.pickup?.point else vm.dropoff?.point) ?: vm.location.point ?: IBADAN
     Box(Modifier.fillMaxSize()) {
         MapPanel(Modifier.fillMaxSize(), center = start, interactive = true, onCenterChange = vm::onMapMoved)
         // the pin stays in the middle while the map moves under it
         Box(Modifier.align(Alignment.Center).padding(bottom = 30.dp)) { Icon24(Ic.Pin, if (vm.activeField == 0) C.Green else C.Orange, 44.dp, 2.2f) }
-        Box(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(16.dp)) { CircleIconButton(Ic.Back, "Back", vm::pop) }
+        Box(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(16.dp)) { CircleIconButton(Ic.Back, "Back", { vm.previewStart = null; vm.pop() }) }
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp)) {
             Card {
                 Txt(if (vm.activeField == 0) "PICKUP" else "DROP-OFF", 11f, 500, C.Muted, letterSpacing = 1f)
-                Txt(vm.mapPinAddress ?: "Move the map to choose a spot", 15f, 700, maxLines = 2)
+                val shown = vm.mapPinAddress
+                Txt(shown?.substringBefore(", ") ?: "Move the map to choose a spot", 16f, 800, maxLines = 2)
+                shown?.substringAfter(", ", "")?.ifEmpty { null }?.let { Txt(it, 12.5f, 500, C.Muted, maxLines = 2) }
+                Txt("Move the map to adjust the pin.", 11.5f, 500, C.Faint)
                 Gap(8.dp)
                 Btn("Confirm location", vm::confirmMapPin, Modifier.fillMaxWidth(), enabled = vm.mapPinAddress != null)
             }

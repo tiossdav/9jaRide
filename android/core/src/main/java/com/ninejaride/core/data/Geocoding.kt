@@ -2,6 +2,7 @@ package com.ninejaride.core.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -14,7 +15,7 @@ import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 /** A place the rider can pick: the words shown, and where it is. */
-data class Place(val address: String, val point: MapPoint)
+data class Place(val address: String, val point: MapPoint, /** How far from the person who searched, when known. */ val distanceKm: Double? = null)
 
 /**
  * Turns words into places and places into words, using OpenStreetMap's Nominatim.
@@ -37,8 +38,28 @@ object Geocoding {
         null
     }
 
-    /** Shortens "Iwo Road, Ward 3, Ibadan North, Oyo, 200001, Nigeria" to the first three parts a person would say. */
-    private fun short(display: String): String = display.split(",").map { it.trim() }.filter { it.isNotEmpty() && it != "Nigeria" && !it.all { c -> c.isDigit() } }.take(3).joinToString(", ")
+    /**
+     * Shortens "Ikeja City Mall, 1, Obafemi Awolowo Way, Ikeja, Lagos, 100271, Nigeria" to what a person would say:
+     * the name, the street, then the area and the state, so the city is never lost.
+     */
+    private fun short(display: String): String {
+        val parts = display.split(",").map { it.trim() }.filter { it.isNotEmpty() && it != "Nigeria" && !it.all { c -> c.isDigit() } }
+        if (parts.size <= 3) return parts.joinToString(", ")
+        return (parts.take(2) + parts.takeLast(2)).distinct().joinToString(", ")
+    }
+
+    /** Names Nigerians use that map data does not: the search is made with the full name instead. */
+    private val ALIASES = mapOf(
+        "vi" to "Victoria Island, Lagos", "v.i" to "Victoria Island, Lagos", "mm2" to "Murtala Muhammed Airport Terminal 2, Lagos", "mma" to "Murtala Muhammed International Airport, Lagos",
+        "unilag" to "University of Lagos, Akoka", "lasu" to "Lagos State University, Ojo", "yaba tech" to "Yaba College of Technology", "oau" to "Obafemi Awolowo University, Ile-Ife",
+        "ui" to "University of Ibadan", "uniben" to "University of Benin", "unn" to "University of Nigeria, Nsukka", "abu" to "Ahmadu Bello University, Zaria",
+        "unical" to "University of Calabar", "uniport" to "University of Port Harcourt", "futa" to "Federal University of Technology, Akure", "lekki phase1" to "Lekki Phase 1, Lagos",
+        "cbd" to "Central Business District, Abuja", "nnamdi azikiwe airport" to "Nnamdi Azikiwe International Airport, Abuja", "third mainland" to "Third Mainland Bridge, Lagos",
+    )
+    private fun expand(q: String): String = ALIASES[q.trim().lowercase()] ?: q
+
+    /** Within this many kilometres a result counts as "around the rider": the same city and its neighbours. */
+    private const val LOCAL_KM = 60.0
 
     /** Mapbox search: places and addresses in Nigeria, nearest to [near] first. Null when it did not work (the free service is tried next). */
     private fun mapboxSearch(query: String, near: MapPoint?): List<Place>? {
@@ -60,23 +81,55 @@ object Geocoding {
         }
 
     /**
-     * Places matching [query] in Nigeria, nearest to [near] first when given. With Mapbox, both are asked at once and merged:
-     * OpenStreetMap knows the landmarks (malls, airports, shops) and Mapbox the streets and addresses.
+     * Places matching [query] in Nigeria. Results around [near] (the rider's own city first, the nearest first) come before anything
+     * far away, so a rider in Lagos never sees an Abuja place with a similar name above a Lagos one. Faraway results only fill what is left.
      */
     suspend fun search(query: String, near: MapPoint?): List<Place> = withContext(Dispatchers.IO) {
-        if (!fast) return@withContext osmSearch(query, near)
-        val streets = async { mapboxSearch(query, near).orEmpty() }
-        val landmarks = async { osmSearch(query, near) }
-        (landmarks.await() + streets.await()).distinctBy { it.address.lowercase() }.take(8)
+        val q = expand(query.trim())
+        val found = coroutineScope {
+            val streets = async { if (fast) mapboxSearch(q, near).orEmpty() else emptyList() }
+            val landmarks = async {
+                // first only what lies around the rider; the whole country is asked only if that gave too little
+                val local = if (near != null) osmSearch(q, near, bounded = true) else emptyList()
+                if (local.size >= 4) local else (local + osmSearch(q, near, bounded = false))
+            }
+            landmarks.await() + streets.await()
+        }
+        rank(q, found.distinctBy { it.address.lowercase() }, near).take(8)
     }
 
-    private fun osmSearch(query: String, near: MapPoint?): List<Place> {
+    /** Local results first, best name match then nearest; faraway ones after, in the order the service gave them. */
+    internal fun rank(query: String, places: List<Place>, near: MapPoint?): List<Place> {
+        if (near == null) return places
+        val withDistance = places.map { it.copy(distanceKm = Routing.haversineKm(near, it.point)) }
+        val (local, far) = withDistance.partition { it.distanceKm!! <= LOCAL_KM }
+        val words = query.lowercase().split(" ").filter { it.length > 1 }
+        fun nameScore(p: Place): Double {
+            val title = p.address.substringBefore(",").lowercase()
+            return when {
+                title == query.lowercase() -> 30.0 // typed exactly what the place is called
+                title.startsWith(query.lowercase()) -> 15.0
+                words.isNotEmpty() && words.all { title.contains(it) } -> 8.0
+                else -> 0.0
+            }
+        }
+        val nearDeduped = local.sortedBy { it.distanceKm!! - nameScore(it) }.fold(mutableListOf<Place>()) { acc, p ->
+            // the same place found by both services, a few metres apart
+            if (acc.none { Routing.haversineKm(it.point, p.point) < 0.08 && it.address.substringBefore(",").equals(p.address.substringBefore(","), true) }) acc += p
+            acc
+        }
+        return nearDeduped + far
+    }
+
+    private fun osmSearch(query: String, near: MapPoint?, bounded: Boolean = false): List<Place> {
         val url = "https://nominatim.openstreetmap.org/search".toHttpUrl().newBuilder()
             .addQueryParameter("q", query).addQueryParameter("format", "jsonv2").addQueryParameter("countrycodes", "ng")
             .addQueryParameter("limit", "6").addQueryParameter("addressdetails", "0")
             .apply {
-                if (near != null) { // a soft preference for results around the rider, not a hard limit
-                    addQueryParameter("viewbox", "${near.lng - 0.4},${near.lat + 0.4},${near.lng + 0.4},${near.lat - 0.4}")
+                if (near != null) { // around the rider: a preference, or the only place to look when bounded
+                    val d = if (bounded) 0.5 else 0.4
+                    addQueryParameter("viewbox", "${near.lng - d},${near.lat + d},${near.lng + d},${near.lat - d}")
+                    if (bounded) addQueryParameter("bounded", "1")
                 }
             }.build().toString()
         val body = get(url) ?: return emptyList()

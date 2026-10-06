@@ -70,6 +70,11 @@ fun RideOverlay(vm: RiderViewModel) {
         com.ninejaride.core.ui.components.ChatScreen(vm.chat, "Chat with ${r.driver?.name?.substringBefore(' ') ?: "your driver"}", "driver") { vm.chatOpen = false }
         return
     }
+    if (vm.extension.picking) {
+        androidx.activity.compose.BackHandler { vm.extension.picking = false }
+        com.ninejaride.core.ui.components.ExtendTripPicker(vm.extension, r.dropoff, r.dropoffAddress ?: "your destination", vm.location.point ?: vm.driverPoint) { vm.extension.picking = false }
+        return
+    }
     Box(Modifier.fillMaxSize().background(C.Bg)) {
         val markers = buildList {
             add(MapMarker(r.pickup, MarkerKind.Pickup))
@@ -95,6 +100,7 @@ fun RideOverlay(vm: RiderViewModel) {
             }
         }
         if (vm.sosOpen) SosOverlay(vm)
+        if (r.status == "TRIP_STARTED") com.ninejaride.core.ui.components.ExtensionLayer(vm.extension, "rider", r.driver?.name?.substringBefore(' ') ?: "Your driver", onChat = { vm.chatOpen = true })
     }
     when (vm.dialog) {
         Dialog.CancelRide -> CancelSheet(vm)
@@ -182,6 +188,7 @@ private fun DriverCard(vm: RiderViewModel, r: RideView, title: String, subtitle:
             }
             CommButton("Chat", Ic.Chat, vm.chat.unread, Modifier.weight(1f)) { vm.chatOpen = true }
         }
+        if (r.status == "TRIP_STARTED") { Gap(8.dp); com.ninejaride.core.ui.components.ExtendTripButton(vm.extension, Modifier.fillMaxWidth()) }
         Gap(12.dp)
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Raised).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {

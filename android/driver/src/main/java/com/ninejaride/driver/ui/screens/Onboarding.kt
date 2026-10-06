@@ -80,6 +80,7 @@ private fun heading(vm: DriverViewModel) = when (vm.applyStep) {
 @Composable
 fun ApplyScreen(vm: DriverViewModel) {
     val step = vm.applyStep
+    val pics = rememberPictureSource(vm)
     // the phone's Back button goes to the step before, like the arrow at the top, instead of leaving the application
     androidx.activity.compose.BackHandler(enabled = vm.dialog == null && !vm.applying) { vm.applyBack() }
     Column(Modifier.fillMaxSize().background(C.Bg).imePadding()) {
@@ -103,7 +104,7 @@ fun ApplyScreen(vm: DriverViewModel) {
                         helper = "We check this number for you. There is no card photo to upload.")
                     InputField("LASSDRI number (Lagos State)", vm.lassdri, edit { vm.lassdri = it.uppercase() }, "Your LASSDRI card number")
                     InputField("Email address", vm.email, edit { vm.email = it.trim() }, "you@example.com", KeyboardType.Email)
-                    DriverPhoto(vm)
+                    DriverPhoto(vm, pics)
                     Txt("HOW SHOULD WE REACH YOU ABOUT YOUR APPLICATION?", 11f, 500, C.Muted, letterSpacing = 1f)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         PillChoice("WhatsApp", vm.contactPreference == "whatsapp", { vm.contactPreference = "whatsapp" }, Modifier.weight(1f))
@@ -140,7 +141,7 @@ fun ApplyScreen(vm: DriverViewModel) {
                             helper = "This share comes off each trip you earn and goes to the owner, like a regular repayment. You can change it later.")
                     }
                 }
-                else -> DocumentsStep(vm)
+                else -> DocumentsStep(vm, pics)
             }
             vm.applyError?.let { Txt(it, 13f, 600, C.Red) }
         }
@@ -153,27 +154,38 @@ fun ApplyScreen(vm: DriverViewModel) {
     }
 }
 
+/** The two ways of getting a picture in: the camera, and the phone's gallery. Made once for the whole application. */
+class PictureSource(val camera: (kind: String) -> Unit, val gallery: (kind: String) -> Unit)
+
 /**
- * Opens the camera and hands back the picture. Onboarding photos are taken on the spot (no gallery), so what staff see is the
- * real person, document and vehicle. Pass the result to [onPhoto]; call the returned function to open the camera.
+ * One camera and one gallery for the whole application, always present while the application is on screen, so a picture that
+ * comes back after Android closed or recreated the app still finds its way (the document it is for is kept on the phone).
  */
 @Composable
-private fun rememberCamera(onPhoto: (android.net.Uri) -> Unit): () -> Unit {
+private fun rememberPictureSource(vm: DriverViewModel): PictureSource {
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    var taken by remember { mutableStateOf<android.net.Uri?>(null) }
-    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) taken?.let(onPhoto) }
-    return {
-        val dir = java.io.File(ctx.cacheDir, "photos").apply { mkdirs() }
-        val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", java.io.File(dir, "shot_${System.currentTimeMillis()}.jpg"))
-        taken = uri
-        camera.launch(uri)
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) vm.pictureArrived() else vm.pictureCancelled() }
+    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> if (uri != null) vm.pictureArrived(uri) else vm.pictureCancelled() }
+    return remember(camera, gallery) {
+        PictureSource(
+            camera = { kind ->
+                val dir = java.io.File(ctx.cacheDir, "photos").apply { mkdirs() }
+                val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", java.io.File(dir, "shot_${System.currentTimeMillis()}.jpg"))
+                vm.expectPicture(kind, uri.toString())
+                camera.launch(uri)
+            },
+            gallery = { kind -> vm.expectPicture(kind); gallery.launch("image/*") },
+        )
     }
 }
 
+/** Documents that must be photographed on the spot: the driver's own face and the car. Everything else may also come from the gallery. */
+private val CAMERA_ONLY = setOf("selfie", "vehicle_photo")
+
 /** The driver's own photo, taken with the camera. Riders see it when the driver is on the way. */
 @Composable
-private fun DriverPhoto(vm: DriverViewModel) {
-    val takePhoto = rememberCamera { vm.uploadDocument("selfie", it) }
+private fun DriverPhoto(vm: DriverViewModel, pics: PictureSource) {
+    val takePhoto = { pics.camera("selfie") }
     val has = vm.uploads["selfie"] != null
     Txt("YOUR PHOTO", 11f, 500, C.Muted, letterSpacing = 1f)
     Card {
@@ -194,10 +206,8 @@ private fun DriverPhoto(vm: DriverViewModel) {
 }
 
 @Composable
-private fun DocumentsStep(vm: DriverViewModel) {
-    var pending by remember { mutableStateOf<String?>(null) }
-    val camera = rememberCamera { uri -> pending?.let { vm.uploadDocument(it, uri) }; pending = null }
-    Txt("Take a clear photo of each document with your camera. Make sure the details can be read.", 13.5f, 500, C.Muted)
+private fun DocumentsStep(vm: DriverViewModel, pics: PictureSource) {
+    Txt("Take a clear photo of each document, or choose one from your gallery. The photo of the car must be taken with the camera. Make sure the details can be read.", 13.5f, 500, C.Muted)
     fun clear(set: (String) -> Unit): (String) -> Unit = { set(it); vm.applyError = null }
     // when staff asked for specific documents, only those are shown
     vm.neededDocuments().filter { !vm.updateMode || it in vm.updateItems }.forEach { kind ->
@@ -217,16 +227,21 @@ private fun DocumentsStep(vm: DriverViewModel) {
                     InputField("Policy number", vm.insuranceNumber, clear { vm.insuranceNumber = it }, "Policy number")
                     Gap(8.dp); DateField("Expiry date", vm.insuranceExpiry, { vm.insuranceExpiry = it; vm.applyError = null }, earliest = java.time.LocalDate.now().plusDays(1), opensAt = java.time.LocalDate.now().plusYears(1))
                 }
-                "inspection_certificate" -> DateField("Expiry date", vm.inspectionExpiry, { vm.inspectionExpiry = it; vm.applyError = null }, earliest = java.time.LocalDate.now().plusDays(1), opensAt = java.time.LocalDate.now().plusYears(1))
                 "lassdri" -> Txt("Both sides of your LASSDRI card.", 12.5f, 500, C.Muted)
-                "vehicle_photo" -> Txt("A clear photo of the car showing the plate number.", 12.5f, 500, C.Muted)
+                "vehicle_photo" -> Txt("A clear photo of the car showing the plate number. It must be taken with the camera.", 12.5f, 500, C.Muted)
             }
             Gap(10.dp)
-            Btn(
-                if (vm.uploading == kind) "Uploading..." else if (done) "Retake photo" else "Take photo",
-                { pending = kind; camera() }, Modifier.fillMaxWidth(), kind = if (done) BtnKind.Outline else BtnKind.Primary,
-                enabled = vm.uploading == null, height = 46.dp, size = 14.5f,
-            )
+            val busy = vm.uploading != null
+            if (kind in CAMERA_ONLY) {
+                Btn(if (vm.uploading == kind) "Uploading..." else if (done) "Retake photo" else "Take photo", { pics.camera(kind) }, Modifier.fillMaxWidth(),
+                    kind = if (done) BtnKind.Outline else BtnKind.Primary, enabled = !busy, height = 46.dp, size = 14.5f)
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Btn(if (vm.uploading == kind) "Uploading..." else if (done) "Retake" else "Take photo", { pics.camera(kind) }, Modifier.weight(1f),
+                        kind = if (done) BtnKind.Outline else BtnKind.Primary, enabled = !busy, height = 46.dp, size = 14f)
+                    Btn("From gallery", { pics.gallery(kind) }, Modifier.weight(1f), kind = BtnKind.Outline, enabled = !busy, height = 46.dp, size = 14f)
+                }
+            }
         }
     }
 }

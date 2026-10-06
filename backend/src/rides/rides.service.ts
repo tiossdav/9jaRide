@@ -4,6 +4,7 @@ import { Pool } from 'pg';
 import { PG_POOL, REDIS } from '../common/infra.module';
 import { DispatchService } from '../dispatch/dispatch.service';
 import { ChatService } from './chat.service';
+import { ExtensionsService } from './extensions.service';
 import { TrackingService } from './tracking.service';
 import { Category, keys } from '../dispatch/dispatch.types';
 import { PromoService } from '../promo/promo.service';
@@ -50,6 +51,7 @@ export class RidesService {
     private readonly settings: SettingsService,
     private readonly tracking: TrackingService,
     private readonly chat: ChatService,
+    private readonly extensions: ExtensionsService,
   ) {}
 
   async checkPromo(riderId: string, code: string, category: Category, trip: { distanceM: number; durationS: number }) {
@@ -102,7 +104,7 @@ export class RidesService {
               d.phone AS driver_phone,
               (SELECT round(avg(x.stars)::numeric, 1) FROM ride_ratings x JOIN rides xr ON xr.id = x.ride_id WHERE x.direction = 'rider_to_driver' AND xr.driver_id = r.driver_id) AS driver_rating,
               (SELECT h.created_at FROM ride_status_history h WHERE h.ride_id = r.id ORDER BY h.id DESC LIMIT 1) AS status_changed_at,
-              q.low_kobo, q.high_kobo, f.total_kobo, r.promo_discount_kobo, pc.code AS promo_code, f.distance_m AS fare_distance_m, f.duration_s AS fare_duration_s, rr.stars AS my_stars
+              q.low_kobo, q.high_kobo, q.expected_kobo, f.total_kobo, r.promo_discount_kobo, pc.code AS promo_code, f.distance_m AS fare_distance_m, f.duration_s AS fare_duration_s, rr.stars AS my_stars
          FROM rides r
          LEFT JOIN users d ON d.id = r.driver_id
          LEFT JOIN vehicles v ON v.driver_id = r.driver_id AND v.active
@@ -115,6 +117,8 @@ export class RidesService {
     );
     const r = rows[0];
     if (!r) throw new NotFoundException('ride not found');
+    const extensions = await this.extensions.list(r.id, me.id);
+    const extra = await this.extensions.acceptedKobo(r.id);
     return {
       id: r.id,
       shortCode: r.short_code,
@@ -127,8 +131,13 @@ export class RidesService {
       createdAt: r.created_at,
       pickupAddress: r.pickup_address,
       dropoffAddress: r.dropoff_address,
-      estimate: r.low_kobo == null ? null : { lowKobo: Number(r.low_kobo), highKobo: Number(r.high_kobo) },
+      // the quoted range, widened by anything agreed to go further for
+      estimate: r.low_kobo == null ? null : { lowKobo: Number(r.low_kobo) + extra.low, highKobo: Number(r.high_kobo) + extra.high, expectedKobo: r.expected_kobo == null ? null : Number(r.expected_kobo) + extra.expected },
       fareKobo: r.total_kobo == null ? null : Number(r.total_kobo),
+      // Going further than the booked destination: the open or latest question, and everything asked on this trip
+      extension: extensions[0] ?? null,
+      extensions,
+      extensionVersion: await this.extensions.version(r.id),
       // What the rider actually pays: the fare less any promo code. Same as fareKobo when there is none.
       discountKobo: r.promo_discount_kobo == null ? 0 : Number(r.promo_discount_kobo),
       promoCode: r.promo_code ?? null,
@@ -230,7 +239,7 @@ export class RidesService {
     const ride = await this.get(me, rideId); // same visibility rule
     const fare = await this.fares.getReceipt(rideId);
     if (!fare) throw new NotFoundException('no receipt yet: the trip has not been completed');
-    return { ...fare, promoCode: ride.promoCode, discountKobo: ride.discountKobo, payableKobo: fare.totalKobo - ride.discountKobo };
+    return { ...fare, promoCode: ride.promoCode, discountKobo: ride.discountKobo, payableKobo: fare.totalKobo - ride.discountKobo, extensions: ride.extensions.filter((e) => e.status === 'ACCEPTED') };
   }
 
   // ------------------------------------------------------------------ driver side
@@ -271,6 +280,7 @@ export class RidesService {
     const { rows } = await this.pool.query(`SELECT 1 FROM rides WHERE id = $1 AND driver_id = $2`, [rideId, driverId]);
     if (!rows[0]) throw new NotFoundException('ride not found');
     const fare = await this.settlement.settleCompletedTrip(rideId, measured);
+    await this.extensions.closeOpen(rideId).catch((e) => this.log.error(`could not close open extension for ${rideId}: ${e}`));
     await this.tracking.finish(rideId).catch((e) => this.log.error(`could not close tracking for ${rideId}: ${e}`));
     const earnings = await this.driverEarnings(rideId, fare.totalKobo, fare.taxKobo);
     // Free the driver for matching again; their next ping puts them back on the map.
@@ -294,11 +304,12 @@ export class RidesService {
   // ------------------------------------------------------------------ what the driver app shows
 
   /** Holds until a ride's status is no longer [was], or the time is up. True when it changed. Checks once a second, cheaply. */
-  async waitForStatusChange(rideId: string, was: string, seconds: number): Promise<boolean> {
+  async waitForStatusChange(rideId: string, was: string, seconds: number, extWas?: string): Promise<boolean> {
     const until = Date.now() + Math.min(seconds, 25) * 1000;
     while (Date.now() < until) {
       const { rows } = await this.pool.query(`SELECT status FROM rides WHERE id = $1`, [rideId]);
       if (!rows[0] || rows[0].status !== was) return true;
+      if (extWas !== undefined && (await this.extensions.version(rideId)) !== extWas) return true;
       await new Promise((r) => setTimeout(r, Math.min(1000, Math.max(0, until - Date.now()))));
     }
     return false;
@@ -354,7 +365,9 @@ export class RidesService {
     return {
       rideId: r.id, code: r.short_code, status: r.status, category: r.category_label ?? r.category, paymentMethod: r.payment_method,
       pickup: { lat: r.plat, lng: r.plng, address: r.pickup_address }, dropoff: { lat: r.dlat, lng: r.dlng, address: r.dropoff_address },
-      expectedKobo: r.expected_kobo == null ? null : Number(r.expected_kobo), rider: { name: String(r.rider_name).split(' ')[0], phone: r.rider_phone },
+      expectedKobo: r.expected_kobo == null ? null : Number(r.expected_kobo) + (await this.extensions.acceptedKobo(r.id)).expected, rider: { name: String(r.rider_name).split(' ')[0], phone: r.rider_phone },
+      extension: (await this.extensions.list(r.id, driverId))[0] ?? null,
+      extensionVersion: await this.extensions.version(r.id),
       tracking: await this.tracking.progress(r.id),
       unreadMessages: await this.chat.unread(driverId, r.id),
     };

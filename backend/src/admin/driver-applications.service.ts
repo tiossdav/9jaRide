@@ -14,7 +14,7 @@ import { FleetService, MAX_DEDUCTION_BPS } from '../fleet/fleet.service';
 import { NinService } from '../nin/nin.service';
 import { PlanTerms, VehiclePlansService } from '../vehicle-plans/vehicle-plans.service';
 
-export const DOCUMENT_KINDS = ['drivers_licence', 'nin', 'lassdri', 'vehicle_papers', 'insurance', 'inspection_certificate', 'vehicle_photo', 'road_worthiness', 'selfie', 'owner_consent'] as const;
+export const DOCUMENT_KINDS = ['drivers_licence', 'nin', 'lassdri', 'vehicle_papers', 'insurance', 'vehicle_photo', 'road_worthiness', 'selfie'] as const;
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
 /** What staff can ask a driver to fix: a part of the form, or one document (selfie is the driver photo). */
 export const CHANGE_ITEMS: string[] = ['about_you', 'next_of_kin', 'vehicle', ...DOCUMENT_KINDS];
@@ -31,10 +31,10 @@ export function requiredDocuments(arrangement: string): DocumentKind[] {
   const person: DocumentKind[] = ['selfie', 'drivers_licence', 'lassdri'];
   // a business supplies the vehicle and answers for it, so the driver only proves who they are
   if (arrangement === 'platform_plan' || arrangement === 'business_vehicle') return person;
-  const car: DocumentKind[] = [...person, 'vehicle_photo', 'insurance', 'inspection_certificate'];
+  const car: DocumentKind[] = [...person, 'vehicle_photo', 'insurance'];
   return car;
 }
-const NEEDS_EXPIRY: DocumentKind[] = ['drivers_licence', 'insurance', 'inspection_certificate', 'road_worthiness'];
+const NEEDS_EXPIRY: DocumentKind[] = ['drivers_licence', 'insurance', 'road_worthiness'];
 
 export interface Personal {
   email: string;

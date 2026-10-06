@@ -321,6 +321,16 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Where the set-on-map screen opens when a searched place is being checked on the map before it is confirmed. */
+    var previewStart by mutableStateOf<MapPoint?>(null)
+
+    /** A result of the search was tapped: show it on the map so the rider can nudge the pin, then confirm. */
+    fun previewPlace(p: Place) {
+        suggestions = emptyList()
+        mapPinPoint = p.point; mapPinAddress = p.address; previewStart = p.point
+        push(Dest.SetOnMap)
+    }
+
     fun choosePlace(p: Place) {
         suggestions = emptyList()
         if (activeField == 0) { pickup = p; pickupText = p.address; activeField = 1 } else { dropoff = p; dropoffText = p.address }
@@ -329,6 +339,10 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
 
     // set-on-map
     fun onMapMoved(p: MapPoint) {
+        // the map settling on a place that was just searched for is not the rider moving the pin: keep its own name
+        val shown = mapPinPoint
+        if (previewStart != null && shown != null && mapPinAddress != null && com.ninejaride.core.data.Routing.haversineKm(shown, p) < 0.02) return
+        previewStart = null
         mapPinPoint = p
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
@@ -339,6 +353,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
 
     fun confirmMapPin() {
         val p = mapPinPoint ?: return
+        previewStart = null
         val place = Place(mapPinAddress ?: "Pinned location", p)
         if (activeField == 0) { pickup = place; pickupText = place.address } else { dropoff = place; dropoffText = place.address }
         pop() // back to Where to
@@ -513,15 +528,18 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         fun stopHelpers() { carJob?.cancel(); clockJob?.cancel() }
         pollJob = viewModelScope.launch {
             var seen: String? = null
+            var seenExt: String? = null
             while (true) {
                 try {
-                    val r = api.ride(id, waitFor = seen, waitSeconds = 20)
+                    val r = api.ride(id, waitFor = seen, waitSeconds = 20, ext = seenExt)
                     ride = r
+                    seenExt = r.extensionVersion
+                    extension.update(r.extension)
                     // chat is open from the moment a driver is on the way until the trip ends
                     if (r.status in watchedStatuses && r.driver != null) { chatRide = r.id; chat.start(r.id) } else { chat.stop(); chatOpen = false }
                     seen = r.status
                     when (r.status) {
-                        "TRIP_COMPLETED" -> { stopHelpers(); tripDone = r; ratingSent = r.myRating != null; refreshWallet(); refreshTrips(); return@launch }
+                        "TRIP_COMPLETED" -> { extension.clear(); stopHelpers(); tripDone = r; ratingSent = r.myRating != null; refreshWallet(); refreshTrips(); return@launch }
                         "NO_DRIVER_FOUND" -> { stopHelpers(); dialog = Dialog.NoDriver; refreshTrips(); return@launch }
                         "CANCELLED_BY_RIDER", "CANCELLED_BY_DRIVER", "CANCELLED_BY_SYSTEM" -> {
                             stopHelpers()
@@ -563,6 +581,8 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     // ---- the live route: the road the driver is following, as last fetched, for the part of the ride in progress
     private var legRoute: List<MapPoint> = emptyList()
     private var legFor: String? = null
+    /** A leg is the road for one part of one ride to one destination: a new destination (an accepted extension) is a new leg. */
+    private fun legKey(r: RideView) = "${r.id}:${r.status}:${r.dropoff.lat},${r.dropoff.lng}"
     private var legDurationS = 0
     private var legLengthM = 0.0
     private var offRoad = 0
@@ -570,7 +590,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     /** Fetches the road from the car to where it is heading: when the leg starts, after the driver leaves it, and every 30 s for traffic. */
     private suspend fun updateEtas(r: RideView, force: Boolean = false) {
         val now = System.currentTimeMillis()
-        val leg = "${r.id}:${r.status}"
+        val leg = legKey(r)
         if (!force && legFor == leg && now - etaAt < 30_000) return
         etaAt = now
         if (r.status == "DRIVER_ARRIVED") { driverEtaMin = null; toPickupM = null; pickupRoute = emptyList(); legRoute = emptyList(); legFor = leg; return }
@@ -587,7 +607,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
      * and the time and distance left shrink with it. A driver who has left the road twice in a row gets a new route.
      */
     private suspend fun followRoad(r: RideView, p: MapPoint) {
-        val fix = if (legFor == "${r.id}:${r.status}") com.ninejaride.core.data.RouteProgress.locate(legRoute, p) else null
+        val fix = if (legFor == legKey(r)) com.ninejaride.core.data.RouteProgress.locate(legRoute, p) else null
         if (fix == null || fix.offRouteM > com.ninejaride.core.data.RouteProgress.OFF_ROUTE_M) {
             moveCarTo(p)
             if (fix != null && ++offRoad >= 2) runCatching { updateEtas(r, force = true) }
@@ -653,7 +673,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         pollJob?.cancel()
         ride = null; tripDone = null; driverPoint = null; driverEtaMin = null; tripEtaMin = null; tripRoute = emptyList(); tripRouteFor = null
         pickupRoute = emptyList(); toPickupM = null; toDropM = null; pickupTravelledM = 0; tripTravelledM = 0; carAtMs = 0; carTarget = null; carAnim?.cancel()
-        chat.stop(); chatOpen = false; chatRide = null
+        chat.stop(); chatOpen = false; chatRide = null; extension.clear()
         legRoute = emptyList(); legFor = null; offRoad = 0
         rating = 5; ratingTags = emptySet(); ratingComment = ""; feedbackThanks = false; ratingSent = false; sosOpen = false; sosSteps = 0; cancelReason = null
         clearBooking()
@@ -772,6 +792,15 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     )
     /** True while the chat covers the ride screen. */
     var chatOpen by mutableStateOf(false)
+
+    // ---- going further than the booked destination
+    val extension = com.ninejaride.core.data.ExtensionController(viewModelScope, { api.http }, { ride?.id }, onAccepted = { etaAt = 0; refreshRideNow() })
+
+    /** Reads the ride again at once (after an answer), so the new destination and fare show without waiting for the next held request. */
+    private fun refreshRideNow() {
+        val id = ride?.id ?: return
+        viewModelScope.launch { runCatching { api.ride(id) }.getOrNull()?.let { ride = it } }
+    }
     var detailRide by mutableStateOf<RideView?>(null)
 
     fun refreshTrips() {

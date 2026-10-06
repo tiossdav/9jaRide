@@ -31,6 +31,7 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.NineJaRide">
             <intent-filter>

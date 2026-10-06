@@ -270,6 +270,7 @@ fun InTripScreen(vm: DriverViewModel) {
                 }
             }
             ContactRow(vm, noShow = false)
+            if (!vm.demo) com.ninejaride.core.ui.components.ExtendTripButton(vm.extension, Modifier.fillMaxWidth())
             Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(C.Bg).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -283,6 +284,7 @@ fun InTripScreen(vm: DriverViewModel) {
             }
             Btn("End trip", { vm.confirm("End the trip?", "Do this at the drop-off point. The fare is worked out when you end the trip.", "Yes, end trip", false, vm::endTrip) }, Modifier.fillMaxWidth())
         }
+        if (!vm.demo) com.ninejaride.core.ui.components.ExtensionLayer(vm.extension, "driver", o.rider.name, onChat = { vm.chatOpen = true })
     }
 }
 
@@ -440,6 +442,11 @@ private fun SosStep(done: Boolean, title: String, detail: String) {
 @Composable
 fun RideFlow(vm: DriverViewModel) {
     // the chat with the rider covers the trip screens while it is open
+    if (vm.extension.picking && vm.phase == Phase.InTrip) {
+        androidx.activity.compose.BackHandler { vm.extension.picking = false }
+        com.ninejaride.core.ui.components.ExtendTripPicker(vm.extension, vm.demoDropoff, vm.offer.dropoff.substringBefore(','), vm.carPoint ?: vm.demoDropoff) { vm.extension.picking = false }
+        return
+    }
     if (vm.chatOpen && vm.phase in setOf(Phase.ToPickup, Phase.Waiting, Phase.InTrip)) {
         androidx.activity.compose.BackHandler { vm.chatOpen = false }
         com.ninejaride.core.ui.components.ChatScreen(vm.chat, "Chat with ${vm.offer.rider.name}", "rider") { vm.chatOpen = false }

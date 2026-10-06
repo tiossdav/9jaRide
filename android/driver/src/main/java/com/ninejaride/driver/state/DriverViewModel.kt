@@ -250,7 +250,6 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     var licenceExpiry by mutableStateOf("")
     var insuranceNumber by mutableStateOf("")
     var insuranceExpiry by mutableStateOf("")
-    var inspectionExpiry by mutableStateOf("")
     val uploads = androidx.compose.runtime.mutableStateMapOf<String, String>() // document kind -> uploaded file id
     var uploading by mutableStateOf<String?>(null)
     /** The driver's photo as picked, shown on the "About you" step. */
@@ -263,7 +262,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         val a = chosen ?: return emptyList()
         return buildList {
             add("drivers_licence"); add("lassdri") // the NIN is checked by a service, so no photo of it is asked for
-            if (a.asksForVehicle) { add("vehicle_photo"); add("insurance"); add("inspection_certificate") }
+            if (a.asksForVehicle) { add("vehicle_photo"); add("insurance") }
         }
     }
 
@@ -302,7 +301,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         "nin" to nin, "lassdri" to lassdri, "address" to address, "kinName" to kinName, "kinPhone" to kinPhone, "kinRel" to kinRelationship,
         "kinAddress" to kinAddress, "plate" to plate, "make" to make, "colour" to colour, "ownerName" to ownerName, "ownerPhone" to ownerPhone,
         "share" to sharePercent, "licence" to licenceNumber, "licenceExp" to licenceExpiry, "insurance" to insuranceNumber, "insuranceExp" to insuranceExpiry,
-        "inspectionExp" to inspectionExpiry, "step" to applyStep.toString(), "uploads" to uploads.entries.joinToString(",") { it.key + "=" + it.value },
+        "step" to applyStep.toString(), "uploads" to uploads.entries.joinToString(",") { it.key + "=" + it.value },
     )
 
     private fun saveDraft() {
@@ -319,7 +318,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         dateOfBirth = g("dob"); nin = g("nin"); lassdri = g("lassdri"); address = g("address"); kinName = g("kinName"); kinPhone = g("kinPhone")
         kinRelationship = g("kinRel"); kinAddress = g("kinAddress"); plate = g("plate"); make = g("make"); colour = g("colour"); ownerName = g("ownerName")
         ownerPhone = g("ownerPhone"); sharePercent = g("share").ifEmpty { "20" }; licenceNumber = g("licence"); licenceExpiry = g("licenceExp")
-        insuranceNumber = g("insurance"); insuranceExpiry = g("insuranceExp"); inspectionExpiry = g("inspectionExp")
+        insuranceNumber = g("insurance"); insuranceExpiry = g("insuranceExp")
         uploads.clear(); g("uploads").split(",").filter { it.contains("=") }.forEach { uploads[it.substringBefore("=")] = it.substringAfter("=") }
         applyStep = g("step").toIntOrNull() ?: 0
         return true
@@ -363,7 +362,6 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             when (d.kind) {
                 "drivers_licence" -> { licenceNumber = d.number ?: ""; licenceExpiry = show(d.expiresOn) }
                 "insurance" -> { insuranceNumber = d.number ?: ""; insuranceExpiry = show(d.expiresOn) }
-                "inspection_certificate" -> inspectionExpiry = show(d.expiresOn)
             }
         }
     }
@@ -499,7 +497,6 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                 dateOrNull(licenceExpiry) == null -> "Choose when your licence expires. It must be in the future."
                 a.asksForVehicle && insuranceNumber.trim().length < 3 -> "Enter the insurance policy number."
                 a.asksForVehicle && dateOrNull(insuranceExpiry) == null -> "Choose when the insurance expires. It must be in the future."
-                a.asksForVehicle && dateOrNull(inspectionExpiry) == null -> "Choose when the inspection certificate expires."
                 updateMode && updateItems.any { it !in setOf("about_you", "next_of_kin", "vehicle", "selfie") && it !in replaced } -> "Take a new photo of: " + updateItems.filter { it !in setOf("about_you", "next_of_kin", "vehicle", "selfie") && it !in replaced }.joinToString(", ") { documentLabel(it) } + "."
                 neededDocuments().any { uploads[it] == null } -> "Upload a photo for: " + neededDocuments().filter { uploads[it] == null }.joinToString(", ") { documentLabel(it) } + "."
                 else -> null
@@ -519,6 +516,27 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         if (before != null) applyStep = before else if (application != null) reset(Dest.ApplicationStatus) else pop()
     }
 
+    // ---- a picture on its way back from the camera or the gallery
+    /**
+     * Writes down, on the phone itself, which document the next picture is for (and where the camera saves it). The camera app can
+     * need so much memory that Android closes or recreates this app while it is open; the picture then comes back to a fresh copy
+     * that would otherwise not know what it was for, and the driver would be left at the start with nothing uploaded.
+     */
+    fun expectPicture(kind: String, cameraFile: String? = null) {
+        draftPrefs.edit().putString("shot_kind", kind).putString("shot_uri", cameraFile).apply()
+    }
+
+    /** The camera or the gallery has answered. [galleryUri] is set when it was the gallery. */
+    fun pictureArrived(galleryUri: android.net.Uri? = null) {
+        val kind = draftPrefs.getString("shot_kind", null) ?: return
+        val uri = galleryUri ?: draftPrefs.getString("shot_uri", null)?.let { android.net.Uri.parse(it) } ?: return
+        draftPrefs.edit().remove("shot_kind").remove("shot_uri").apply()
+        uploadDocument(kind, uri)
+    }
+
+    /** The driver backed out of the camera or gallery without a picture. */
+    fun pictureCancelled() { draftPrefs.edit().remove("shot_kind").remove("shot_uri").apply() }
+
     /** Reads the picked photo, shrinks it so it uploads quickly on mobile data, and sends it. */
     fun uploadDocument(kind: String, uri: android.net.Uri) {
         viewModelScope.launch {
@@ -528,10 +546,14 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                 uploads[kind] = api.uploadFile(bytes, "$kind.jpg", "image/jpeg")
                 if (kind !in replaced) replaced.add(kind)
                 if (kind == "selfie") photoPreview = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, android.graphics.BitmapFactory.Options().apply { inSampleSize = 4 })?.asImageBitmap()
-            } catch (e: ApiException) { applyError = if (e.status >= 500) "The upload did not work. Please try again." else e.message } finally { uploading = null }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e
+            } catch (e: ApiException) { applyError = if (e.status >= 500) "The upload did not work. Please try again." else e.message
+            } catch (e: Throwable) { applyError = "That photo could not be used. Please take or choose it again." // a huge picture or a file that cannot be read must never close the app
+            } finally { uploading = null }
         }
     }
 
+    /** The picture as a JPEG small enough to send on mobile data, turned the right way up. Tries a smaller size if memory runs short. */
     private fun shrinkedJpeg(uri: android.net.Uri): ByteArray? {
         val cr = getApplication<Application>().contentResolver
         val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -539,9 +561,27 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         if (bounds.outWidth <= 0) return null
         var sample = 1
         while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2000) sample *= 2
-        val bmp = cr.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }) } ?: return null
+        var bmp: android.graphics.Bitmap? = null
+        for (attempt in 0..2) {
+            try {
+                bmp = cr.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }) }
+                break
+            } catch (e: OutOfMemoryError) { sample *= 2 }
+        }
+        var pic = bmp ?: return null
+        val turn = cr.openInputStream(uri)?.use { s ->
+            runCatching {
+                when (android.media.ExifInterface(s).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL)) {
+                    android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                    android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                    android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                    else -> 0f
+                }
+            }.getOrDefault(0f)
+        } ?: 0f
+        if (turn != 0f) pic = runCatching { android.graphics.Bitmap.createBitmap(pic, 0, 0, pic.width, pic.height, android.graphics.Matrix().apply { postRotate(turn) }, true) }.getOrDefault(pic)
         val out = java.io.ByteArrayOutputStream()
-        bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, out)
+        pic.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, out)
         return out.toByteArray()
     }
 
@@ -552,7 +592,6 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             when (it) {
                 "drivers_licence" -> doc(it, licenceNumber, licenceExpiry)
                 "insurance" -> doc(it, insuranceNumber, insuranceExpiry)
-                "inspection_certificate" -> doc(it, null, inspectionExpiry)
                 else -> doc(it)
             }
         }
@@ -955,7 +994,24 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         super.onCleared()
     }
 
-    private fun clearRide() { carPoint = null; routeToPickup = emptyList(); routeTrip = emptyList(); stopChat() }
+    private fun clearRide() { carPoint = null; routeToPickup = emptyList(); routeTrip = emptyList(); stopChat(); extension.clear() }
+
+    // ---- going further than the booked destination
+    val extension = com.ninejaride.core.data.ExtensionController(viewModelScope, { api.client }, { realRideId }, onAccepted = {
+        viewModelScope.launch { runCatching { api.activeRide() }.getOrNull()?.let { applyDestination(it) } }
+    })
+
+    /** The server's view of the ride: if the destination was changed (an extension was accepted), the screens, route and fare follow it. */
+    private fun applyDestination(r: com.ninejaride.driver.data.ServerRide) {
+        if (r.rideId != realRideId) return
+        val moved = com.ninejaride.core.data.Routing.haversineKm(demoDropoff, r.dropoff) > 0.01
+        if (r.expectedKobo != null && r.expectedKobo != offer.fare) offer = offer.copy(fare = r.expectedKobo)
+        if (!moved) return
+        demoDropoff = r.dropoff
+        offer = offer.copy(dropoff = r.dropoffAddress ?: offer.dropoff)
+        legRoute = emptyList(); legRouteAt = 0
+        viewModelScope.launch { routeTrip = Routing.route(deviceLocation ?: demoPickup, r.dropoff) }
+    }
 
     // ---- talking to the rider of the trip in progress
     /** The rider's number for the dialler, known once the trip is accepted. Not shown anywhere. */
@@ -1027,6 +1083,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                             rideJob?.cancel(); clearRide(); realRideId = null; phase = Phase.None
                             say("Ride cancelled", "The rider cancelled this ride.")
                         }
+                        Phase.InTrip -> api.activeRide()?.let { r -> extension.update(r.extension); applyDestination(r) }
                         else -> {}
                     }
                 } catch (e: ApiException) {

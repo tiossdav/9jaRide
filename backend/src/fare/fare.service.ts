@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
 import { PG_POOL } from '../common/infra.module';
 import { Fare, Measured, Rates, computeFare, estimateFare } from './fare.calc';
+import { percentOf, roundToStep } from '../common/money';
 
 const DEFAULT_ZONE = 'lagos';
 
@@ -91,6 +92,23 @@ export class FareService {
     return { quoteId: rows[0].id, ...est, expiresAt: rows[0].expires_at };
   }
 
+  /**
+   * What going further adds to a ride's fare: the distance and time fees for the extra stretch, by the pricing the ride was booked under.
+   * No booking fee or daily tax is added again; those were charged once for the whole trip.
+   */
+  async extensionEstimate(db: Pick<Pool, 'query'>, rideId: string, trip: { distanceM: number; durationS: number }) {
+    const { rows } = await db.query(`SELECT pv.* FROM rides r JOIN pricing_versions pv ON pv.id = r.pricing_version_id WHERE r.id = $1`, [rideId]);
+    if (!rows[0]) throw new Error(`ride ${rideId} was never priced`);
+    const rates = ratesFromRow(rows[0]);
+    const raw = Math.round((rates.perKmKobo * trip.distanceM) / 1000) + Math.round((rates.perMinuteKobo * trip.durationS) / 60);
+    const expectedKobo = roundToStep(raw, rates.roundingStepKobo);
+    return {
+      expectedKobo,
+      lowKobo: Math.min(expectedKobo, roundToStep(percentOf(expectedKobo, rates.estimateLowBps), rates.roundingStepKobo)),
+      highKobo: Math.max(expectedKobo, roundToStep(percentOf(expectedKobo, rates.estimateHighBps), rates.roundingStepKobo)),
+    };
+  }
+
   /** An indicative price for a trip that is not being booked right now (a scheduled ride). Stores nothing. */
   async preview(category: string, trip: { distanceM: number; durationS: number }, at = new Date()) {
     const version = await this.activeVersion(this.pool, category, at);
@@ -123,8 +141,9 @@ export class FareService {
    */
   async finalize(client: PoolClient, rideId: string, measured: Measured): Promise<StoredFare> {
     const { rows } = await client.query(
-      `SELECT r.id, r.pricing_version_id, q.low_kobo, q.high_kobo
+      `SELECT r.id, r.pricing_version_id, q.low_kobo + x.low AS low_kobo, q.high_kobo + x.high AS high_kobo
          FROM rides r LEFT JOIN fare_quotes q ON q.id = r.fare_quote_id
+         CROSS JOIN LATERAL (SELECT COALESCE(sum(extra_low_kobo), 0) AS low, COALESCE(sum(extra_high_kobo), 0) AS high FROM ride_extensions WHERE ride_id = r.id AND status = 'ACCEPTED') x
         WHERE r.id = $1 FOR UPDATE OF r`,
       [rideId],
     );

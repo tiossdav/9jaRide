@@ -35,7 +35,9 @@ class ServerRide(val rideId: String, val code: String, val status: String, val c
                  /** Metres the server has counted from this phone's GPS: on the way to the pickup, and with the rider. */
                  val pickupTravelledM: Int = 0, val tripTravelledM: Int = 0,
                  /** The rider's number, given to the assigned driver for the length of the trip so the phone's dialler can call it. Never shown on screen. */
-                 val riderPhone: String? = null)
+                 val riderPhone: String? = null,
+                 /** Going further than the booked destination: the newest request on this trip, asked by either side. */
+                 val extension: com.ninejaride.core.data.TripExtension? = null)
 
 class ServerFare(val lines: List<Pair<String, Long>>, val totalKobo: Long, val commissionKobo: Long, val driverEarnKobo: Long, val taxKobo: Long, val vehicleDeductionKobo: Long = 0)
 
@@ -242,7 +244,7 @@ class Api(context: Context) {
             o.str("rideId")!!, o.str("code") ?: "", o.str("status") ?: "", o.str("category") ?: "Ride", o.str("paymentMethod") ?: "cash",
             pt(o.obj("pickup")), o.obj("pickup")?.str("address"), pt(o.obj("dropoff")), o.obj("dropoff")?.str("address"), o.lng("expectedKobo"), o.obj("rider")?.str("name") ?: "Rider",
             (o.obj("tracking")?.lng("pickupTravelledM") ?: 0).toInt(), (o.obj("tracking")?.lng("tripTravelledM") ?: 0).toInt(),
-            o.obj("rider")?.str("phone"),
+            o.obj("rider")?.str("phone"), com.ninejaride.core.data.parseExtension(o.obj("extension")),
         )
     }
 
