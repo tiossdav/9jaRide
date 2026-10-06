@@ -717,6 +717,8 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             if (!demo) {
                 if (!com.ninejaride.driver.alert.BookingAlert.notificationsAllowed(app)) out += Check(false, "Booking alerts are off", "Allow notifications so new bookings can ring", "Allow", soft = true, fix = "notifications")
                 if (!com.ninejaride.driver.alert.BookingAlert.fullScreenAllowed(app)) out += Check(false, "Bookings cannot open the screen", "Allow full-screen alerts so a booking shows over other apps", "Allow", soft = true, fix = "fullscreen")
+                // Xiaomi, Redmi and Poco phones also block showing on the lock screen and opening from the background
+                if (isXiaomi && !dndPrefs().getBoolean("xiaomi_asked", false)) out += Check(false, "Let bookings show on this Xiaomi phone", "In Other permissions, allow Show on lock screen, Display pop-up windows while running in the background, and Autostart", "Open", soft = true, fix = "xiaomi")
                 if (!dndAsked() && com.ninejaride.driver.alert.BookingAlert.dndSettingsAvailable(app) && com.ninejaride.driver.alert.BookingAlert.needsDndAccess(app)) out += Check(false, "Bookings may stay silent in Do Not Disturb", "Allow Do Not Disturb access so the booking ring is heard", "Allow", soft = true, fix = "dnd")
             }
             return out
@@ -788,6 +790,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     /** True when something about booking alerts is not set up. Shown as advice when going online. */
     val alertAdvice: Boolean get() = goOnlineChecks.any { it.soft && !it.ok }
 
+    private val isXiaomi = android.os.Build.MANUFACTURER.lowercase().let { it.contains("xiaomi") || it.contains("redmi") || it.contains("poco") }
     private fun dndPrefs() = getApplication<Application>().getSharedPreferences("driver_state", android.content.Context.MODE_PRIVATE)
     /** Some phones list the Do Not Disturb page but then say it is not available. So it is offered once and never pushed again. */
     private fun dndAsked() = dndPrefs().getBoolean("dnd_asked", false)
@@ -796,6 +799,13 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     fun openAlertSetting(kind: String) {
         if (kind == "agreement") { openAgreement(); return }
         val app = getApplication<Application>()
+        if (kind == "xiaomi") {
+            dndPrefs().edit().putBoolean("xiaomi_asked", true).apply()
+            val miui = android.content.Intent("miui.intent.action.APP_PERM_EDITOR").putExtra("extra_pkgname", app.packageName)
+            val details = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${app.packageName}"))
+            if (runCatching { app.startActivity(miui.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }.isFailure) runCatching { app.startActivity(details.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            return
+        }
         val intent = when (kind) {
             "notifications" -> android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, app.packageName)
             "fullscreen" -> if (android.os.Build.VERSION.SDK_INT >= 34) android.content.Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, android.net.Uri.parse("package:${app.packageName}")) else null

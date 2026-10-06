@@ -94,6 +94,29 @@ private fun markerIcon(context: Context, kind: MarkerKind): BitmapDrawable {
     return BitmapDrawable(context.resources, bmp)
 }
 
+/**
+ * Frames [points] in the view, keeping [borderDp] clear around them. The map library loops endlessly (freezing the app) if
+ * asked to frame while the view has no size (screen off, app in the background) or with more border than view, or to frame
+ * a single spot; so those cases are handled here. False when the view is not ready and framing should be tried again.
+ */
+private fun frame(v: MapView, points: List<MapPoint>, borderDp: Int): Boolean {
+    if (!v.isAttachedToWindow || v.width <= 0 || v.height <= 0) return false
+    val ok = points.filter { it.lat.isFinite() && it.lng.isFinite() && Math.abs(it.lat) <= 85 && Math.abs(it.lng) <= 180 }
+    if (ok.isEmpty()) return true
+    val latSpan = ok.maxOf { it.lat } - ok.minOf { it.lat }
+    val lngSpan = ok.maxOf { it.lng } - ok.minOf { it.lng }
+    if (ok.size < 2 || (latSpan < 0.0003 && lngSpan < 0.0003)) { // one spot (about 30 m): just centre on it
+        v.controller.setZoom(16.5)
+        v.controller.setCenter(GeoPoint(ok.first()))
+        return true
+    }
+    // never more border than a quarter of the view, so there is always room left to fit into
+    val border = minOf((borderDp * v.resources.displayMetrics.density).toInt(), v.width / 4, v.height / 4)
+    return runCatching {
+        v.zoomToBoundingBox(BoundingBox.fromGeoPoints(ok.map { GeoPoint(it) }).increaseByScale(1.15f), false, border)
+    }.isSuccess
+}
+
 private fun GeoPoint(p: MapPoint) = GeoPoint(p.lat, p.lng)
 
 /**
@@ -202,10 +225,7 @@ fun MapPanel(
             if (v.tag != key) {
                 v.tag = key
                 if (fit && all.size >= 2) {
-                    v.post {
-                        val box = BoundingBox.fromGeoPoints(all.map { GeoPoint(it) })
-                        v.zoomToBoundingBox(box.increaseByScale(1.15f), false, (fitBorderDp * v.resources.displayMetrics.density).toInt())
-                    }
+                    v.post { if (!frame(v, all, fitBorderDp)) v.tag = null } // not laid out yet: try again on the next update
                 } else if (center != null) {
                     v.controller.setZoom(zoom)
                     v.controller.setCenter(GeoPoint(center))
