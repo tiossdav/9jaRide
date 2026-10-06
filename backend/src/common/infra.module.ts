@@ -1,6 +1,10 @@
 import { Global, Inject, Injectable, Module, OnApplicationShutdown } from '@nestjs/common';
 import Redis from 'ioredis';
-import { Pool } from 'pg';
+import { Pool, types } from 'pg';
+
+// A calendar date (a licence expiry, a birthday, a chart day) is just a date. The default turns it into a moment at local midnight,
+// which shows a day early on a server set to Nigerian time. Keep it as the text "YYYY-MM-DD".
+types.setTypeParser(types.builtins.DATE, (v: string) => v);
 
 export const PG_POOL = Symbol('PG_POOL');
 export const REDIS = Symbol('REDIS');

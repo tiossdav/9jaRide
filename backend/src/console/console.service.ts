@@ -169,7 +169,7 @@ export class ConsoleService {
     );
     const [scheduledBooked] = await this.q(`SELECT count(*)::int AS n FROM rides WHERE scheduled_for IS NOT NULL`);
     const byDay = await this.q(
-      `SELECT d::date AS day, COALESCE(sum(f.total_kobo), 0)::bigint AS kobo
+      `SELECT to_char(d::date, 'YYYY-MM-DD') AS day, COALESCE(sum(f.total_kobo), 0)::bigint AS kobo
          FROM generate_series((now() AT TIME ZONE ${TZ})::date - 6, (now() AT TIME ZONE ${TZ})::date, interval '1 day') d
          LEFT JOIN rides r ON (r.created_at AT TIME ZONE ${TZ})::date = d::date AND r.status = 'TRIP_COMPLETED'
          LEFT JOIN ride_fares f ON f.ride_id = r.id
@@ -178,7 +178,7 @@ export class ConsoleService {
     return {
       total: t.total, completed: t.completed, cancelled: t.cancelled, inProgress: t.in_progress, scheduledAhead: t.scheduled,
       regularVsScheduled: { regular: t.total - scheduledBooked.n, scheduled: scheduledBooked.n },
-      revenueLast7Days: byDay.map((r) => ({ day: r.day instanceof Date ? r.day.toISOString().slice(0, 10) : String(r.day), kobo: Number(r.kobo) })),
+      revenueLast7Days: byDay.map((r) => ({ day: String(r.day), kobo: Number(r.kobo) })),
     };
   }
 
@@ -482,7 +482,7 @@ export class ConsoleService {
 
   async revenue(days: number) {
     const byDay = await this.q(
-      `SELECT d::date AS day,
+      `SELECT to_char(d::date, 'YYYY-MM-DD') AS day,
               COALESCE(sum(f.total_kobo), 0)::bigint AS fares,
               count(r.id)::int AS trips,
               COALESCE((SELECT sum(e.amount_kobo) FROM ledger_entries e JOIN ledger_accounts a ON a.id = e.account_id
@@ -508,7 +508,7 @@ export class ConsoleService {
     const sum = (k: 'fares' | 'commission' | 'tax' | 'trips') => byDay.reduce((s, r) => s + Number(r[k]), 0);
     return {
       days, faresKobo: sum('fares'), commissionKobo: sum('commission'), taxKobo: sum('tax'), trips: sum('trips'),
-      byDay: byDay.map((r) => ({ day: r.day instanceof Date ? r.day.toISOString().slice(0, 10) : String(r.day), faresKobo: Number(r.fares), commissionKobo: Number(r.commission), taxKobo: Number(r.tax), trips: r.trips })),
+      byDay: byDay.map((r) => ({ day: String(r.day), faresKobo: Number(r.fares), commissionKobo: Number(r.commission), taxKobo: Number(r.tax), trips: r.trips })),
       byCategory: byCategory.map((r) => ({ category: r.category, trips: r.trips, faresKobo: Number(r.fares) })),
       byMethod: byMethod.map((r) => ({ method: r.method, trips: r.trips, faresKobo: Number(r.fares) })),
     };

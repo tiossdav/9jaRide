@@ -247,7 +247,6 @@ private fun TripCompleteScreen(vm: RiderViewModel, r: RideView) {
             Txt((r.payableKobo ?: r.fareKobo)?.let { naira(it) } ?: "", 34f, 800, C.GreenAccent)
             if (r.discountKobo > 0) Txt("${r.promoCode ?: "Promo"} saved you ${naira(r.discountKobo)}", 13.5f, 700, C.GreenAccent)
             Txt(if (r.paymentMethod == "wallet") "Paid from your wallet" else "Pay your driver in cash", 13.5f, 600, C.Muted)
-            Card(Modifier.fillMaxWidth()) { com.ninejaride.core.ui.components.RouteBlock(r.pickupAddress ?: "Pickup", r.dropoffAddress ?: "Drop-off") }
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Raised).padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f)) { Txt(com.ninejaride.core.format.distanceText(if (r.tripTravelledM > 0) r.tripTravelledM else r.distanceM ?: 0), 16f, 800); Txt("Trip distance", 11.5f, 500, C.Muted) }
                 r.durationS?.let { Column(Modifier.weight(1f)) { Txt("${(it / 60).coerceAtLeast(1)} min", 16f, 800); Txt("Trip duration", 11.5f, 500, C.Muted) } }

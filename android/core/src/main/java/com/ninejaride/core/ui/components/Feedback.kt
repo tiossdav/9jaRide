@@ -38,10 +38,20 @@ object QuickComments {
         1 to listOf("Very poor service", "Driver was late", "Unprofessional behaviour", "Vehicle was not satisfactory", "Safety concern"),
     )
 
-    fun forStars(stars: Int): List<String> = byStars[stars.coerceIn(1, 5)].orEmpty()
+    /** What a driver can say about a rider: the same five levels, worded for a passenger. */
+    private val riderByStars = mapOf(
+        5 to listOf("Great passenger", "Very polite", "Respectful", "Ready on time", "Easy pickup"),
+        4 to listOf("Good passenger", "Friendly", "Ready on time", "Pleasant ride", "Good experience"),
+        3 to listOf("Average experience", "Slight delay at pickup", "Could be more courteous", "Ride was okay"),
+        2 to listOf("Late to the pickup", "Impolite", "Changed the destination", "Service needs improvement"),
+        1 to listOf("Very poor behaviour", "Unsafe or aggressive", "Refused to pay", "Damaged the vehicle", "Safety concern"),
+    )
+
+    /** The quick comments for this many stars. [ofRider] is true when a driver is rating a rider. */
+    fun forStars(stars: Int, ofRider: Boolean = false): List<String> = (if (ofRider) riderByStars else byStars)[stars.coerceIn(1, 5)].orEmpty()
 
     /** When the stars change, comments that belong to another level are dropped. */
-    fun keep(stars: Int, selected: Set<String>): Set<String> = selected.filter { it in forStars(stars) }.toSet()
+    fun keep(stars: Int, selected: Set<String>, ofRider: Boolean = false): Set<String> = selected.filter { it in forStars(stars, ofRider) }.toSet()
 
     const val MAX_COMMENT = 500
     const val THANKS = "Thank you for your feedback! Your response helps us improve 9jaRide."
@@ -58,6 +68,8 @@ fun FeedbackForm(
     comment: String,
     onComment: (String) -> Unit,
     starSize: androidx.compose.ui.unit.Dp = 38.dp,
+    /** True when a driver is rating a rider: the quick comments are worded for a passenger. */
+    ofRider: Boolean = false,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -68,7 +80,7 @@ fun FeedbackForm(
             }
         }
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            QuickComments.forStars(stars).forEach { t ->
+            QuickComments.forStars(stars, ofRider).forEach { t ->
                 val on = t in selected
                 Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (on) C.GreenTint else C.Raised).border(1.dp, if (on) C.GreenAccent else C.Border, RoundedCornerShape(999.dp)).tap({ onToggle(t) }, t).padding(horizontal = 14.dp, vertical = 9.dp)) {
                     Txt(t, 13f, 700, if (on) C.GreenAccent else C.Ink)

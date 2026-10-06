@@ -287,13 +287,59 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     val applySteps: List<Int> get() = if (updateMode) updateItems.map(::stepOf).distinct().sorted() else listOf(0, 1, 2, 3, 4)
     val isLastApplyStep: Boolean get() = applyStep == applySteps.last()
 
+    // ---- the application in progress is kept on the phone, so closing the app (or the camera app taking over) loses nothing
+    private val draftPrefs get() = getApplication<Application>().getSharedPreferences("application_draft", android.content.Context.MODE_PRIVATE)
+    private var draftWatch: Job? = null
+
+    /** The fields of the form, in one place, as the draft stores them. */
+    private fun draftFields() = mapOf(
+        "arrangement" to arrangementCode, "category" to vehicleCategory, "email" to email, "contact" to contactPreference, "dob" to dateOfBirth,
+        "nin" to nin, "lassdri" to lassdri, "address" to address, "kinName" to kinName, "kinPhone" to kinPhone, "kinRel" to kinRelationship,
+        "kinAddress" to kinAddress, "plate" to plate, "make" to make, "colour" to colour, "ownerName" to ownerName, "ownerPhone" to ownerPhone,
+        "share" to sharePercent, "licence" to licenceNumber, "licenceExp" to licenceExpiry, "insurance" to insuranceNumber, "insuranceExp" to insuranceExpiry,
+        "inspectionExp" to inspectionExpiry, "step" to applyStep.toString(), "uploads" to uploads.entries.joinToString(",") { it.key + "=" + it.value },
+    )
+
+    private fun saveDraft() {
+        if (application != null && application?.status != "REJECTED") return // a sent application is on the server
+        draftPrefs.edit().apply { draftFields().forEach { (k, v) -> putString(k, v) }; putString("phone", phoneDigits) }.apply()
+    }
+
+    private fun loadDraft(): Boolean {
+        val p = draftPrefs
+        if (p.getString("phone", null) != phoneDigits.ifEmpty { p.getString("phone", "") }) return false // another person's draft
+        if (!p.contains("arrangement")) return false
+        fun g(k: String) = p.getString(k, "") ?: ""
+        arrangementCode = g("arrangement"); vehicleCategory = g("category").ifEmpty { "regular" }; email = g("email"); contactPreference = g("contact").ifEmpty { "whatsapp" }
+        dateOfBirth = g("dob"); nin = g("nin"); lassdri = g("lassdri"); address = g("address"); kinName = g("kinName"); kinPhone = g("kinPhone")
+        kinRelationship = g("kinRel"); kinAddress = g("kinAddress"); plate = g("plate"); make = g("make"); colour = g("colour"); ownerName = g("ownerName")
+        ownerPhone = g("ownerPhone"); sharePercent = g("share").ifEmpty { "20" }; licenceNumber = g("licence"); licenceExpiry = g("licenceExp")
+        insuranceNumber = g("insurance"); insuranceExpiry = g("insuranceExp"); inspectionExpiry = g("inspectionExp")
+        uploads.clear(); g("uploads").split(",").filter { it.contains("=") }.forEach { uploads[it.substringBefore("=")] = it.substringAfter("=") }
+        applyStep = g("step").toIntOrNull() ?: 0
+        return true
+    }
+
+    fun clearDraft() { draftPrefs.edit().clear().apply() }
+
+    /** Saves the form half a second after anything in it changes. */
+    private fun watchDraft() {
+        if (draftWatch?.isActive == true) return
+        draftWatch = viewModelScope.launch {
+            androidx.compose.runtime.snapshotFlow { draftFields() }.collect { delay(500); saveDraft() }
+        }
+    }
+
     fun openApplication() {
         applyError = null; replaced.clear()
+        val restored = application == null && loadDraft()
         application?.let { prefill(it) }
-        applyStep = if (updateMode) applySteps.first() else 0
+        if (!restored) applyStep = if (updateMode) applySteps.first() else 0
+        watchDraft()
         viewModelScope.launch {
             if (arrangements.isEmpty()) runCatching { api.arrangements() }.getOrNull()?.let { arrangements.addAll(it) }
             if (arrangementCode.isEmpty()) arrangementCode = arrangements.firstOrNull()?.code ?: "own"
+            if (arrangementCode !in arrangements.map { it.code } && arrangements.isNotEmpty()) arrangementCode = arrangements.first().code
             reset(Dest.Apply)
         }
     }
@@ -517,6 +563,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 api.submitApplication(form)
                 application = api.application()
+                clearDraft()
                 reset(Dest.ApplicationStatus)
                 dialog = Dialog.Verifying
             } catch (e: ApiException) { applyError = if (e.status >= 500) "We could not send that. Please try again." else e.message } finally { applying = false }
@@ -578,7 +625,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             if (!demo) LocationService.stop(getApplication())
             api.logout()
             wentOnline(false)
-            phoneDigits = ""; otp = ""; fullName = ""; application = null; arrangementCode = ""; uploads.clear(); photo = null; profile = if (demo) DEMO_PROFILE else EMPTY_PROFILE; trips.clear(); transactions.clear(); walletKobo = 0; earningsKobo = 0; tripsToday = 0; kmToday = 0.0
+            clearDraft(); phoneDigits = ""; otp = ""; fullName = ""; application = null; arrangementCode = ""; uploads.clear(); photo = null; profile = if (demo) DEMO_PROFILE else EMPTY_PROFILE; trips.clear(); transactions.clear(); walletKobo = 0; earningsKobo = 0; tripsToday = 0; kmToday = 0.0
             reset(Dest.SignIn)
         }
     }
@@ -1233,7 +1280,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         phase = Phase.Rate
     }
 
-    fun setStars(n: Int) { rating = n; ratingTags = com.ninejaride.core.ui.components.QuickComments.keep(n, ratingTags) }
+    fun setStars(n: Int) { rating = n; ratingTags = com.ninejaride.core.ui.components.QuickComments.keep(n, ratingTags, ofRider = true) }
 
     /** Sends the driver's rating of the rider (stars, quick comments, optional note), then shows the thank-you. */
     fun submitRating() {

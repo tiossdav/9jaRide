@@ -183,7 +183,7 @@ fun ToPickupScreen(vm: DriverViewModel) {
             markers = listOf(MapMarker(vm.demoPickup, MarkerKind.Pickup)) + carMarkers(vm),
             route = vm.routeToPickup, fit = true, fitBorderDp = 120, follow = if (vm.demo) null else vm.carPoint,
         )
-        TopOverlay(vm, { DirectionBanner("Head north on Moboluwaduro Street", "400 m · tap to open maps") }) { openNavigation(ctx, o.pickup) }
+        TopOverlay(vm, { if (vm.demo) DirectionBanner("Head north on Moboluwaduro Street", "400 m · tap to open maps") else DirectionBanner("Go to ${o.pickup.substringBefore(',')}", (vm.remainingM?.let { com.ninejaride.core.format.distanceText(it) + " · " } ?: "") + "tap to open maps") }) { openNavigation(ctx, o.pickup) }
         BottomSheetCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -259,7 +259,7 @@ fun InTripScreen(vm: DriverViewModel) {
             markers = listOf(MapMarker(vm.demoDropoff, MarkerKind.Dropoff)) + carMarkers(vm),
             route = vm.routeTrip, fit = true, fitBorderDp = 120, follow = if (vm.demo) null else vm.carPoint,
         )
-        TopOverlay(vm, { DirectionBanner("Continue on Iwo Road", "1.1 km · tap to open maps") }) { openNavigation(ctx, o.dropoff) }
+        TopOverlay(vm, { if (vm.demo) DirectionBanner("Continue on Iwo Road", "1.1 km · tap to open maps") else DirectionBanner("Continue to ${o.dropoff.substringBefore(',')}", (vm.remainingM?.let { com.ninejaride.core.format.distanceText(it) + " · " } ?: "") + "tap to open maps") }) { openNavigation(ctx, o.dropoff) }
         BottomSheetCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -361,7 +361,7 @@ fun RateRiderScreen(vm: DriverViewModel) {
             if (vm.feedbackThanks) FeedbackThanks()
             else {
                 Txt("How was ${o.rider.name}?", 16f, 700)
-                FeedbackForm(vm.rating, vm::setStars, vm.ratingTags, vm::toggleTag, vm.ratingComment, { vm.ratingComment = it }, starSize = 32.dp)
+                FeedbackForm(vm.rating, vm::setStars, vm.ratingTags, vm::toggleTag, vm.ratingComment, { vm.ratingComment = it }, starSize = 32.dp, ofRider = true)
                 Btn("Submit rating", vm::submitRating, Modifier.fillMaxWidth())
             }
             Txt("Report a problem", 14.5f, 700, C.Green, Modifier.padding(4.dp).tap({ vm.push(com.ninejaride.driver.state.Dest.Help) }))

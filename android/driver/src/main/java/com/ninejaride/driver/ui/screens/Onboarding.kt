@@ -80,6 +80,8 @@ private fun heading(vm: DriverViewModel) = when (vm.applyStep) {
 @Composable
 fun ApplyScreen(vm: DriverViewModel) {
     val step = vm.applyStep
+    // the phone's Back button goes to the step before, like the arrow at the top, instead of leaving the application
+    androidx.activity.compose.BackHandler(enabled = vm.dialog == null && !vm.applying) { vm.applyBack() }
     Column(Modifier.fillMaxSize().background(C.Bg).imePadding()) {
         ScreenHeader(heading(vm), if (vm.updateMode) "Update ${vm.applySteps.indexOf(step) + 1} of ${vm.applySteps.size}" else "Step ${step + 1} of 5", onBack = vm::applyBack)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -243,16 +245,6 @@ fun ApplicationStatusScreen(vm: DriverViewModel) {
         }
     }
     androidx.compose.runtime.LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(15_000); if (vm.dialog == null) vm.refreshApplication() } }
-    if (vm.dialog == Dialog.Verifying) SheetOverlay(onDismiss = null) {
-        Txt("Profile Under Verification", 19f, 800)
-        Txt("Your profile is still under verification. One of our agents will review your information soon.", 14f, 500, C.Muted)
-        Btn("Got it", { vm.dialog = null }, Modifier.fillMaxWidth())
-    }
-    if (vm.dialog == Dialog.Approved) SheetOverlay(onDismiss = null) {
-        Txt("Congratulations! \uD83C\uDF89", 21f, 800)
-        Txt("Your profile has been approved. You can now proceed to the next step.", 14f, 500, C.Muted)
-        Btn("Continue", vm::continueAfterApproval, Modifier.fillMaxWidth())
-    }
     Column(Modifier.fillMaxSize().background(C.Bg).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 36.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Gap(90.dp)
         when (app?.status) {
@@ -314,6 +306,17 @@ fun ApplicationStatusScreen(vm: DriverViewModel) {
         Gap(12.dp)
         Btn("Sign out", { vm.confirm("Sign out?", "You will need your phone number and a code to sign in again.", "Yes, sign out") { vm.logout() } }, Modifier.fillMaxWidth(), kind = BtnKind.Outline)
         Gap(24.dp)
+    }
+    // The pop-ups come last so they are drawn over the page (drawn first, the full-screen page hid them).
+    if (vm.dialog == Dialog.Verifying) SheetOverlay(onDismiss = null) {
+        Txt("Profile Under Verification", 19f, 800)
+        Txt("Your profile is still under verification. One of our agents will review your information soon.", 14f, 500, C.Muted)
+        Btn("Got it", { vm.dialog = null }, Modifier.fillMaxWidth())
+    }
+    if (vm.dialog == Dialog.Approved) SheetOverlay(onDismiss = null) {
+        Txt("Congratulations! \uD83C\uDF89", 21f, 800)
+        Txt("Your profile has been approved. You can now proceed to the next step.", 14f, 500, C.Muted)
+        Btn("Continue", vm::continueAfterApproval, Modifier.fillMaxWidth())
     }
 }
 
