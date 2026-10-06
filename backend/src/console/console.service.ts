@@ -230,6 +230,7 @@ export class ConsoleService {
     const history = await this.q(`SELECT to_status, reason, created_at FROM ride_status_history WHERE ride_id = $1 ORDER BY created_at, id`, [id]);
     const [trk] = await this.q(`SELECT pickup_leg_m, trip_m, accepted_points, ignored_points, finished_at FROM ride_tracking WHERE ride_id = $1`, [id]);
     return {
+      chat: await this.chatTranscript(id),
       tracking: trk ? { pickupLegM: trk.pickup_leg_m, tripM: trk.trip_m, acceptedPoints: trk.accepted_points, ignoredPoints: trk.ignored_points, final: trk.finished_at != null } : null,
       id: r.id, code: r.short_code, status: r.status, paymentStatus: r.payment_status, method: r.payment_method, category: r.category,
       createdAt: r.created_at, scheduledFor: r.scheduled_for,
@@ -244,6 +245,12 @@ export class ConsoleService {
       estimate: r.low_kobo == null ? null : { lowKobo: Number(r.low_kobo), highKobo: Number(r.high_kobo) },
       timeline: history.map((h) => ({ status: h.to_status, reason: h.reason, at: h.created_at })),
     };
+  }
+
+  /** What the rider and driver wrote to each other on this trip, for looking into a dispute. */
+  private async chatTranscript(rideId: string) {
+    const rows = await this.q(`SELECT m.id, m.body, m.created_at, u.full_name, u.role FROM ride_messages m JOIN users u ON u.id = m.sender_id WHERE m.ride_id = $1 ORDER BY m.id LIMIT 500`, [rideId]);
+    return rows.map((r) => ({ from: r.full_name, role: r.role, text: r.body, at: r.created_at }));
   }
 
   // ------------------------------------------------------------------ customers

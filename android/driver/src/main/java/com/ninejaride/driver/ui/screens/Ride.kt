@@ -202,8 +202,8 @@ fun ToPickupScreen(vm: DriverViewModel) {
                         StarFilled(C.OrangeIcon, 14.dp); Txt("${o.rider.rating}", 13f, 500, C.Muted)
                     }
                 }
-                CircleIconButton(Ic.Phone, "Call rider", { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:"))) })
             }
+            ContactRow(vm, noShow = false)
             RouteBlock(o.pickup, o.dropoff)
             Btn("I've arrived", { vm.confirm("Have you arrived?", "The rider is told you are at the pickup point and your waiting time starts.", "Yes, I've arrived", false, vm::arrived) }, Modifier.fillMaxWidth())
             Btn("Cancel trip", { vm.confirm("Cancel this trip?", "Cancelling often lowers how many rides you are offered.", "Yes, cancel trip", true, vm::cancelTrip) }, Modifier.fillMaxWidth(), kind = BtnKind.Outline, height = 46.dp)
@@ -239,10 +239,7 @@ fun WaitingScreen(vm: DriverViewModel) {
                     Txt("Waiting time. Charged only after the free window.", 12.5f, 500, C.Muted)
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Btn("Call rider", { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:"))) }, Modifier.weight(1f), kind = BtnKind.Outline, height = 46.dp)
-                Btn("No-show", { vm.confirm("Rider did not show up?", "The trip ends and you go back to waiting for rides.", "Yes, no-show", true, vm::noShow) }, Modifier.weight(1f), kind = BtnKind.Outline, height = 46.dp)
-            }
+            ContactRow(vm, noShow = true)
             Btn("Start trip", { vm.confirm("Start the trip?", "Only start once the rider is in the car.", "Yes, start trip", false, vm::startTrip) }, Modifier.fillMaxWidth())
         }
     }
@@ -272,6 +269,7 @@ fun InTripScreen(vm: DriverViewModel) {
                     vm.remainingM?.let { Txt("${com.ninejaride.core.format.distanceText(it)} left", 12f, 600, C.Muted) }
                 }
             }
+            ContactRow(vm, noShow = false)
             Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(C.Bg).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -288,6 +286,24 @@ fun InTripScreen(vm: DriverViewModel) {
     }
 }
 
+/**
+ * How the driver reaches the rider: Call (the phone's own dialler, the number is never shown), Chat (with a count when messages
+ * are waiting) and, at the pickup, No-show, which is a separate action and not part of calling.
+ */
+@Composable
+private fun ContactRow(vm: DriverViewModel, noShow: Boolean) {
+    val ctx = LocalContext.current
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        val phone = vm.riderPhone
+        if (phone != null || vm.demo) Btn("Call", { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${phone.orEmpty()}"))) }, Modifier.weight(1f), kind = BtnKind.Outline, height = 46.dp)
+        if (!vm.demo) Box(Modifier.weight(1f)) {
+            Btn("Chat", { vm.chatOpen = true }, Modifier.fillMaxWidth(), kind = BtnKind.Outline, height = 46.dp)
+            com.ninejaride.core.ui.components.ChatBadge(vm.chat.unread, Modifier.align(Alignment.TopEnd).padding(top = 0.dp, end = 6.dp))
+        }
+        if (noShow) Btn("No-show", { vm.confirm("Rider did not show up?", "The trip ends and you go back to waiting for rides.", "Yes, no-show", true, vm::noShow) }, Modifier.weight(1f), kind = BtnKind.Outline, height = 46.dp)
+    }
+}
+
 @Composable
 private fun ReasonChip(text: String, selected: Boolean, danger: Boolean = false, onClick: () -> Unit) {
     val bg = if (danger) C.RedCard else C.GreenTint
@@ -300,6 +316,11 @@ private fun ReasonChip(text: String, selected: Boolean, danger: Boolean = false,
 @Composable
 fun ReceiptCard(r: FareReceipt, paymentIsCash: Boolean) {
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(16.dp)) {
+        Row(Modifier.padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.size(32.dp).clip(RoundedCornerShape(9.dp)).background(C.Green), contentAlignment = Alignment.Center) { Txt("9ja", 13f, 800, Color.White) }
+            Column(Modifier.weight(1f)) { Txt("9jaRide trip receipt", 14f, 800); Txt("Your fare and what you earned", 11.5f, 500, C.Muted) }
+        }
+        Divider()
         r.lines.forEach { l ->
             Box(Modifier.padding(vertical = 9.dp)) {
                 MoneyLine(l.label, if (l.signed) nairaSigned(l.amount) else naira(l.amount, true), labelColor = C.Ink)
@@ -308,11 +329,11 @@ fun ReceiptCard(r: FareReceipt, paymentIsCash: Boolean) {
         Divider()
         Box(Modifier.padding(vertical = 9.dp)) { MoneyLine("Fare", naira(r.total), bold = false, labelColor = C.Ink) }
         Box(Modifier.padding(vertical = 9.dp)) {
-            MoneyLine("9jaRide service charge · ${r.serviceRatePercent}%", nairaMinus(r.serviceCharge), amountColor = C.RedText, labelColor = C.RedText)
+            MoneyLine("9jaRide service charge · ${r.serviceRatePercent}%", naira(r.serviceCharge, true), labelColor = C.Ink)
         }
         Box(Modifier.padding(vertical = 9.dp)) { MoneyLine("You earn", naira(r.earn, true), bold = false, labelColor = C.Ink) }
         if (r.vehicleDeduction > 0) {
-            Box(Modifier.padding(vertical = 9.dp)) { MoneyLine("Vehicle payment" + (if (r.vehicleSharePercent > 0) " · ${r.vehicleSharePercent}%" else ""), nairaMinus(r.vehicleDeduction), amountColor = C.RedText, labelColor = C.RedText) }
+            Box(Modifier.padding(vertical = 9.dp)) { MoneyLine("Vehicle payment" + (if (r.vehicleSharePercent > 0) " · ${r.vehicleSharePercent}%" else ""), naira(r.vehicleDeduction, true), labelColor = C.Ink) }
             Divider()
             Box(Modifier.padding(vertical = 9.dp)) { MoneyLine("You keep", naira(r.earn - r.vehicleDeduction, true), bold = true, labelColor = C.Ink) }
         }
@@ -418,6 +439,12 @@ private fun SosStep(done: Boolean, title: String, detail: String) {
 /** Chooses the full-screen ride screen for the current phase. */
 @Composable
 fun RideFlow(vm: DriverViewModel) {
+    // the chat with the rider covers the trip screens while it is open
+    if (vm.chatOpen && vm.phase in setOf(Phase.ToPickup, Phase.Waiting, Phase.InTrip)) {
+        androidx.activity.compose.BackHandler { vm.chatOpen = false }
+        com.ninejaride.core.ui.components.ChatScreen(vm.chat, "Chat with ${vm.offer.rider.name}", "rider") { vm.chatOpen = false }
+        return
+    }
     when (vm.phase) {
         Phase.Offer -> OfferScreen(vm)
         Phase.ToPickup -> ToPickupScreen(vm)

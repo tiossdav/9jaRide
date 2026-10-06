@@ -1,5 +1,8 @@
 package com.ninejaride.driver.state
 
+import com.ninejaride.core.data.chatPage
+import com.ninejaride.core.data.chatRead
+import com.ninejaride.core.data.chatSend
 import androidx.compose.ui.graphics.asImageBitmap
 import com.ninejaride.core.format.Kobo
 import com.ninejaride.core.format.naira
@@ -952,7 +955,30 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         super.onCleared()
     }
 
-    private fun clearRide() { carPoint = null; routeToPickup = emptyList(); routeTrip = emptyList() }
+    private fun clearRide() { carPoint = null; routeToPickup = emptyList(); routeTrip = emptyList(); stopChat() }
+
+    // ---- talking to the rider of the trip in progress
+    /** The rider's number for the dialler, known once the trip is accepted. Not shown anywhere. */
+    var riderPhone by mutableStateOf<String?>(null)
+    private var chatRide: String? = null
+    val chat = com.ninejaride.core.data.ChatController(
+        viewModelScope,
+        fetch = { after, wait -> api.client.chatPage(chatRide ?: throw ApiException(404, null, "no ride"), after, wait) },
+        send = { text, clientId -> api.client.chatSend(chatRide ?: throw ApiException(404, null, "no ride"), text, clientId) },
+        markRead = { upTo -> chatRide?.let { api.client.chatRead(it, upTo) } },
+        appVisible = { true }, // a driver on a trip keeps the app in front
+    )
+    /** True while the chat covers the trip screen. */
+    var chatOpen by mutableStateOf(false)
+
+    private fun startChat() {
+        val id = realRideId ?: return
+        if (demo) return
+        chatRide = id; chat.start(id)
+        viewModelScope.launch { runCatching { api.activeRide() }.getOrNull()?.let { if (it.rideId == id) riderPhone = it.riderPhone } }
+    }
+
+    private fun stopChat() { chat.stop(); chatOpen = false; chatRide = null; riderPhone = null }
 
     // ------------------------------------------------------------------ the ride (scripted in demo mode)
     var phase by mutableStateOf(Phase.None)
@@ -1048,6 +1074,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun beginPickupLeg() {
         phase = Phase.ToPickup
+        startChat()
         deviceLocation?.let { from -> viewModelScope.launch { routeToPickup = Routing.route(from, demoPickup) } }
         rideJob?.cancel()
         etaMin = null; remainingM = null; pickupTravelledM = 0; tripTravelledM = 0
@@ -1127,6 +1154,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     private fun beginWaiting() {
         waitingSeconds = 0
         phase = Phase.Waiting
+        startChat()
         rideJob?.cancel()
         rideJob = viewModelScope.launch { while (phase == Phase.Waiting) { delay(1000); waitingSeconds++ } }
     }
@@ -1136,6 +1164,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         legRoute = emptyList(); offRoad = 0
         tripStartedPoint = deviceLocation
         phase = Phase.InTrip
+        startChat()
         rideJob?.cancel()
         rideJob = viewModelScope.launch {
             var last = deviceLocation

@@ -65,6 +65,11 @@ fun RideOverlay(vm: RiderViewModel) {
     val done = vm.tripDone
     if (done != null) { TripCompleteScreen(vm, done); return }
     val r = vm.ride ?: return
+    if (vm.chatOpen) {
+        androidx.activity.compose.BackHandler { vm.chatOpen = false }
+        com.ninejaride.core.ui.components.ChatScreen(vm.chat, "Chat with ${r.driver?.name?.substringBefore(' ') ?: "your driver"}", "driver") { vm.chatOpen = false }
+        return
+    }
     Box(Modifier.fillMaxSize().background(C.Bg)) {
         val markers = buildList {
             add(MapMarker(r.pickup, MarkerKind.Pickup))
@@ -168,9 +173,14 @@ private fun DriverCard(vm: RiderViewModel, r: RideView, title: String, subtitle:
                     Txt(d?.rating?.let { "%.1f".format(it) } ?: "New", 12.5f, 600, C.Muted)
                 }
             }
+        }
+        // Talking to the driver: the phone's own dialler (the number is never shown), and the trip chat.
+        Gap(10.dp)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             d?.phone?.let { phone ->
-                CircleIconButton(Ic.Phone, "Call driver", { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))) })
+                CommButton("Call", Ic.Phone, 0, Modifier.weight(1f)) { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))) }
             }
+            CommButton("Chat", Ic.Chat, vm.chat.unread, Modifier.weight(1f)) { vm.chatOpen = true }
         }
         Gap(12.dp)
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Raised).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -183,6 +193,22 @@ private fun DriverCard(vm: RiderViewModel, r: RideView, title: String, subtitle:
         Gap(10.dp)
         com.ninejaride.core.ui.components.RouteBlock(r.pickupAddress ?: "Pickup", r.dropoffAddress ?: "Drop-off")
         if (canCancel) { Gap(12.dp); Btn("Cancel ride", vm::askCancel, Modifier.fillMaxWidth(), kind = BtnKind.Outline) }
+    }
+}
+
+/** A Call / Chat button: an icon and a word, with a red count on it when messages are waiting. */
+@Composable
+private fun CommButton(label: String, icon: List<String>, badge: Int, modifier: Modifier, onClick: () -> Unit) {
+    Box(modifier) {
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.GreenTint).tap(onClick, label).padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon24(icon, C.GreenAccent, 20.dp)
+            Gap(8.dp)
+            Txt(label, 14.5f, 800, C.GreenAccent)
+        }
+        com.ninejaride.core.ui.components.ChatBadge(badge, Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 10.dp))
     }
 }
 

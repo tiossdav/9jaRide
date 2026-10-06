@@ -1,5 +1,8 @@
 package com.ninejaride.rider.state
 
+import com.ninejaride.core.data.chatPage
+import com.ninejaride.core.data.chatRead
+import com.ninejaride.core.data.chatSend
 import android.app.Application
 import android.content.Context
 import androidx.compose.runtime.getValue
@@ -514,6 +517,8 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
                 try {
                     val r = api.ride(id, waitFor = seen, waitSeconds = 20)
                     ride = r
+                    // chat is open from the moment a driver is on the way until the trip ends
+                    if (r.status in watchedStatuses && r.driver != null) { chatRide = r.id; chat.start(r.id) } else { chat.stop(); chatOpen = false }
                     seen = r.status
                     when (r.status) {
                         "TRIP_COMPLETED" -> { stopHelpers(); tripDone = r; ratingSent = r.myRating != null; refreshWallet(); refreshTrips(); return@launch }
@@ -648,6 +653,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         pollJob?.cancel()
         ride = null; tripDone = null; driverPoint = null; driverEtaMin = null; tripEtaMin = null; tripRoute = emptyList(); tripRouteFor = null
         pickupRoute = emptyList(); toPickupM = null; toDropM = null; pickupTravelledM = 0; tripTravelledM = 0; carAtMs = 0; carTarget = null; carAnim?.cancel()
+        chat.stop(); chatOpen = false; chatRide = null
         legRoute = emptyList(); legFor = null; offRoad = 0
         rating = 5; ratingTags = emptySet(); ratingComment = ""; feedbackThanks = false; ratingSent = false; sosOpen = false; sosSteps = 0; cancelReason = null
         clearBooking()
@@ -752,6 +758,20 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     var tripsTab by mutableIntStateOf(0) // 0 history, 1 scheduled
     var filterUpTo by mutableStateOf<LocalDate?>(null)
     var receipt by mutableStateOf<Receipt?>(null)
+    /** The ride the receipt is for: where, when, who drove. */
+    var receiptRide by mutableStateOf<RideView?>(null)
+
+    // ---- chat with the driver of the ride in progress
+    private var chatRide: String? = null
+    val chat = com.ninejaride.core.data.ChatController(
+        viewModelScope,
+        fetch = { after, wait -> client.chatPage(chatRide ?: throw ApiException(404, null, "no ride"), after, wait) },
+        send = { text, clientId -> client.chatSend(chatRide ?: throw ApiException(404, null, "no ride"), text, clientId) },
+        markRead = { upTo -> chatRide?.let { client.chatRead(it, upTo) } },
+        appVisible = { visible },
+    )
+    /** True while the chat covers the ride screen. */
+    var chatOpen by mutableStateOf(false)
     var detailRide by mutableStateOf<RideView?>(null)
 
     fun refreshTrips() {
@@ -768,8 +788,9 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun loadReceipt(id: String) {
-        receipt = null
+        receipt = null; receiptRide = null
         viewModelScope.launch { receipt = runCatching { api.receipt(id) }.getOrNull() }
+        viewModelScope.launch { receiptRide = runCatching { api.ride(id) }.getOrNull() }
     }
 
     // ------------------------------------------------------------------ scheduled rides

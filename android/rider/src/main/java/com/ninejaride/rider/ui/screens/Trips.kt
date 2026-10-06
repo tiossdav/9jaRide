@@ -197,25 +197,48 @@ fun TripDetailsScreen(vm: RiderViewModel, id: String) {
     }
 }
 
+private const val RECEIPT_SUPPORT_EMAIL = "support@9jaridepro.com"
+
+/** The receipt of a finished trip, in the 9jaRide receipt design, built from the trip and its fare. */
 @Composable
 fun ReceiptScreen(vm: RiderViewModel, id: String) {
     LaunchedEffect(id) { vm.loadReceipt(id) }
     val rc = vm.receipt
+    val ride = vm.receiptRide
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val data = if (rc != null && ride != null) receiptData(rc, ride) else null
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         Box(Modifier.statusBarsPadding()) { ScreenHeader("Receipt", onBack = { vm.pop() }) }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            if (rc == null) Txt("Loading...", 14f, 500, C.Muted)
-            else Card {
-                rc.lines.forEach { MoneyLine(it.label.ifBlank { it.kind }, naira(it.amountKobo, true)) }
-                Divider()
-                MoneyLine("Total", naira(rc.totalKobo, true), bold = rc.discountKobo == 0L)
-                if (rc.discountKobo > 0) {
-                    MoneyLine("Promo ${rc.promoCode ?: ""}", "-" + naira(rc.discountKobo, true))
-                    Divider()
-                    MoneyLine("You paid", naira(rc.payableKobo, true), bold = true)
-                }
-            }
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 24.dp, top = 6.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (data == null) Txt("Loading your receipt...", 14f, 500, C.Muted)
+            else com.ninejaride.core.ui.components.TripReceipt(data)
         }
-        Box(Modifier.navigationBarsPadding().padding(20.dp)) { Btn("Done", { vm.pop() }, Modifier.fillMaxWidth()) }
+        Column(Modifier.navigationBarsPadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (data != null) Btn("Share receipt", {
+                val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(android.content.Intent.EXTRA_SUBJECT, "9jaRide receipt ${data.reference}").putExtra(android.content.Intent.EXTRA_TEXT, com.ninejaride.core.ui.components.receiptText(data))
+                runCatching { ctx.startActivity(android.content.Intent.createChooser(send, "Share receipt")) }
+            }, Modifier.fillMaxWidth(), kind = BtnKind.Outline)
+            Btn("Done", { vm.pop() }, Modifier.fillMaxWidth())
+        }
     }
+}
+
+/** Puts the fare and the trip together. Only a promo or other credit is shown with a minus; every charge is a plain amount. */
+private fun receiptData(rc: com.ninejaride.rider.data.Receipt, r: com.ninejaride.rider.data.RideView): com.ninejaride.core.ui.components.TripReceiptData {
+    val lines = rc.lines.map { com.ninejaride.core.ui.components.ReceiptLineView(it.label.ifBlank { it.kind }, it.amountKobo) } +
+        (if (rc.discountKobo > 0) listOf(com.ninejaride.core.ui.components.ReceiptLineView("Promo ${rc.promoCode ?: ""}".trim(), rc.discountKobo, negative = true)) else emptyList())
+    val wallet = r.paymentMethod == "wallet"
+    val status = when (r.paymentStatus) { "PAID" -> "Paid"; "REFUNDED" -> "Refunded"; "HELD" -> "Payment held"; else -> if (wallet) "Unpaid" else "Pay your driver in cash" }
+    fun at(pattern: String) = (r.statusChangedAt ?: r.createdAt)?.let { iso ->
+        runCatching { java.time.format.DateTimeFormatter.ofPattern(pattern, java.util.Locale.ENGLISH).withZone(java.time.ZoneId.systemDefault()).format(java.time.Instant.parse(iso)) }.getOrNull()
+    } ?: ""
+    val d = r.driver
+    return com.ninejaride.core.ui.components.TripReceiptData(
+        reference = r.shortCode, dateText = at("EEE d MMM yyyy"), timeText = at("h:mm a"), pickup = r.pickupAddress ?: "Pickup", dropoff = r.dropoffAddress ?: "Drop-off",
+        distance = com.ninejaride.core.format.distanceText(r.distanceM ?: 0), duration = "${((r.durationS ?: 0) / 60).coerceAtLeast(1)} min",
+        driver = d?.name, vehicle = listOfNotNull(d?.colour?.ifBlank { null }, d?.make?.ifBlank { null }).joinToString(" ").ifBlank { null }, plate = d?.plate?.ifBlank { null },
+        lines = lines, totalKobo = rc.payableKobo, paymentMethod = if (wallet) "Wallet" else "Cash", paymentStatus = status, paid = r.paymentStatus == "PAID",
+        supportEmail = RECEIPT_SUPPORT_EMAIL,
+    )
 }

@@ -50,6 +50,8 @@ object Ic {
     val Headset = listOf("M4 14v-2a8 8 0 0 1 16 0v2", "M4 14h3v5H5a1 1 0 0 1-1-1zM20 14h-3v5h2a1 1 0 0 0 1-1z")
     val Wifi = listOf("M2.5 9.2a14 14 0 0 1 19 0M5.5 12.6a9.5 9.5 0 0 1 13 0M8.6 16a5 5 0 0 1 6.8 0M12 19.4h.01")
     val Flag = listOf("M5 21V4M5 4h11l-2 4 2 4H5")
+    val Chat = listOf("M21 12a8 8 0 0 1-11.6 7.1L4 20l1.2-4.6A8 8 0 1 1 21 12z", "M8.5 11h7", "M8.5 14.5h4")
+    val Send = listOf("M4 4l17 8-17 8 3-8z", "M7 12h8")
     /** Tabler "route-alt-right": two start points merging into one road. Used for the Trips tab. */
     val Route = listOf("M16 3h5v5", "M8 3h-5v5", "M21 3l-7.536 7.536a5 5 0 0 0 -1.464 3.534v6.93", "M6 6.01v-.01", "M8 8.02v-.01", "M10 10v.01")
 }

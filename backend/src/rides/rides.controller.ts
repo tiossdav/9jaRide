@@ -7,6 +7,7 @@ import { CurrentUser, Principal, Roles } from '../auth/auth.types';
 import { StaffAuditInterceptor } from '../common/audit.interceptor';
 import { AssetTypesService } from '../catalog/asset-types.service';
 import { IdempotencyKey } from '../common/idempotency-key';
+import { ChatService } from './chat.service';
 import { LocationService, MAX_BATCH } from './location.service';
 import { RidesService } from './rides.service';
 import { ScheduledRidesService } from './scheduled-rides.service';
@@ -63,6 +64,20 @@ class RateDto {
   @IsOptional() @IsString() @MaxLength(500) comment?: string;
 }
 
+class MessageDto {
+  @IsString() @MinLength(1) @MaxLength(500) text!: string;
+  @IsOptional() @IsString() @MaxLength(64) clientId?: string;
+}
+
+class MessagesQuery {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) after?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(25) wait?: number;
+}
+
+class ReadDto {
+  @IsInt() @Min(0) upTo!: number;
+}
+
 class ListQuery {
   @IsOptional() @IsIn(['active', 'history']) scope?: 'active' | 'history';
 }
@@ -111,6 +126,7 @@ export class RidesController {
     private readonly location: LocationService,
     private readonly scheduled: ScheduledRidesService,
     private readonly assetTypes: AssetTypesService,
+    private readonly chat: ChatService,
   ) {}
 
   // ------------------------------------------------------------------ rider
@@ -171,6 +187,24 @@ export class RidesController {
   @Roles('rider') @Get('rides/active')
   active(@CurrentUser() me: Principal) {
     return this.rides.activeForRider(me.id);
+  }
+
+  // ------------------------------------------------------------------ chat between the rider and driver of a ride
+
+  /** Messages after `after`; with `wait` the answer is held until a new one arrives. Only this ride's rider and driver may read. */
+  @Roles('rider', 'driver') @Get('rides/:id/messages')
+  messages(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Query() q: MessagesQuery) {
+    return this.chat.list(me.id, id, q.after ?? 0, q.wait ?? 0);
+  }
+
+  @Roles('rider', 'driver') @Post('rides/:id/messages') @HttpCode(200)
+  sendMessage(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() dto: MessageDto) {
+    return this.chat.send(me.id, id, dto.text, dto.clientId);
+  }
+
+  @Roles('rider', 'driver') @Post('rides/:id/messages/read') @HttpCode(204)
+  async readMessages(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ReadDto) {
+    await this.chat.markRead(me.id, id, dto.upTo);
   }
 
   @Roles('rider', 'driver') @Post('rides/:id/rating') @HttpCode(200)

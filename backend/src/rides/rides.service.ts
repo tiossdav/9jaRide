@@ -3,6 +3,7 @@ import Redis from 'ioredis';
 import { Pool } from 'pg';
 import { PG_POOL, REDIS } from '../common/infra.module';
 import { DispatchService } from '../dispatch/dispatch.service';
+import { ChatService } from './chat.service';
 import { TrackingService } from './tracking.service';
 import { Category, keys } from '../dispatch/dispatch.types';
 import { PromoService } from '../promo/promo.service';
@@ -48,6 +49,7 @@ export class RidesService {
     private readonly promo: PromoService,
     private readonly settings: SettingsService,
     private readonly tracking: TrackingService,
+    private readonly chat: ChatService,
   ) {}
 
   async checkPromo(riderId: string, code: string, category: Category, trip: { distanceM: number; durationS: number }) {
@@ -136,6 +138,7 @@ export class RidesService {
       myRating: r.my_stars ?? null,
       // distance the driver really drove (from GPS), apart for the way to the pickup and the trip; final once the trip is done
       tracking: await this.tracking.progress(r.id),
+      unreadMessages: await this.chat.unread(me.id, r.id),
       scheduledFor: r.scheduled_for,
       scheduleId: r.schedule_id,
       cancelReason: r.cancel_reason,
@@ -353,6 +356,7 @@ export class RidesService {
       pickup: { lat: r.plat, lng: r.plng, address: r.pickup_address }, dropoff: { lat: r.dlat, lng: r.dlng, address: r.dropoff_address },
       expectedKobo: r.expected_kobo == null ? null : Number(r.expected_kobo), rider: { name: String(r.rider_name).split(' ')[0], phone: r.rider_phone },
       tracking: await this.tracking.progress(r.id),
+      unreadMessages: await this.chat.unread(driverId, r.id),
     };
   }
 

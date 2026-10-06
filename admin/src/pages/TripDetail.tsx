@@ -13,6 +13,7 @@ interface Trip {
   fare: { totalKobo: number; distanceM: number; durationS: number; waitingS: number; outsideEstimate: boolean; lines: { kind: string; label: string; amountKobo: number }[]; rates: { category: string; effectiveFrom: string } | null } | null;
   estimate: { lowKobo: number; highKobo: number } | null;
   timeline: { status: string; reason: string | null; at: string }[];
+  chat?: { from: string; role: string; text: string; at: string }[];
 }
 
 export default function TripDetail() {
@@ -42,6 +43,8 @@ export default function TripDetail() {
           <div className="card"><h3>Timeline</h3>
             <div className="timeline" style={{ marginTop: 8 }}>{t.timeline.map((h, i) => (
               <div className="tl" key={i}><span className="note">{timeOnly(h.at)}</span><span>{title(h.status)}</span><span className="note">{h.reason ?? ''}</span></div>))}</div></div>
+          {t.chat && t.chat.length > 0 && <div className="card"><h3>Chat between rider and driver</h3>
+            <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>{t.chat.map((m, i) => (<div key={i} style={{ display: 'flex', gap: 8, fontSize: 13 }}><span className="note" style={{ width: 52, flex: 'none' }}>{timeOnly(m.at)}</span><b style={{ flex: 'none' }}>{m.from} <span className="note">({m.role})</span></b><span>{m.text}</span></div>))}</div></div>}
         </div>
         <div className="card" style={{ alignSelf: 'start' }}>
           <h3>Fare snapshot</h3>
