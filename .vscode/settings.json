@@ -10,6 +10,22 @@
       "username": "jaride",
       "database": "jaride",
       "name": "jaride"
+    },
+    {
+      "pgOptions": {
+        "ssl": {
+          "rejectUnauthorized": true
+        }
+      },
+      "ssh": "Disabled",
+      "previewLimit": 50,
+      "sshOptions": {
+        "port": 22
+      },
+      "server": "localhost",
+      "driver": "PostgreSQL",
+      "name": "jaridee",
+      "connectString": "postgresql://jaride:2LwDg5tTGwcRzuPvnjZUYZWPaWGktMDW@dpg-db19skrncjis73brjj1g-a.oregon-postgres.render.com/jaride"
     }
   ]
 }

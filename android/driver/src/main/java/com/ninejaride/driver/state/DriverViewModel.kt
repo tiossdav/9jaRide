@@ -756,11 +756,24 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                 if (reason != null) { online = false; offerJob?.cancel(); say("You are offline", reason); LocationStatus.stoppedReason = null }
             }
         }
+        // Answered on the incoming-booking screen (over the lock screen): follow it here.
+        viewModelScope.launch {
+            com.ninejaride.driver.alert.OfferAnswers.answer.collect { a ->
+                if (a == null || demo) return@collect
+                com.ninejaride.driver.alert.OfferAnswers.answer.value = null
+                lastOfferShown = a.rideId
+                if (a.accepted) {
+                    // the ride is this driver's now: load it from the server so the pickup screen has everything
+                    val r = runCatching { api.activeRide() }.getOrNull()
+                    if (r != null) { rideJob?.cancel(); restoreRide(r) } else if (realRideId == a.rideId) beginPickupLeg()
+                } else if (realRideId == a.rideId || phase == Phase.Offer) { rideJob?.cancel(); clearRide(); realRideId = null; phase = Phase.None }
+            }
+        }
         // The background service is the only thing asking the server for offers; they arrive here.
         viewModelScope.launch {
             com.ninejaride.driver.alert.OfferFeed.offer.collect { o ->
                 if (o == null) { lastOfferShown = null; return@collect }
-                if (!demo && online && phase == Phase.None && o.rideId != lastOfferShown) { lastOfferShown = o.rideId; showRealOffer(o) }
+                if (!demo && online && phase == Phase.None && o.rideId != lastOfferShown && o.secondsLeft > 2) { lastOfferShown = o.rideId; showRealOffer(o) }
             }
         }
         // While online the service already follows the phone, so the Home map borrows its position instead of running a second listener.
@@ -979,7 +992,8 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         deviceLocation?.let { from -> viewModelScope.launch { routeToPickup = Routing.route(from, demoPickup) } }
         rideJob?.cancel()
         etaMin = null; remainingM = null; pickupTravelledM = 0; tripTravelledM = 0
-        rideJob = viewModelScope.launch { var tick = 0; while (phase == Phase.ToPickup) { carPoint = deviceLocation ?: carPoint; if (!demo && tick % 8 == 0) refreshProgress(); tick++; delay(1000) } }
+        legRoute = emptyList(); offRoad = 0
+        rideJob = viewModelScope.launch { var tick = 0; while (phase == Phase.ToPickup) { if (demo) carPoint = deviceLocation ?: carPoint else followRoad(); if (!demo && tick % 8 == 0) refreshProgress(); tick++; delay(1000) } }
     }
 
     /**
@@ -993,10 +1007,62 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             if (phase == Phase.InTrip && ride.tripTravelledM > 0) tripKm = ride.tripTravelledM / 1000.0 // the server's count is the one used
             if (phase == Phase.ToPickup && ride.status == "DRIVER_ARRIVED") { beginWaiting(); return }
         }
+        if (legRoute.isEmpty() || System.currentTimeMillis() - legRouteAt > 30_000) reroute()
+    }
+
+    // ---- the live route, like a navigation app
+    /** The road for the part of the trip in progress (to the pickup, or to the drop-off), as last fetched. */
+    private var legRoute: List<MapPoint> = emptyList()
+    private var legDurationS = 0
+    private var legLengthM = 0.0
+    private var legRouteAt = 0L
+    private var offRoad = 0
+    private var rerouting = false
+    private var glide: Job? = null
+
+    /** Fetches a fresh road from where the driver is now. */
+    private suspend fun reroute() {
+        if (rerouting) return
         val me = deviceLocation ?: return
-        val info = runCatching { Routing.routeInfo(me, if (phase == Phase.ToPickup) demoPickup else demoDropoff) }.getOrNull() ?: return
-        etaMin = (info.durationS / 60).coerceAtLeast(1); remainingM = info.distanceM
-        if (phase == Phase.ToPickup) routeToPickup = info.points else routeTrip = info.points
+        rerouting = true
+        try {
+            val target = if (phase == Phase.ToPickup) demoPickup else demoDropoff
+            val info = runCatching { Routing.routeInfo(me, target) }.getOrNull() ?: return
+            legRoute = info.points; legDurationS = info.durationS; legLengthM = com.ninejaride.core.data.RouteProgress.lengthM(info.points); legRouteAt = System.currentTimeMillis()
+            offRoad = 0
+            followRoad()
+        } finally { rerouting = false }
+    }
+
+    /**
+     * Once a second: puts the car on the road, draws only the road still ahead, and works out the time and distance left from
+     * it. A driver who leaves the road for a few readings in a row gets a new route from where they are.
+     */
+    private fun followRoad() {
+        val me = deviceLocation ?: return
+        val fix = com.ninejaride.core.data.RouteProgress.locate(legRoute, me)
+        if (fix == null) { moveCar(me); return }
+        if (fix.offRouteM > com.ninejaride.core.data.RouteProgress.OFF_ROUTE_M) {
+            offRoad++
+            moveCar(me) // show where the car really is while a new route comes
+            if (offRoad >= 3) viewModelScope.launch { reroute() }
+            return
+        }
+        offRoad = 0
+        moveCar(fix.onRoad)
+        remainingM = fix.remainingM.toInt()
+        etaMin = com.ninejaride.core.data.RouteProgress.minutesLeft(legDurationS, legLengthM, fix.remainingM)
+        if (phase == Phase.ToPickup) routeToPickup = fix.ahead else routeTrip = fix.ahead
+    }
+
+    /** Slides the car to its new place over about a second instead of jumping. */
+    private fun moveCar(to: MapPoint) {
+        val from = carPoint
+        glide?.cancel()
+        if (from == null || Routing.haversineKm(from, to) > 0.3) { carPoint = to; return }
+        glide = viewModelScope.launch {
+            for (i in 1..4) { carPoint = MapPoint(from.lat + (to.lat - from.lat) * i / 4.0, from.lng + (to.lng - from.lng) * i / 4.0); delay(220) }
+        }
     }
 
     private fun beginWaiting() {
@@ -1008,6 +1074,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun beginTripLeg() {
         tripSeconds = 0; tripKm = 0.0; stopReason = null; etaMin = null; remainingM = null
+        legRoute = emptyList(); offRoad = 0
         tripStartedPoint = deviceLocation
         phase = Phase.InTrip
         rideJob?.cancel()
@@ -1021,8 +1088,9 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                 if (now != null) {
                     // distance really driven, from the phone's own readings; tiny moves are GPS noise and a sudden leap is not a car
                     if (last != null) { val d = Routing.haversineKm(last, now); if (d > 0.008 && d < 0.2) { tripKm += d; last = now } else if (d >= 0.2) last = now } else last = now
-                    carPoint = now
+                    if (demo) carPoint = now
                 }
+                if (!demo) followRoad()
                 if (!demo && tick % 8 == 0) refreshProgress()
                 tick++
             }

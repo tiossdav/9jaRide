@@ -6,14 +6,24 @@ interface Live {
   onlineDrivers: number;
   activeDrivers: number;
   drivers: { id: string; status: string; lat: number; lng: number }[];
-  activeRides: { id: string; code: string; status: string; category: string; driver: string | null; changedAt: string | null }[];
+  activeRides: { id: string; code: string; status: string; category: string; driver: string | null; driverId: string | null; rider: string; changedAt: string | null; pickup: { lat: number; lng: number } }[];
   searching: { count: number; longestWaitSeconds: number };
   noDriverLastHour: number;
 }
 
 export default function LiveOperations() {
   const { data: d, error, reload } = useLoad<Live>('/admin/console/live', 5_000);
-  const dots = useMemo<MapDot[]>(() => (d?.drivers ?? []).map((x) => ({ lat: x.lat, lng: x.lng, color: x.status === 'on_trip' ? '#d4a237' : '#34c759', label: x.status === 'on_trip' ? 'On trip' : 'Online' })), [d]);
+  // Drivers where their phones are. Riders waiting for a car are shown at their pickup point (the rider app does not share its
+  // position); once the trip starts the rider is in the car, so the driver's dot says who is on board.
+  const dots = useMemo<MapDot[]>(() => {
+    const rides = d?.activeRides ?? [];
+    const drivers = (d?.drivers ?? []).map((x) => {
+      const ride = rides.find((r) => r.driverId === x.id);
+      return { lat: x.lat, lng: x.lng, color: x.status === 'on_trip' ? '#d4a237' : '#34c759', label: ride ? `${ride.driver ?? 'Driver'}${ride.status === 'TRIP_STARTED' ? ` with ${ride.rider}` : ` going to ${ride.rider}`}` : x.status === 'on_trip' ? 'On trip' : 'Online' };
+    });
+    const waiting = rides.filter((r) => r.status !== 'TRIP_STARTED' && r.pickup?.lat != null).map((r) => ({ lat: r.pickup.lat, lng: r.pickup.lng, color: '#3b82f6', label: `Rider ${r.rider} waiting (${r.code})` }));
+    return [...drivers, ...waiting];
+  }, [d]);
   if (!d) return <Loading error={error} retry={reload} />;
   const toPickup = d.activeRides.filter((r) => r.status !== 'TRIP_STARTED').length;
   return (
@@ -35,9 +45,9 @@ export default function LiveOperations() {
         <div className="card">
           <h3>Active rides</h3>
           {d.activeRides.length === 0 ? <div className="empty">No rides in progress.</div> : (
-            <div className="mini-table"><table><thead><tr><th>Trip</th><th>Driver</th><th>State</th></tr></thead><tbody>
+            <div className="mini-table"><table><thead><tr><th>Trip</th><th>Driver</th><th>Rider</th><th>State</th></tr></thead><tbody>
               {d.activeRides.map((r) => (
-                <tr key={r.id}><td><Link to={`/trips/${r.id}`}>{r.code}</Link></td><td>{r.driver ?? '-'}</td><td><span className={r.status === 'TRIP_STARTED' ? 'chip blue' : 'chip amber'}>{({ DRIVER_ASSIGNED: 'To pickup', DRIVER_ARRIVED: 'Arrived', TRIP_STARTED: 'In trip' } as Record<string, string>)[r.status] ?? r.status}</span></td></tr>
+                <tr key={r.id}><td><Link to={`/trips/${r.id}`}>{r.code}</Link></td><td>{r.driver ?? '-'}</td><td>{r.rider}</td><td><span className={r.status === 'TRIP_STARTED' ? 'chip blue' : 'chip amber'}>{({ DRIVER_ASSIGNED: 'To pickup', DRIVER_ARRIVED: 'Arrived', TRIP_STARTED: 'In trip' } as Record<string, string>)[r.status] ?? r.status}</span></td></tr>
               ))}
             </tbody></table></div>
           )}

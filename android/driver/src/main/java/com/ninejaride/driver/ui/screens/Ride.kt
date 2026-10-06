@@ -181,7 +181,7 @@ fun ToPickupScreen(vm: DriverViewModel) {
         MapPanel(
             Modifier.fillMaxWidth().fillMaxHeight(0.52f),
             markers = listOf(MapMarker(vm.demoPickup, MarkerKind.Pickup)) + carMarkers(vm),
-            route = vm.routeToPickup, fit = true, fitBorderDp = 120,
+            route = vm.routeToPickup, fit = true, fitBorderDp = 120, follow = if (vm.demo) null else vm.carPoint,
         )
         TopOverlay(vm, { DirectionBanner("Head north on Moboluwaduro Street", "400 m · tap to open maps") }) { openNavigation(ctx, o.pickup) }
         BottomSheetCard {
@@ -257,7 +257,7 @@ fun InTripScreen(vm: DriverViewModel) {
         MapPanel(
             Modifier.fillMaxWidth().fillMaxHeight(0.56f),
             markers = listOf(MapMarker(vm.demoDropoff, MarkerKind.Dropoff)) + carMarkers(vm),
-            route = vm.routeTrip, fit = true, fitBorderDp = 120,
+            route = vm.routeTrip, fit = true, fitBorderDp = 120, follow = if (vm.demo) null else vm.carPoint,
         )
         TopOverlay(vm, { DirectionBanner("Continue on Iwo Road", "1.1 km · tap to open maps") }) { openNavigation(ctx, o.dropoff) }
         BottomSheetCard {

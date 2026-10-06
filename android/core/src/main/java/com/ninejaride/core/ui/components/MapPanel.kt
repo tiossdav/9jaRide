@@ -117,6 +117,9 @@ fun MapPanel(
     fitBorderDp: Int = 56,
     /** Called with the point under the centre of the map after the user moves it (for placing a pin). */
     onCenterChange: ((MapPoint) -> Unit)? = null,
+    /** Navigation view: the camera stays on this point (the car), close in, and glides along as it moves. Overrides [fit]. */
+    follow: MapPoint? = null,
+    followZoom: Double = 17.0,
 ) {
     val context = LocalContext.current
     val view = remember(interactive) {
@@ -185,10 +188,17 @@ fun MapPanel(
                 })
             }
 
+            if (follow != null) {
+                // glide to the car instead of jumping; set the zoom once when following starts
+                if (v.tag != "follow") { v.tag = "follow"; v.controller.setZoom(followZoom); v.controller.setCenter(GeoPoint(follow)) }
+                else v.controller.animateTo(GeoPoint(follow))
+                v.invalidate()
+                return@AndroidView
+            }
             val all = (route + markers.map { it.at }).distinct()
             // The camera is reframed only when the route or the fixed pins change, never because the car moved.
             val still = (route + markers.filter { it.kind != MarkerKind.Car }.map { it.at }).distinct()
-            val key = if (fit && all.size >= 2) "fit:${still.firstOrNull()}:${still.lastOrNull()}:${route.size}" else "at:${center}:$zoom"
+            val key = if (fit && all.size >= 2) "fit:${markers.filter { it.kind != MarkerKind.Car }.map { it.at }}:${route.lastOrNull()}" else "at:${center}:$zoom"
             if (v.tag != key) {
                 v.tag = key
                 if (fit && all.size >= 2) {

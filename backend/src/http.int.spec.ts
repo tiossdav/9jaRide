@@ -138,6 +138,11 @@ suite('HTTP API (auth, rides, wallet, payouts, SOS)', () => {
       expect(r1.body.refreshToken).not.toBe(u.refresh);
       await http().get('/me').set(auth(r1.body.accessToken)).expect(200);
 
+      // the same phone asking twice at once (two parts of the app, or a retry) is not signed out
+      const twin = await http().post('/auth/refresh').send({ refreshToken: u.refresh }).expect(200);
+      await http().get('/me').set(auth(twin.body.accessToken)).expect(200);
+      // a replay after the grace window is theft: the whole login ends
+      await pool.query(`UPDATE auth_sessions SET used_at = now() - interval '5 minutes' WHERE token_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex')`, [u.refresh]);
       await http().post('/auth/refresh').send({ refreshToken: u.refresh }).expect(401); // replay of the used token
       await http().post('/auth/refresh').send({ refreshToken: r1.body.refreshToken }).expect(401); // family revoked
     });

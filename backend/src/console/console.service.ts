@@ -119,11 +119,11 @@ export class ConsoleService {
     const online = await this.onlineDrivers();
     const [totals] = await this.q(`SELECT count(*)::int AS n FROM users WHERE role = 'driver' AND status = 'active'`);
     const active = await this.q(
-      `SELECT r.id, r.short_code, r.status, r.category, r.created_at, d.full_name AS driver_name,
+      `SELECT r.id, r.short_code, r.status, r.category, r.created_at, d.full_name AS driver_name, rd.full_name AS rider_name, r.driver_id,
               (SELECT max(created_at) FROM ride_status_history h WHERE h.ride_id = r.id) AS changed_at,
               ST_Y(r.pickup::geometry) AS plat, ST_X(r.pickup::geometry) AS plng,
               ST_Y(r.dropoff::geometry) AS dlat, ST_X(r.dropoff::geometry) AS dlng
-         FROM rides r LEFT JOIN users d ON d.id = r.driver_id
+         FROM rides r LEFT JOIN users d ON d.id = r.driver_id JOIN users rd ON rd.id = r.rider_id
         WHERE r.status IN ${ACTIVE} ORDER BY r.created_at`,
     );
     const [searching] = await this.q(
@@ -138,7 +138,7 @@ export class ConsoleService {
       activeDrivers: totals.n,
       drivers: online,
       activeRides: active.map((r) => ({
-        id: r.id, code: r.short_code, status: r.status, category: r.category, driver: r.driver_name, changedAt: r.changed_at,
+        id: r.id, code: r.short_code, status: r.status, category: r.category, driver: r.driver_name, driverId: r.driver_id, rider: r.rider_name, changedAt: r.changed_at,
         pickup: { lat: r.plat, lng: r.plng }, dropoff: { lat: r.dlat, lng: r.dlng },
       })),
       searching: { count: searching.n, longestWaitSeconds: searching.longest },

@@ -16,6 +16,9 @@ const ISSUER = '9jaride';
 const AUDIENCE = '9jaride-api';
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
+/** A refresh token presented again this soon after its first use is the same phone retrying, not a thief. */
+const REFRESH_REUSE_GRACE_SECONDS = Number(process.env.REFRESH_REUSE_GRACE_SECONDS ?? 30);
+
 @Injectable()
 export class TokensService {
   private readonly secret: string;
@@ -79,7 +82,9 @@ export class TokensService {
 
   /**
    * Exchange a refresh token for a new pair. Each refresh token works once. Presenting one that was already used
-   * means two parties hold it (theft or a replay), so the whole login family is revoked and both must sign in again.
+   * means two parties hold it (theft or a replay), so the whole login family is revoked and both must sign in again,
+   * except within a short grace window: a phone that sent two renewals at once (or retried after a dropped answer)
+   * is the same phone, and gets another pair instead of being signed out.
    * `currentPrincipal` re-reads role/status from the database, so a suspension takes effect at the next refresh.
    */
   async rotate(
@@ -91,9 +96,10 @@ export class TokensService {
     try {
       await client.query('BEGIN');
       const { rows } = await client.query(
-        `SELECT id, family_id, subject_kind, subject_id, used_at, revoked_at, expires_at < now() AS expired
+        `SELECT id, family_id, subject_kind, subject_id, used_at, revoked_at, expires_at < now() AS expired,
+                used_at > now() - make_interval(secs => $2) AS just_used
            FROM auth_sessions WHERE token_hash = $1 FOR UPDATE`,
-        [sha256(refreshToken)],
+        [sha256(refreshToken), REFRESH_REUSE_GRACE_SECONDS],
       );
       const s = rows[0];
       if (!s || s.revoked_at || s.expired) {
@@ -102,7 +108,7 @@ export class TokensService {
       }
       const revokeFamily = () =>
         client.query(`UPDATE auth_sessions SET revoked_at = now() WHERE family_id = $1 AND revoked_at IS NULL`, [s.family_id]);
-      if (s.used_at) {
+      if (s.used_at && !s.just_used) {
         await revokeFamily();
         await client.query('COMMIT');
         throw reject();
@@ -113,7 +119,7 @@ export class TokensService {
         await client.query('COMMIT');
         throw reject();
       }
-      await client.query(`UPDATE auth_sessions SET used_at = now() WHERE id = $1`, [s.id]);
+      if (!s.used_at) await client.query(`UPDATE auth_sessions SET used_at = now() WHERE id = $1`, [s.id]);
       const next = randomBytes(32).toString('base64url');
       const ttl = principal.kind === 'staff' ? STAFF_REFRESH_SECONDS : USER_REFRESH_SECONDS;
       await client.query(

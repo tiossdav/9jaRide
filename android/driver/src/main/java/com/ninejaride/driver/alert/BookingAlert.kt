@@ -59,10 +59,11 @@ object BookingAlert {
         stop(app)
         ringingFor = rideId
         ensureChannel(app)
-        val open = PendingIntent.getActivity(
-            app, 1, Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
+        // The full-screen intent opens a small Accept / Decline screen over the lock screen, not the whole app.
+        val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        val open = PendingIntent.getActivity(app, 1, IncomingBookingActivity.intent(app, rideId, riderName, pickup, seconds), flags)
+        val acceptNow = PendingIntent.getActivity(app, 2, IncomingBookingActivity.intent(app, rideId, riderName, pickup, seconds, auto = "accept"), flags)
+        val declineNow = PendingIntent.getActivity(app, 3, IncomingBookingActivity.intent(app, rideId, riderName, pickup, seconds, auto = "decline"), flags)
         val note = NotificationCompat.Builder(app, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_menu_directions)
             .setContentTitle("New booking")
@@ -75,10 +76,25 @@ object BookingAlert {
             .setOngoing(true)
             .setAutoCancel(false)
             .setTimeoutAfter(seconds.coerceAtLeast(5) * 1000L)
+            .addAction(0, "Decline", declineNow)
+            .addAction(0, "Accept", acceptNow)
             .build()
         runCatching { app.getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, note) }
         ring(app)
         vibrate(app, true)
+        wake(app, seconds)
+    }
+
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+
+    /** Lights the screen for the length of the offer, for phones that do not show the full-screen screen by themselves. */
+    @Suppress("DEPRECATION")
+    private fun wake(context: Context, seconds: Int) {
+        runCatching {
+            val pm = context.getSystemService(android.os.PowerManager::class.java)
+            wakeLock = pm.newWakeLock(android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP, "9jaRidePro:booking")
+                .apply { acquire(seconds.coerceIn(5, 60) * 1000L) }
+        }
     }
 
     /** Ends the alert: the driver answered, the offer ran out, or the ride was taken. Safe to call at any time. */
@@ -90,6 +106,8 @@ object BookingAlert {
         savedVolume?.let { v -> runCatching { app.getSystemService(AudioManager::class.java).setStreamVolume(AudioManager.STREAM_ALARM, v, 0) } }
         savedVolume = null
         vibrate(app, false)
+        runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
+        wakeLock = null
         runCatching { app.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID) }
     }
 

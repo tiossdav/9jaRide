@@ -289,6 +289,15 @@ fun ApplicationStatusScreen(vm: DriverViewModel) {
                 Gap(14.dp)
                 Btn(if (app.changeItems.isNotEmpty()) "Update now" else "Update my application", vm::openApplication, Modifier.fillMaxWidth())
             }
+            "APPROVED" -> {
+                Chip("Approved")
+                Gap(14.dp)
+                Txt("Congratulations! \uD83C\uDF89", 24f, 800, align = TextAlign.Center)
+                Gap(8.dp)
+                Txt("Your profile has been approved. You can now proceed to the next step.", 15f, 600, align = TextAlign.Center)
+                Gap(18.dp)
+                Btn("Continue", vm::continueAfterApproval, Modifier.fillMaxWidth())
+            }
             else -> {
                 Chip("Under review")
                 Gap(14.dp)

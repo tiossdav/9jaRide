@@ -536,7 +536,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
                 if (visible && r != null && r.status in watchedStatuses) {
                     runCatching { api.driverLocation(id) }.getOrNull()?.let { fix ->
                         pickupTravelledM = fix.pickupTravelledM; tripTravelledM = fix.tripTravelledM; carAtMs = fix.atMs
-                        moveCarTo(fix.point)
+                        followRoad(r, fix.point)
                     }
                     nowMs = System.currentTimeMillis()
                     runCatching { updateEtas(r) }
@@ -555,22 +555,44 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private suspend fun updateEtas(r: RideView) {
+    // ---- the live route: the road the driver is following, as last fetched, for the part of the ride in progress
+    private var legRoute: List<MapPoint> = emptyList()
+    private var legFor: String? = null
+    private var legDurationS = 0
+    private var legLengthM = 0.0
+    private var offRoad = 0
+
+    /** Fetches the road from the car to where it is heading: when the leg starts, after the driver leaves it, and every 30 s for traffic. */
+    private suspend fun updateEtas(r: RideView, force: Boolean = false) {
         val now = System.currentTimeMillis()
-        if (now - etaAt < 15_000) return
+        val leg = "${r.id}:${r.status}"
+        if (!force && legFor == leg && now - etaAt < 30_000) return
         etaAt = now
-        val d = carTarget ?: driverPoint
-        // the time and distance left come from the road between where the driver is now and where they are going, so they change as the driver moves
-        if (r.status == "DRIVER_ASSIGNED" && d != null) {
-            val info = Routing.routeInfo(d, r.pickup)
-            driverEtaMin = (info.durationS / 60).coerceAtLeast(1); toPickupM = info.distanceM; pickupRoute = info.points
+        if (r.status == "DRIVER_ARRIVED") { driverEtaMin = null; toPickupM = null; pickupRoute = emptyList(); legRoute = emptyList(); legFor = leg; return }
+        val d = carTarget ?: driverPoint ?: if (r.status == "TRIP_STARTED") r.pickup else return
+        val to = if (r.status == "TRIP_STARTED") r.dropoff else r.pickup
+        val info = Routing.routeInfo(d, to)
+        legRoute = info.points; legDurationS = info.durationS; legLengthM = com.ninejaride.core.data.RouteProgress.lengthM(info.points); legFor = leg; offRoad = 0
+        if (r.status == "TRIP_STARTED") { tripRoute = info.points; tripRouteFor = r.id; pickupRoute = emptyList(); tripEtaMin = (info.durationS / 60).coerceAtLeast(1); toDropM = info.distanceM }
+        else { pickupRoute = info.points; driverEtaMin = (info.durationS / 60).coerceAtLeast(1); toPickupM = info.distanceM }
+    }
+
+    /**
+     * A new position from the driver: the car is put on the road and slides there, the road behind it is no longer drawn,
+     * and the time and distance left shrink with it. A driver who has left the road twice in a row gets a new route.
+     */
+    private suspend fun followRoad(r: RideView, p: MapPoint) {
+        val fix = if (legFor == "${r.id}:${r.status}") com.ninejaride.core.data.RouteProgress.locate(legRoute, p) else null
+        if (fix == null || fix.offRouteM > com.ninejaride.core.data.RouteProgress.OFF_ROUTE_M) {
+            moveCarTo(p)
+            if (fix != null && ++offRoad >= 2) runCatching { updateEtas(r, force = true) }
+            return
         }
-        if (r.status == "DRIVER_ARRIVED") { driverEtaMin = null; toPickupM = null; pickupRoute = emptyList() }
-        if (r.status == "TRIP_STARTED") {
-            val info = Routing.routeInfo(d ?: r.pickup, r.dropoff)
-            tripEtaMin = (info.durationS / 60).coerceAtLeast(1); toDropM = info.distanceM; tripRoute = info.points; tripRouteFor = r.id
-            pickupRoute = emptyList()
-        }
+        offRoad = 0
+        moveCarTo(fix.onRoad)
+        val mins = com.ninejaride.core.data.RouteProgress.minutesLeft(legDurationS, legLengthM, fix.remainingM)
+        if (r.status == "TRIP_STARTED") { tripRoute = fix.ahead; toDropM = fix.remainingM.toInt(); tripEtaMin = mins }
+        else if (r.status == "DRIVER_ASSIGNED") { pickupRoute = fix.ahead; toPickupM = fix.remainingM.toInt(); driverEtaMin = mins }
     }
 
     private var carTarget: MapPoint? = null
@@ -582,11 +604,11 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         carAnim?.cancel()
         if (from == null || Routing.haversineKm(from, to) > 0.5) { driverPoint = to; return }
         carAnim = viewModelScope.launch {
-            val steps = 10
+            val steps = 16
             for (i in 1..steps) {
                 val t = i / steps.toDouble()
                 driverPoint = MapPoint(from.lat + (to.lat - from.lat) * t, from.lng + (to.lng - from.lng) * t)
-                delay(400)
+                delay(280)
             }
         }
     }
@@ -626,6 +648,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         pollJob?.cancel()
         ride = null; tripDone = null; driverPoint = null; driverEtaMin = null; tripEtaMin = null; tripRoute = emptyList(); tripRouteFor = null
         pickupRoute = emptyList(); toPickupM = null; toDropM = null; pickupTravelledM = 0; tripTravelledM = 0; carAtMs = 0; carTarget = null; carAnim?.cancel()
+        legRoute = emptyList(); legFor = null; offRoad = 0
         rating = 5; ratingTags = emptySet(); ratingComment = ""; feedbackThanks = false; ratingSent = false; sosOpen = false; sosSteps = 0; cancelReason = null
         clearBooking()
         if (dialog == Dialog.CancelRide || dialog == Dialog.NoDriver) dialog = null

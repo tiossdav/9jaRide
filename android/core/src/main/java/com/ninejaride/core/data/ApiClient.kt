@@ -45,7 +45,9 @@ class ApiClient(context: Context, private val baseUrl: String, private val appVe
     /** For requests the server holds open on purpose (it answers when something happens, up to 25 s), so the phone asks far less often. */
     private val patientHttp: OkHttpClient by lazy { http.newBuilder().readTimeout(40, TimeUnit.SECONDS).build() }
     private val prefs = context.applicationContext.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-    private val refreshLock = Mutex()
+    // One lock per stored sign-in, shared by every client in the app (the driver app has two: the screens and the location
+    // service). Two renewals with the same refresh token would look like theft to the server and end the sign-in.
+    private val refreshLock = LOCKS.getOrPut(prefsName) { Mutex() }
     /** This installation's own id, made once. Sent with every request. */
     private val deviceId: String = prefs.getString("device_id", null) ?: java.util.UUID.randomUUID().toString().also { prefs.edit().putString("device_id", it).apply() }
 
@@ -138,6 +140,7 @@ class ApiClient(context: Context, private val baseUrl: String, private val appVe
     suspend fun call(method: String, path: String, body: String? = null, auth: Boolean = false, headers: Map<String, String> = emptyMap(), patient: Boolean = false): JsonObject =
         withContext(Dispatchers.IO) {
             val before = if (auth) session else null
+            if (auth && before == null) throw ApiException(401, "signed_out", "You have been signed out. Please sign in again.")
             var (status, obj) = send(method, path, body, before?.accessToken, headers, patient)
             if (auth && status == 401 && before != null && refresh(before)) {
                 val r = rawCall(method, path, body, session?.accessToken, headers, null, patient)
@@ -190,5 +193,8 @@ class ApiClient(context: Context, private val baseUrl: String, private val appVe
         val s = session ?: return
         runCatching { call("POST", "/auth/logout", buildJsonObject { put("refreshToken", s.refreshToken) }.toString()) }
         session = null
+    }
+    private companion object {
+        val LOCKS = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
     }
 }
