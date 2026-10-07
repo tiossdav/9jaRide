@@ -308,7 +308,30 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         activeField = 1
     }
 
-    fun onFieldText(field: Int, text: String) {
+    /** The rider tapped into a box: that is the one the results, "current location" and "set on map" now apply to. */
+    fun focusField(field: Int) {
+        if (activeField == field) return
+        activeField = field
+        searchJob?.cancel(); suggestions = emptyList(); searching = false
+        val text = if (field == 0) pickupText else dropoffText
+        if (text.trim().length >= 3 && (if (field == 0) pickup else dropoff) == null) onFieldText(field, text)
+    }
+
+    /** What was typed into [before] to make [after], wherever the cursor was: the common start and end are not part of it. */
+    private fun insertedText(before: String, after: String): String {
+        var start = 0
+        while (start < before.length && start < after.length && before[start] == after[start]) start++
+        var end = 0
+        while (end < before.length - start && end < after.length - start && before[before.length - 1 - end] == after[after.length - 1 - end]) end++
+        return after.substring(start, after.length - end)
+    }
+
+    fun onFieldText(field: Int, typed: String) {
+        // A box that already holds a chosen place and gets letters added to the end of it means the rider started a new search:
+        // the old address is dropped and only what was typed counts.
+        val chosen = if (field == 0) pickup else dropoff
+        val before = if (field == 0) pickupText else dropoffText
+        val text = if (chosen != null && typed.length > before.length) insertedText(before, typed) else typed
         activeField = field
         if (field == 0) { pickupText = text; pickup = null } else { dropoffText = text; dropoff = null }
         searchJob?.cancel()
@@ -326,7 +349,6 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
 
     /** A result of the search was tapped: show it on the map so the rider can nudge the pin, then confirm. */
     fun previewPlace(p: Place) {
-        suggestions = emptyList()
         mapPinPoint = p.point; mapPinAddress = p.address; previewStart = p.point
         push(Dest.SetOnMap)
     }
@@ -353,10 +375,11 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
 
     fun confirmMapPin() {
         val p = mapPinPoint ?: return
-        previewStart = null
+        previewStart = null; suggestions = emptyList()
         val place = Place(mapPinAddress ?: "Pinned location", p)
         if (activeField == 0) { pickup = place; pickupText = place.address } else { dropoff = place; dropoffText = place.address }
         pop() // back to Where to
+        if (activeField == 0 && dropoff == null) activeField = 1 // the pickup is set: the destination is next
         if (pickup != null && dropoff != null) goToRideSelection()
     }
 

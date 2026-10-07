@@ -37,7 +37,7 @@ suite('scheduled rides, cancellation, background location, app config', () => {
   }, 60_000);
   afterAll(async () => {
     // Rides this file started searching must not stay open for 10 minutes and offer themselves to other suites' drivers.
-    await h.pool.query(`UPDATE rides SET status = 'CANCELLED_BY_SYSTEM', cancel_reason = 'test cleanup' WHERE status = 'SEARCHING_DRIVER' AND search_window_seconds = 900`);
+    await h.pool.query(`UPDATE rides SET status = 'CANCELLED_BY_SYSTEM', cancel_reason = 'test cleanup' WHERE status = 'SEARCHING_DRIVER'`);
     await h.pool.query(`DELETE FROM app_config WHERE key = 'client'`);
     await h.close();
   });

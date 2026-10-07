@@ -25,12 +25,16 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.KeyboardType
@@ -202,17 +206,24 @@ private fun PlaceRow(title: String, sub: String?, onClick: () -> Unit) {
 }
 
 @Composable
-private fun AddressInput(label: String, value: String, active: Boolean, hint: String, color: Color, onChange: (String) -> Unit, focus: FocusRequester?) {
+private fun AddressInput(label: String, value: String, active: Boolean, hint: String, color: Color, onChange: (String) -> Unit, focus: FocusRequester?, onFocused: () -> Unit = {}) {
+    // Kept as a text-and-selection pair so that tapping into a box selects what is in it: typing then replaces the old address
+    // instead of being added to it ("Current location" + what the rider types is not a place).
+    var field by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(value)) }
+    if (field.text != value) field = androidx.compose.ui.text.input.TextFieldValue(value, androidx.compose.ui.text.TextRange(value.length))
+    var focused by remember { mutableStateOf(false) }
+    LaunchedEffect(focused) { if (focused) field = field.copy(selection = androidx.compose.ui.text.TextRange(0, field.text.length)) }
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Surface).border(1.5.dp, if (active) C.GreenAccent else C.Border, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(Modifier.size(10.dp).clip(CircleShape).background(color))
         BasicTextField(
-            value = value, onValueChange = onChange, singleLine = true,
+            value = field, onValueChange = { field = it; if (it.text != value) onChange(it.text) }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
             textStyle = type(14.5f, 600, C.Ink), cursorBrush = SolidColor(C.GreenAccent),
-            modifier = Modifier.weight(1f).let { if (focus != null) it.focusRequester(focus) else it },
+            modifier = Modifier.weight(1f).let { if (focus != null) it.focusRequester(focus) else it }
+                .onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocused() },
             decorationBox = { inner -> Box { if (value.isEmpty()) Txt(hint, 14.5f, 500, C.Disabled); inner() } },
         )
         if (value.isNotEmpty()) Icon24(Ic.Close, C.Faint, 16.dp, modifier = Modifier.tap({ onChange("") }, "Clear $label"))
@@ -222,15 +233,17 @@ private fun AddressInput(label: String, value: String, active: Boolean, hint: St
 @Composable
 fun WhereToScreen(vm: RiderViewModel) {
     val dropFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { dropFocus.requestFocus() } }
+    val pickFocus = remember { FocusRequester() }
+    // the screen opens on the box the rider tapped: the pickup, or the destination
+    LaunchedEffect(Unit) { runCatching { (if (vm.activeField == 0) pickFocus else dropFocus).requestFocus() } }
     Column(Modifier.fillMaxSize().background(C.Bg).imePadding()) {
         Column(Modifier.statusBarsPadding().padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 CircleIconButton(Ic.Back, "Back", vm::pop)
                 Txt("Plan your ride", 20f, 800)
             }
-            AddressInput("Pickup", vm.pickupText, vm.activeField == 0, "Pickup address", C.Green, { vm.onFieldText(0, it) }, null)
-            AddressInput("Drop-off", vm.dropoffText, vm.activeField == 1, "Where to?", C.Orange, { vm.onFieldText(1, it) }, dropFocus)
+            AddressInput("Pickup", vm.pickupText, vm.activeField == 0, "Pickup address", C.Green, { vm.onFieldText(0, it) }, pickFocus, onFocused = { vm.focusField(0) })
+            AddressInput("Drop-off", vm.dropoffText, vm.activeField == 1, "Where to?", C.Orange, { vm.onFieldText(1, it) }, dropFocus, onFocused = { vm.focusField(1) })
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 36.dp)) {
             if (vm.location.point != null) {

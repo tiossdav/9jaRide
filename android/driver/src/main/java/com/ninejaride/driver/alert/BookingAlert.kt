@@ -28,7 +28,14 @@ import com.ninejaride.driver.R
  * the driver to allow it (see [needsDndAccess]). Call [start] again for the same booking and nothing doubles up.
  */
 object BookingAlert {
+    /**
+     * The booking sound and vibration. Off for now: a booking still shows (notification, full-screen screen, Accept and Decline)
+     * but makes no noise. Set to true to bring the alarm back.
+     */
+    const val ALARM_ON = false
+
     private const val CHANNEL = "booking_alerts_v1"
+    private const val QUIET_CHANNEL = "booking_quiet_v1"
     private const val NOTIFICATION_ID = 9001
 
     private var player: MediaPlayer? = null
@@ -37,6 +44,18 @@ object BookingAlert {
 
     private fun ensureChannel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
+        if (!ALARM_ON) {
+            if (manager.getNotificationChannel(QUIET_CHANNEL) == null) {
+                manager.createNotificationChannel(NotificationChannel(QUIET_CHANNEL, "New bookings (silent)", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "A booking pop-up with no sound"
+                    setSound(null, null)
+                    enableVibration(false)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                    setShowBadge(true)
+                })
+            }
+            return
+        }
         if (manager.getNotificationChannel(CHANNEL) != null) return
         val sound = Uri.parse("android.resource://${context.packageName}/${R.raw.booking_ring}")
         val attrs = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
@@ -64,7 +83,7 @@ object BookingAlert {
         val open = PendingIntent.getActivity(app, 1, IncomingBookingActivity.intent(app, rideId, riderName, pickup, seconds), flags)
         val acceptNow = PendingIntent.getActivity(app, 2, IncomingBookingActivity.intent(app, rideId, riderName, pickup, seconds, auto = "accept"), flags)
         val declineNow = PendingIntent.getActivity(app, 3, IncomingBookingActivity.intent(app, rideId, riderName, pickup, seconds, auto = "decline"), flags)
-        val note = NotificationCompat.Builder(app, CHANNEL)
+        val note = NotificationCompat.Builder(app, if (ALARM_ON) CHANNEL else QUIET_CHANNEL)
             .setSmallIcon(android.R.drawable.ic_menu_directions)
             .setContentTitle("New booking")
             .setContentText("$riderName is waiting at $pickup")
@@ -80,8 +99,7 @@ object BookingAlert {
             .addAction(0, "Accept", acceptNow)
             .build()
         runCatching { app.getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, note) }
-        ring(app)
-        vibrate(app, true)
+        if (ALARM_ON) { ring(app); vibrate(app, true) }
         wake(app, seconds)
     }
 
