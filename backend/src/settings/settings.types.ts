@@ -19,11 +19,31 @@ export interface CancellationRules {
   tiers: CancellationTier[];
 }
 
-export type SettingKey = 'revenue' | 'cancellation';
-export interface SettingValues { revenue: RevenueRules; cancellation: CancellationRules }
+/** One place drivers work: a circle on the map. */
+export interface ServiceCircle { name: string; lat: number; lng: number; radiusKm: number }
+export interface ServiceAreaRules {
+  /** On: bookings can only start inside one of the areas, and only drivers inside one are available. Off: no limit. */
+  enabled: boolean;
+  areas: ServiceCircle[];
+}
+
+export type SettingKey = 'revenue' | 'cancellation' | 'service_area';
+export interface SettingValues { revenue: RevenueRules; cancellation: CancellationRules; service_area: ServiceAreaRules }
+
+/** Whether a point lies inside the operating area. Where a trip ends does not matter: only where it starts and where drivers are. */
+export function insideServiceArea(rules: ServiceAreaRules, lat: number, lng: number): boolean {
+  if (!rules.enabled) return true;
+  const rad = (d: number) => (d * Math.PI) / 180;
+  return rules.areas.some((a) => {
+    const h = Math.sin(rad(lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(lat)) * Math.sin(rad(lng - a.lng) / 2) ** 2;
+    return 2 * 6371 * Math.asin(Math.sqrt(h)) <= a.radiusKm;
+  });
+}
 
 export const DEFAULTS: SettingValues = {
   revenue: { commissionBps: 1200, taxBase: 'excluded', shares: [{ name: 'Platform', bps: 10000 }] },
+  // Lagos to begin with; more places are added here as drivers start working there
+  service_area: { enabled: true, areas: [{ name: 'Lagos', lat: 6.5244, lng: 3.3792, radiusKm: 45 }] },
   cancellation: {
     enabled: false, windowDays: 7, minRequests: 10,
     tiers: [{ fromPct: 20, toPct: 34, penaltyMinutes: 2 }, { fromPct: 35, toPct: 49, penaltyMinutes: 5 }, { fromPct: 50, toPct: 100, penaltyMinutes: 10 }],
@@ -73,6 +93,21 @@ export function validate<K extends SettingKey>(key: K, raw: unknown): SettingVal
       if (i > 0 && t.fromPct <= tiers[i - 1].toPct) throw bad(`tier ${i} and tier ${i + 1} overlap`);
     });
     return { enabled: v.enabled, windowDays, minRequests, tiers } as SettingValues[K];
+  }
+  if (key === 'service_area') {
+    if (typeof v.enabled !== 'boolean') throw bad('say whether the operating area is on or off');
+    if (!Array.isArray(v.areas) || v.areas.length > 30) throw bad('list up to thirty areas');
+    if (v.enabled && v.areas.length < 1) throw bad('add at least one area, or turn the limit off');
+    const areas = v.areas.map((a: any, i: number) => {
+      const name = String(a?.name ?? '').trim();
+      if (name.length < 2 || name.length > 60) throw bad(`area ${i + 1} needs a name of 2 to 60 letters`);
+      const lat = a?.lat, lng = a?.lng, radiusKm = a?.radiusKm;
+      if (typeof lat !== 'number' || lat < 3 || lat > 15) throw bad(`${name}: the latitude must be a place in Nigeria`);
+      if (typeof lng !== 'number' || lng < 2 || lng > 15) throw bad(`${name}: the longitude must be a place in Nigeria`);
+      if (typeof radiusKm !== 'number' || radiusKm < 1 || radiusKm > 300) throw bad(`${name}: the radius must be from 1 to 300 km`);
+      return { name, lat, lng, radiusKm };
+    });
+    return { enabled: v.enabled, areas } as SettingValues[K];
   }
   throw bad('unknown setting');
 }

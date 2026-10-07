@@ -10,6 +10,7 @@ import { Category, keys } from '../dispatch/dispatch.types';
 import { PromoService } from '../promo/promo.service';
 import { SettingsService } from '../settings/settings.service';
 import { splitFare } from '../ledger/postings';
+import { insideServiceArea } from '../settings/settings.types';
 
 // Placeholders: the trip distance a driver reports is flagged when it is this much longer than the recorded route.
 const TRAIL_MIN_POINTS = Number(process.env.TRAIL_MIN_POINTS ?? 10);
@@ -68,7 +69,12 @@ export class RidesService {
    * Request a ride. The quote is attached, and for a wallet ride the most the fare could be (top of the quoted
    * range) is held, in the SAME transaction as the ride. If the quote is stale or the wallet is short, no ride is created.
    */
-  request(riderId: string, idempotencyKey: string, input: RideInput) {
+  async request(riderId: string, idempotencyKey: string, input: RideInput) {
+    // drivers work only inside the operating area, so a booking has to start inside it; where it ends is the rider's business
+    const area = await this.settings.effective('service_area');
+    if (!insideServiceArea(area, input.pickup.lat, input.pickup.lng)) {
+      throw new ConflictException({ code: 'outside_service_area', message: `9jaRide drivers are not working at that pickup yet. We are in ${area.areas.map((a) => a.name).join(', ')} for now.` });
+    }
     return this.dispatch.requestRide(
       {
         riderId,

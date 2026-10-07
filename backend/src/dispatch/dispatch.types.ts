@@ -3,7 +3,7 @@ export type Category = string;
 
 export const OFFER_TIMEOUT_SECONDS = Number(process.env.OFFER_TIMEOUT_SECONDS ?? 15);
 export const SEARCH_WINDOW_SECONDS = Number(process.env.SEARCH_WINDOW_SECONDS ?? 90);
-export const SEARCH_RADII_KM = (process.env.SEARCH_RADII_KM ?? '3,5,8').split(',').map(Number);
+export const SEARCH_RADII_KM = (process.env.SEARCH_RADII_KM ?? '3').split(',').map(Number);
 
 // Redis key layout. Redis holds only live positions, locks and short-lived offers (spec: strict Redis/Postgres split).
 export const keys = {

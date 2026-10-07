@@ -5,6 +5,8 @@ import { PG_POOL, REDIS } from '../common/infra.module';
 import { DispatchService } from '../dispatch/dispatch.service';
 import { Category, keys } from '../dispatch/dispatch.types';
 import { TrackingService } from './tracking.service';
+import { SettingsService } from '../settings/settings.service';
+import { insideServiceArea } from '../settings/settings.types';
 
 const CATEGORY_CACHE_SECONDS = 300;
 /** Only a point this fresh may put a driver on the map. An older one (an offline batch) is history, not presence. */
@@ -40,6 +42,7 @@ export class LocationService {
     @Inject(REDIS) private readonly redis: Redis,
     private readonly dispatch: DispatchService,
     private readonly tracking: TrackingService,
+    private readonly settings: SettingsService,
   ) {}
 
   private deviceKey = (driverId: string) => `driver:${driverId}:device`;
@@ -106,7 +109,8 @@ export class LocationService {
 
     const newest = valid[valid.length - 1];
     const live = now - newest.recordedAt.getTime() <= LIVE_MAX_AGE_SECONDS * 1000;
-    if (live) {
+    // a driver outside the operating area is not available for bookings; their trip, if any, is tracked as usual
+    if (live && insideServiceArea(await this.settings.effective('service_area'), newest.lat, newest.lng)) {
       await this.dispatch.recordPing({ driverId, category, lat: newest.lat, lng: newest.lng, accuracyM: newest.accuracyM, speedKmh: newest.speedKmh });
     }
 

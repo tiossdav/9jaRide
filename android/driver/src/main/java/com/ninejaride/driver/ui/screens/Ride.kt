@@ -156,7 +156,7 @@ fun OfferScreen(vm: DriverViewModel) {
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Btn("Decline", { vm.confirm("Decline this ride?", "The rider will be matched with another driver.", "Yes, decline", true, vm::decline) }, Modifier.weight(1f), kind = BtnKind.Outline)
-                Btn("Accept", { vm.confirm("Accept this ride?", "You will head to the pickup point straight away.", "Yes, accept", false, vm::accept) }, Modifier.weight(1f))
+                Btn("Accept", vm::accept, Modifier.weight(1f))
             }
             Txt("Declining or ignoring many requests can affect how often you receive them.", 12f, 500, C.Muted, align = TextAlign.Center, modifier = Modifier.fillMaxWidth())
         }

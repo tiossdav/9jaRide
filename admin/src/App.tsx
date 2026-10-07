@@ -19,7 +19,7 @@ import Promos from './pages/Promos';
 import Businesses from './pages/Businesses';
 import Fleet from './pages/Fleet';
 import FleetDetail from './pages/FleetDetail';
-import { CancellationPolicy, RevenueSetup } from './pages/Rules';
+import { CancellationPolicy, OperatingArea, RevenueSetup } from './pages/Rules';
 import { SupportQueue, TicketDetail } from './pages/SupportDesk';
 import { MemberDetail, Members, Roles } from './pages/Team';
 import Live from './pages/Live';
@@ -71,6 +71,7 @@ export default function App() {
         <Route path="setup/asset-types" element={<AssetTypes />} />
         <Route path="setup/revenue" element={<RevenueSetup />} />
         <Route path="setup/cancellation" element={<CancellationPolicy />} />
+        <Route path="setup/operating-area" element={<OperatingArea />} />
         <Route path="finances/stakeholders" element={<StakeholderPayouts />} />
         <Route path="promo" element={<Promos />} />
         <Route path="support" element={<SupportQueue />} />

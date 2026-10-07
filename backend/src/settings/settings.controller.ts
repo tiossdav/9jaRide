@@ -6,7 +6,7 @@ import { StaffAuditInterceptor } from '../common/audit.interceptor';
 import { SettingsService } from './settings.service';
 import { SettingKey } from './settings.types';
 
-enum Key { revenue = 'revenue', cancellation = 'cancellation' }
+enum Key { revenue = 'revenue', cancellation = 'cancellation', service_area = 'service_area' }
 
 class ProposeDto {
   @IsObject() value!: Record<string, unknown>;

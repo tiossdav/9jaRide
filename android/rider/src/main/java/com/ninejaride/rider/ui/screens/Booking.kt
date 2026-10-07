@@ -248,7 +248,7 @@ fun WhereToScreen(vm: RiderViewModel) {
                 PlaceRow(parts.first(), (listOf(parts.drop(1).joinToString(", ")) + listOfNotNull(away)).filter { it.isNotEmpty() }.joinToString("  ·  ").ifEmpty { null }) { vm.previewPlace(p) }
             }
             if (!vm.searching && vm.suggestions.isEmpty() && (if (vm.activeField == 0) vm.pickupText else vm.dropoffText).length >= 3 && (if (vm.activeField == 0) vm.pickup else vm.dropoff) == null) {
-                Txt("No places found. Try another spelling, or set it on the map.", 13f, 500, C.Muted, Modifier.padding(vertical = 12.dp))
+                Txt("No places found around you. Add the state, like \"Allen Avenue, Lagos\", or set it on the map.", 13f, 500, C.Muted, Modifier.padding(vertical = 12.dp))
             }
         }
     }

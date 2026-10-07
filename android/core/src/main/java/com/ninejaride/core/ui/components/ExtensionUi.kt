@@ -44,7 +44,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private fun km(m: Int) = "%.1f km".format(m / 1000.0)
-private fun about(kobo: Long) = "about " + naira(kobo, true)
+private fun about(kobo: Long) = "about " + naira(kobo)
 
 /** The small "Extend trip" button for the trip screens. */
 @Composable
@@ -65,7 +65,9 @@ fun ExtendTripPicker(controller: ExtensionController, from: MapPoint, fromName: 
     var results by remember { mutableStateOf<List<Place>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
     var chosen by remember { mutableStateOf<Place?>(null) }
-    var mapCenter by remember { mutableStateOf(near ?: from) }
+    // the map opens on the current destination: that is where the trip will go on from
+    var mapCenter by remember { mutableStateOf(from) }
+    val opened = remember { from }
     var working by remember { mutableStateOf(false) }
     var problem by remember { mutableStateOf<String?>(null) }
     var lookup by remember { mutableIntStateOf(0) }
@@ -84,6 +86,7 @@ fun ExtendTripPicker(controller: ExtensionController, from: MapPoint, fromName: 
             onCenterChange = { p ->
                 val c = chosen
                 if (c != null && Routing.haversineKm(c.point, p) < 0.02) return@MapPanel // the map settling on a place just chosen
+                if (c == null && Routing.haversineKm(opened, p) < 0.02) return@MapPanel // the map settling where it opened
                 val mine = ++lookup
                 chosen = Place("Pinned location", p); problem = null
                 scope.launch { delay(700); val words = Geocoding.reverse(p); if (mine == lookup) chosen = Place(words ?: "Pinned location", p) }
@@ -106,9 +109,11 @@ fun ExtendTripPicker(controller: ExtensionController, from: MapPoint, fromName: 
                     if (query.isNotEmpty()) Icon24(Ic.Close, C.Faint, 16.dp, modifier = Modifier.tap({ query = ""; results = emptyList() }, "Clear"))
                 }
             }
-            if (searching || results.isNotEmpty()) {
+            val nothing = !searching && results.isEmpty() && query.trim().length >= 3 && chosen?.address != query
+            if (searching || results.isNotEmpty() || nothing) {
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(C.Surface).border(1.dp, C.Border, RoundedCornerShape(16.dp)).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 4.dp)) {
                     if (searching) Txt("Searching...", 13f, 500, C.Muted, Modifier.padding(vertical = 10.dp))
+                    if (nothing) Txt("No places found around you. Add the state, like \"Allen Avenue, Lagos\", or move the map.", 13f, 500, C.Muted, Modifier.padding(vertical = 10.dp))
                     results.take(5).forEach { p ->
                         val parts = p.address.split(", ")
                         Row(
@@ -164,7 +169,8 @@ fun ExtendTripPicker(controller: ExtensionController, from: MapPoint, fromName: 
  * @param onChat opens the chat with them, when there is one.
  */
 @Composable
-fun ExtensionLayer(controller: ExtensionController, role: String, otherName: String, onChat: (() -> Unit)? = null) {
+fun ExtensionLayer(controller: ExtensionController, role: String, rawName: String, onChat: (() -> Unit)? = null) {
+    val otherName = com.ninejaride.core.format.properName(rawName)
     val e = controller.shown
     val error = controller.error
     when {

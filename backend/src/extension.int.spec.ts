@@ -187,3 +187,22 @@ suite('trip extension', () => {
     expect(receipt.extensions).toHaveLength(1);
   });
 });
+
+suite('operating area', () => {
+  let h: Awaited<ReturnType<typeof bootApp>>;
+  beforeAll(async () => { h = await bootApp(); }, 60_000);
+  afterAll(async () => { await h.close(); });
+
+  it('refuses a booking that starts outside the area, but not one that only ends outside it', async () => {
+    const rider = await h.login('rider');
+    const body = (pickup: { lat: number; lng: number }, dropoff: { lat: number; lng: number }) =>
+      ({ quoteId: randomUUID(), category: 'regular', paymentMethod: 'cash', pickup, dropoff });
+    const ibadan = { lat: 7.3775, lng: 3.947 };
+    const ikeja = { lat: 6.6018, lng: 3.3515 };
+    const refused = await h.http().post('/rides').set(h.auth(rider.token)).set('Idempotency-Key', randomUUID()).send(body(ibadan, ikeja)).expect(409);
+    expect(refused.body.code).toBe('outside_service_area');
+    // from Lagos to Ibadan passes the area check (it then fails on the made-up quote, which is a different, later refusal)
+    const later = await h.http().post('/rides').set(h.auth(rider.token)).set('Idempotency-Key', randomUUID()).send(body(ikeja, ibadan));
+    expect(later.body.code).not.toBe('outside_service_area');
+  });
+});

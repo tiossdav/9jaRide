@@ -1,5 +1,5 @@
 import { planCashTrip, planWalletTrip } from '../ledger/postings';
-import { DEFAULTS, penaltyFor, validate } from './settings.types';
+import { DEFAULTS, insideServiceArea, penaltyFor, validate } from './settings.types';
 
 // Unit tests: the rules an admin can edit are checked before they are saved, and mean what they say when applied.
 describe('revenue rules', () => {
@@ -76,5 +76,24 @@ describe('defaults', () => {
   it('match the rules the system followed before they became editable', () => {
     expect(DEFAULTS.revenue).toMatchObject({ commissionBps: 1200, taxBase: 'excluded' });
     expect(DEFAULTS.cancellation.enabled).toBe(false);
+  });
+});
+
+describe('operating area', () => {
+  const lagosOnly = DEFAULTS.service_area;
+  it('serves Lagos by default, and not Ibadan', () => {
+    expect(insideServiceArea(lagosOnly, 6.5244, 3.3792)).toBe(true); // Lagos Island
+    expect(insideServiceArea(lagosOnly, 6.6018, 3.3515)).toBe(true); // Ikeja
+    expect(insideServiceArea(lagosOnly, 7.3775, 3.947)).toBe(false); // Ibadan
+  });
+  it('can be extended, and switched off', () => {
+    const more = validate('service_area', { enabled: true, areas: [...lagosOnly.areas, { name: 'Ibadan', lat: 7.3775, lng: 3.947, radiusKm: 30 }] });
+    expect(insideServiceArea(more, 7.4478, 3.9552)).toBe(true);
+    expect(insideServiceArea({ enabled: false, areas: [] }, 9.07, 7.4)).toBe(true);
+  });
+  it('refuses nonsense', () => {
+    expect(() => validate('service_area', { enabled: true, areas: [] })).toThrow();
+    expect(() => validate('service_area', { enabled: true, areas: [{ name: 'X', lat: 51, lng: 3, radiusKm: 10 }] })).toThrow();
+    expect(() => validate('service_area', { enabled: true, areas: [{ name: 'Lagos', lat: 6.5, lng: 3.4, radiusKm: 0 }] })).toThrow();
   });
 });

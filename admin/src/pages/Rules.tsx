@@ -7,6 +7,7 @@ import { Icon, Loading, Modal, Pill, dateTime, useLoad } from '../ui';
 
 export interface RevenueRules { commissionBps: number; taxBase: 'excluded' | 'included'; shares: { name: string; bps: number }[] }
 export interface CancellationRules { enabled: boolean; windowDays: number; minRequests: number; tiers: { fromPct: number; toPct: number; penaltyMinutes: number }[] }
+export interface ServiceAreaRules { enabled: boolean; areas: { name: string; lat: number; lng: number; radiusKm: number }[] }
 interface Version<T> { id: string; value: T; effectiveFrom: string; createdAt: string; createdBy: string; approvedBy: string | null; state: 'live' | 'scheduled' | 'pending' | 'superseded' }
 interface Payload<T> { current: T; versions: Version<T>[] }
 
@@ -20,7 +21,7 @@ const num = (s: string) => (s.trim() === '' ? NaN : Number(s));
  * A change needs a different admin to approve it, so nothing is edited in place and past trips stay explainable.
  */
 function RuleScreen<T>({ settingKey, title, intro, summary, Form, rows }: {
-  settingKey: 'revenue' | 'cancellation'; title: string; intro: string; summary: (v: T) => ReactNode;
+  settingKey: 'revenue' | 'cancellation' | 'service_area'; title: string; intro: string; summary: (v: T) => ReactNode;
   Form: (p: { initial: T; onSubmit: (value: T, when: Date) => Promise<unknown>; onClose: () => void }) => ReactNode; rows: (v: T) => ReactNode;
 }) {
   const { data, error, reload } = useLoad<Payload<T>>(`/admin/settings/${settingKey}`);
@@ -190,6 +191,49 @@ export function CancellationPolicy() {
           <div className="line"><span className="note">Fewest trips before it applies</span><span>{v.minRequests}</span></div>
           {v.tiers.map((t, i) => <div className="line" key={i}><span className="note">Tier {i + 1}: {t.fromPct}% to {t.toPct}% cancelled</span><span>adds {t.penaltyMinutes} min</span></div>)}
           <div className="note" style={{ marginTop: 10 }}>The minutes are added to how far away a driver seems when a rider is matched, so a frequent canceller is offered fewer rides. Drivers who accept fewer trips than the minimum are never affected.</div>
+        </>
+      )} />
+  );
+}
+
+// ---------------------------------------------------------------- Operating Area
+
+function OperatingAreaForm({ initial, onSubmit, onClose }: { initial: ServiceAreaRules; onSubmit: (v: ServiceAreaRules, when: Date) => Promise<unknown>; onClose: () => void }) {
+  const [enabled, setEnabled] = useState(initial.enabled);
+  const [areas, setAreas] = useState(initial.areas.map((a) => ({ name: a.name, lat: String(a.lat), lng: String(a.lng), km: String(a.radiusKm) })));
+  const [when, setWhen] = useState(localInput(new Date(Date.now() + 24 * 3600_000)));
+  const parsed = areas.map((a) => ({ name: a.name.trim(), lat: num(a.lat), lng: num(a.lng), radiusKm: num(a.km) }));
+  const valid = (!enabled || parsed.length > 0) && parsed.every((a) => a.name.length >= 2 && a.lat >= 3 && a.lat <= 15 && a.lng >= 2 && a.lng <= 15 && a.radiusKm >= 1 && a.radiusKm <= 300);
+  const set = (i: number, k: 'name' | 'lat' | 'lng' | 'km', v: string) => setAreas(areas.map((a, n) => (n === i ? { ...a, [k]: k === 'name' ? v : v.replace(/[^0-9.]/g, '') } : a)));
+  return (
+    <Shell title="Propose an operating area change" hint="Riders can only book from inside these places, and only drivers inside them are offered rides. Where a trip ends does not matter." onClose={onClose} when={when} setWhen={setWhen} canSave={valid}
+      onSave={() => onSubmit({ enabled, areas: parsed }, new Date(when))}>
+      <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> Limit bookings and drivers to these areas</label>
+      <div className="field"><label>Areas (a centre point and how far it reaches)</label>
+        {areas.map((a, i) => (
+          <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+            <input className="input" aria-label={`Area ${i + 1} name`} placeholder="Name" value={a.name} onChange={(e) => set(i, 'name', e.target.value)} />
+            <input className="input" aria-label={`Area ${i + 1} latitude`} style={{ width: 90 }} placeholder="Lat" inputMode="decimal" value={a.lat} onChange={(e) => set(i, 'lat', e.target.value)} />
+            <input className="input" aria-label={`Area ${i + 1} longitude`} style={{ width: 90 }} placeholder="Lng" inputMode="decimal" value={a.lng} onChange={(e) => set(i, 'lng', e.target.value)} />
+            <input className="input" aria-label={`Area ${i + 1} radius in km`} style={{ width: 70 }} placeholder="km" inputMode="decimal" value={a.km} onChange={(e) => set(i, 'km', e.target.value)} />
+            <button className="icon-btn" aria-label={`Remove area ${i + 1}`} onClick={() => setAreas(areas.filter((_, n) => n !== i))}><Icon name="x" size={16} /></button>
+          </div>
+        ))}
+        <button className="btn ghost" style={{ height: 30 }} onClick={() => setAreas([...areas, { name: '', lat: '', lng: '', km: '30' }])}>Add an area</button>
+      </div>
+    </Shell>
+  );
+}
+
+const areaSummary = (v: ServiceAreaRules) => (v.enabled ? v.areas.map((a) => `${a.name} (${a.radiusKm} km)`).join(', ') : 'No limit');
+
+export function OperatingArea() {
+  return (
+    <RuleScreen<ServiceAreaRules> settingKey="service_area" title="Operating Area" intro="Where drivers work: Lagos to begin with, extended when drivers start in another city" summary={areaSummary} Form={OperatingAreaForm}
+      rows={(v) => (
+        <>
+          <div className="line"><span className="note">Status</span><span>{v.enabled ? <Pill tone="green">Limited to these areas</Pill> : <Pill>No limit</Pill>}</span></div>
+          {v.areas.map((a) => <div className="line" key={a.name}><span className="note">{a.name}</span><span>{a.radiusKm} km around {a.lat.toFixed(3)}, {a.lng.toFixed(3)}</span></div>)}
         </>
       )} />
   );

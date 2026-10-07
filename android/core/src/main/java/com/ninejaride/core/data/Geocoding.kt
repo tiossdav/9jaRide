@@ -58,8 +58,10 @@ object Geocoding {
     )
     private fun expand(q: String): String = ALIASES[q.trim().lowercase()] ?: q
 
-    /** Within this many kilometres a result counts as "around the rider": the same city and its neighbours. */
-    private const val LOCAL_KM = 60.0
+    /** The search perimeter: places within this many kilometres of the person come first, nearest first. */
+    const val NEARBY_KM = 5.0
+    /** After the perimeter, places in the same city and its neighbours come before anything in another part of the country. */
+    private const val CITY_KM = 60.0
 
     /** Mapbox search: places and addresses in Nigeria, nearest to [near] first. Null when it did not work (the free service is tried next). */
     private fun mapboxSearch(query: String, near: MapPoint?): List<Place>? {
@@ -81,28 +83,39 @@ object Geocoding {
         }
 
     /**
-     * Places matching [query] in Nigeria. Results around [near] (the rider's own city first, the nearest first) come before anything
-     * far away, so a rider in Lagos never sees an Abuja place with a similar name above a Lagos one. Faraway results only fill what is left.
+     * Places matching [query]. The search stays around where the person is (their city and neighbours) until the words they typed end
+     * in a state or well-known town ("Allen Avenue Lagos", "Bodija, Ibadan"): then it looks in that state instead. Inside the area,
+     * places within 5 km come first, nearest first, then the rest, and nothing from outside the area is shown.
      */
     suspend fun search(query: String, near: MapPoint?): List<Place> = withContext(Dispatchers.IO) {
         val q = expand(query.trim())
+        val state = NigeriaStates.trailing(q)
+        // where to look, how far from there is still "the area", and what distances are measured from
+        val region: Pair<MapPoint, Double>? = when {
+            state != null -> state.centre to state.radiusKm
+            near != null -> near to CITY_KM
+            else -> null
+        }
+        val anchor = if (state != null && near != null && Routing.haversineKm(near, state.centre) > state.radiusKm) state.centre else near
         val found = coroutineScope {
-            val streets = async { if (fast) mapboxSearch(q, near).orEmpty() else emptyList() }
+            val streets = async { if (fast) mapboxSearch(q, anchor ?: region?.first).orEmpty() else emptyList() }
             val landmarks = async {
-                // first only what lies around the rider; the whole country is asked only if that gave too little
-                val local = if (near != null) osmSearch(q, near, bounded = true) else emptyList()
-                if (local.size >= 4) local else (local + osmSearch(q, near, bounded = false))
+                // the 5 km perimeter first, then the whole area, stopping as soon as there is enough
+                var all = if (anchor != null) osmSearch(q, anchor, bounded = true, span = 0.05) else emptyList()
+                if (region != null && all.size < 4) all = (all + osmSearch(q, region.first, bounded = true, span = region.second / 111.0)).distinctBy { it.address.lowercase() }
+                all
             }
             landmarks.await() + streets.await()
         }
-        rank(q, found.distinctBy { it.address.lowercase() }, near).take(8)
+        val inArea = if (region == null) found else found.filter { Routing.haversineKm(region.first, it.point) <= region.second }
+        rank(q, inArea.distinctBy { it.address.lowercase() }, anchor).take(8)
     }
 
     /** Local results first, best name match then nearest; faraway ones after, in the order the service gave them. */
     internal fun rank(query: String, places: List<Place>, near: MapPoint?): List<Place> {
         if (near == null) return places
         val withDistance = places.map { it.copy(distanceKm = Routing.haversineKm(near, it.point)) }
-        val (local, far) = withDistance.partition { it.distanceKm!! <= LOCAL_KM }
+        val (local, far) = withDistance.partition { it.distanceKm!! <= CITY_KM }
         val words = query.lowercase().split(" ").filter { it.length > 1 }
         fun nameScore(p: Place): Double {
             val title = p.address.substringBefore(",").lowercase()
@@ -113,7 +126,8 @@ object Geocoding {
                 else -> 0.0
             }
         }
-        val nearDeduped = local.sortedBy { it.distanceKm!! - nameScore(it) }.fold(mutableListOf<Place>()) { acc, p ->
+        // inside the 5 km perimeter first; beyond it, the rest of the city by closeness
+        val nearDeduped = local.sortedBy { (if (it.distanceKm!! <= NEARBY_KM) 0.0 else 1000.0) + it.distanceKm!! - nameScore(it) }.fold(mutableListOf<Place>()) { acc, p ->
             // the same place found by both services, a few metres apart
             if (acc.none { Routing.haversineKm(it.point, p.point) < 0.08 && it.address.substringBefore(",").equals(p.address.substringBefore(","), true) }) acc += p
             acc
@@ -121,13 +135,13 @@ object Geocoding {
         return nearDeduped + far
     }
 
-    private fun osmSearch(query: String, near: MapPoint?, bounded: Boolean = false): List<Place> {
+    private fun osmSearch(query: String, near: MapPoint?, bounded: Boolean = false, span: Double = 0.4): List<Place> {
         val url = "https://nominatim.openstreetmap.org/search".toHttpUrl().newBuilder()
             .addQueryParameter("q", query).addQueryParameter("format", "jsonv2").addQueryParameter("countrycodes", "ng")
             .addQueryParameter("limit", "6").addQueryParameter("addressdetails", "0")
             .apply {
                 if (near != null) { // around the rider: a preference, or the only place to look when bounded
-                    val d = if (bounded) 0.5 else 0.4
+                    val d = span // 0.05 degrees is about 5.5 km, 0.5 about 55 km
                     addQueryParameter("viewbox", "${near.lng - d},${near.lat + d},${near.lng + d},${near.lat - d}")
                     if (bounded) addQueryParameter("bounded", "1")
                 }

@@ -14,7 +14,7 @@ const inMinutes = (m: number) => new Date(Date.now() + m * 60_000);
 const pickup = { lat: 6.5244, lng: 3.3792 };
 const dropoff = { lat: 6.45, lng: 3.4 };
 // Each test that needs a driver works somewhere of its own, so drivers left online by other tests are never nearer.
-const randomSpot = () => ({ lat: 5 + Math.random() * 4, lng: 3 + Math.random() * 1.5 });
+const randomSpot = () => ({ lat: 6.35 + Math.random() * 0.3, lng: 3.2 + Math.random() * 0.3 }); // somewhere inside the Lagos operating area
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 suite('scheduled rides, cancellation, background location, app config', () => {

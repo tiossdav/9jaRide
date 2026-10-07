@@ -54,7 +54,7 @@ const NAV: { group: string; items: Item[] }[] = [
         label: 'Setup', icon: 'gear', roles: ['support', 'finance', 'admin'],
         children: [
           { label: 'Asset Type', icon: 'layers', to: '/setup/asset-types' }, { label: 'Trip Fees', icon: 'link', to: '/pricing', roles: OPS }, { label: 'Revenue Setup', icon: 'pie', to: '/setup/revenue' },
-          { label: 'Rider home content', icon: 'layers', to: '/setup/home-cards' }, { label: 'Bonus Rules', icon: 'gift' }, { label: 'Bonus Awards', icon: 'award' }, { label: 'Cancellation Policy', icon: 'ban', to: '/setup/cancellation' },
+          { label: 'Rider home content', icon: 'layers', to: '/setup/home-cards' }, { label: 'Bonus Rules', icon: 'gift' }, { label: 'Bonus Awards', icon: 'award' }, { label: 'Cancellation Policy', icon: 'ban', to: '/setup/cancellation' }, { label: 'Operating Area', icon: 'map', to: '/setup/operating-area' },
         ],
       },
       { label: 'Team', icon: 'user', roles: ['admin'], children: [{ label: 'Members', icon: 'users', to: '/team' }, { label: 'Roles', icon: 'shield', to: '/team/roles' }] },
@@ -67,7 +67,7 @@ const NAV: { group: string; items: Item[] }[] = [
 /** Breadcrumb trail for each page, like "Dashboard / Setup / Trip Fees". */
 const CRUMBS: [string, string[]][] = [
   ['/live', ['Operations', 'Live operations']], ['/finances/revenue', ['Finances', 'Revenue']], ['/finances/ledger', ['Finances', 'Ledger']], ['/safety', ['Operations', 'Safety Center']], ['/customers', ['Users', 'Customers']],
-  ['/trips', ['Trips']], ['/pricing', ['Setup', 'Trip Fees']], ['/setup/asset-types', ['Setup', 'Asset Type']], ['/setup/revenue', ['Setup', 'Revenue Setup']], ['/setup/cancellation', ['Setup', 'Cancellation Policy']], ['/setup/home-cards', ['Setup', 'Rider home content']],
+  ['/trips', ['Trips']], ['/pricing', ['Setup', 'Trip Fees']], ['/setup/asset-types', ['Setup', 'Asset Type']], ['/setup/revenue', ['Setup', 'Revenue Setup']], ['/setup/cancellation', ['Setup', 'Cancellation Policy']], ['/setup/operating-area', ['Setup', 'Operating Area']], ['/setup/home-cards', ['Setup', 'Rider home content']],
   ['/finances/stakeholders', ['Finances', 'Stakeholder payouts']], ['/promo', ['Promo']], ['/support', ['Support']], ['/drivers', ['Users', 'Drivers']], ['/onboarding', ['Users', 'Drivers', 'Onboarding']],
   ['/people', ['Users', 'Profile']], ['/vehicles', ['Vehicles']], ['/finances/wallet', ['Finances', 'Wallet']], ['/finances/payouts', ['Finances', 'Driver payouts']], ['/finances/vehicle-plans', ['Finances', 'Vehicle plans']], ['/fleet/businesses', ['Fleet', 'Businesses']], ['/fleet', ['Fleet']],
   ['/finances/adjustments', ['Finances', 'Adjustments']], ['/finances/reconciliation', ['Finances', 'Reconciliation']], ['/activity', ['Activity Logs']], ['/team/roles', ['Team', 'Roles']], ['/team', ['Team', 'Members']],
