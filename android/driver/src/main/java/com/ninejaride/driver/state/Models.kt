@@ -135,7 +135,6 @@ fun documentLabel(kind: String): String = when (kind) {
     "nin" -> "NIN slip or card"
     "lassdri" -> "LASSDRI card"
     "vehicle_photo" -> "Vehicle photo"
-    "insurance" -> "Insurance certificate"
     "selfie" -> "Your photo"
     else -> kind.replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
