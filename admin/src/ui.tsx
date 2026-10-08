@@ -1,5 +1,3 @@
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import { TbRouteAltRight } from 'react-icons/tb';
 import { ApiError, blobUrl, get } from './api';
@@ -26,8 +24,13 @@ export const formatPlate = (stored?: string | null): string => {
   const p = (stored ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   return p.length <= 3 ? p : `${p.slice(0, 3)}-${p.slice(3)}`;
 };
-/** What a person typed into a plate box, reduced to what is stored. */
-export const plateInput = (typed: string): string => typed.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+/** What a person typed into a plate box, reduced to what is stored (at most eight: three letters, three digits, two letters). */
+export const plateInput = (typed: string): string => typed.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+/** A plate is three letters, three digits, then two letters (ABC-123XY). The server checks the same rule. */
+export const isValidPlate = (stored: string): boolean => /^[A-Z]{3}[0-9]{3}[A-Z]{2}$/.test(plateInput(stored));
+export const PLATE_RULE = 'The plate number must look like ABC-123XY: three letters, three digits, then two letters.';
+/** The sentence to show under a plate box, or null while the box is empty or the plate is fine. */
+export const plateProblem = (stored: string): string | null => (stored && !isValidPlate(stored) ? PLATE_RULE : null);
 
 /** Naira typed into a money box, as kobo. */
 export const toKobo = (typed: string): number => Math.round(Number(typed.replace(/,/g, '')) * 100);
@@ -230,33 +233,60 @@ export function Modal({ children, onClose }: { children: ReactNode; onClose: () 
 
 export interface MapDot { lat: number; lng: number; color: string; label?: string }
 
-/** OpenStreetMap tiles (free, light use only: swap the tile URL for a paid provider before heavy use). */
-export function LeafletMap({ dots, height = 340 }: { dots: MapDot[]; height?: number }) {
+declare const google: any;
+let mapsLoading: Promise<void> | null = null;
+/** Loads Google's map script once. Resolves when it is ready; rejects when there is no key or the script cannot load. */
+function loadGoogleMaps(): Promise<void> {
+  const key = import.meta.env.VITE_GOOGLE_MAPS_KEY as string | undefined;
+  if (!key) return Promise.reject(new Error('no key'));
+  if (typeof google !== 'undefined' && google.maps) return Promise.resolve();
+  mapsLoading ??= new Promise<void>((resolve, reject) => {
+    const tag = document.createElement('script');
+    tag.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly`;
+    tag.async = true;
+    tag.onload = () => resolve();
+    tag.onerror = () => { mapsLoading = null; reject(new Error('could not load')); };
+    document.head.appendChild(tag);
+  });
+  return mapsLoading;
+}
+
+/**
+ * The live map, drawn by Google Maps. It frames whatever it is given the first time dots appear (and shows all of Nigeria until then),
+ * then leaves the camera alone so staff can pan and zoom while the dots move.
+ */
+export function LiveMap({ dots, height = 340 }: { dots: MapDot[]; height?: number }) {
   const el = useRef<HTMLDivElement>(null);
-  const map = useRef<L.Map | null>(null);
-  const layer = useRef<L.LayerGroup | null>(null);
+  const map = useRef<any>(null);
+  const markers = useRef<any[]>([]);
   const fitted = useRef(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
   useEffect(() => {
-    if (!el.current || map.current) return;
-    map.current = L.map(el.current, { zoomControl: true }).setView([7.3775, 3.947], 12);
-    const mapbox = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
-    if (mapbox) L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/512/{z}/{x}/{y}@2x?access_token=${mapbox}`, { maxZoom: 20, tileSize: 512, zoomOffset: -1, attribution: '© Mapbox © OpenStreetMap' }).addTo(map.current);
-    else L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map.current);
-    layer.current = L.layerGroup().addTo(map.current);
-    return () => { map.current?.remove(); map.current = null; };
+    let live = true;
+    loadGoogleMaps().then(() => {
+      if (!live || !el.current || map.current) return;
+      map.current = new google.maps.Map(el.current, { center: { lat: 9.082, lng: 8.6753 }, zoom: 6, streetViewControl: false, mapTypeControl: false, fullscreenControl: true });
+      setReady(true);
+    }).catch((e: Error) => live && setProblem(e.message === 'no key' ? 'The map is not set up in this build (no Google Maps key).' : 'The map could not be loaded.'));
+    return () => { live = false; };
   }, []);
   useEffect(() => {
-    if (!map.current || !layer.current) return;
-    layer.current.clearLayers();
-    dots.forEach((d) => {
-      const m = L.circleMarker([d.lat, d.lng], { radius: 8, color: '#fff', weight: 2, fillColor: d.color, fillOpacity: 1 }).addTo(layer.current!);
-      if (d.label) m.bindTooltip(d.label);
-    });
+    if (!ready || !map.current) return;
+    markers.current.forEach((m) => m.setMap(null));
+    markers.current = dots.map((d) => new google.maps.Marker({
+      map: map.current, position: { lat: d.lat, lng: d.lng }, title: d.label,
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: d.color, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
+    }));
     if (dots.length && !fitted.current) {
-      map.current.fitBounds(L.latLngBounds(dots.map((d) => [d.lat, d.lng] as [number, number])).pad(0.3), { maxZoom: 15 });
+      const bounds = new google.maps.LatLngBounds();
+      dots.forEach((d) => bounds.extend({ lat: d.lat, lng: d.lng }));
+      map.current.fitBounds(bounds, 60);
+      google.maps.event.addListenerOnce(map.current, 'idle', () => { if (map.current.getZoom() > 15) map.current.setZoom(15); });
       fitted.current = true;
     }
-  }, [dots]);
+  }, [dots, ready]);
+  if (problem) return <div className="map empty" style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{problem}</div>;
   return <div className="map" ref={el} style={{ height }} />;
 }
 

@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { DispatchService } from './dispatch/dispatch.service';
-import { bootApp } from './testing/harness.testing';
+import { bootApp, uniquePlate } from './testing/harness.testing';
 
 // What the driver app uses to take a real order: see the offer, accept it, drive it, finish it, or give it up.
 const suite = process.env.INTEGRATION && process.env.DATABASE_URL ? describe : describe.skip;
@@ -25,7 +25,7 @@ suite('the driver side of a real order', () => {
   async function setup() {
     const rider = await h.login('rider', 'Flow Rider');
     const driver = await h.login('driver', 'Flow Driver');
-    await h.pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, 'package', 'Toyota', 'Blue', $2)`, [driver.id, `F${randomUUID().replace(/-/g, '').slice(0, 7).toUpperCase()}`]);
+    await h.pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, 'package', 'Toyota', 'Blue', $2)`, [driver.id, uniquePlate()]);
     const ping = () => h.http().post('/driver/location').set(h.auth(driver.token)).send({ lat: pickup.lat + 0.002, lng: pickup.lng + 0.002, accuracyM: 8 }).expect(204);
     const book = async () => {
       const q = (await h.http().post('/rides/quote').set(h.auth(rider.token)).send({ category: 'package', distanceM: 6000, durationS: 900 }).expect(200)).body;
@@ -83,7 +83,7 @@ suite('the driver side of a real order', () => {
     await h.http().post(`/driver/rides/${rideId}/arrive`).set(h.auth(driver.token)).expect(204);
     expect((await h.http().get(`/rides/${rideId}`).set(h.auth(rider.token)).expect(200)).body.status).toBe('DRIVER_ARRIVED');
     await h.http().post(`/driver/rides/${rideId}/start`).set(h.auth(driver.token)).expect(204);
-    expect((await h.http().get('/driver/rides/active').set(h.auth(driver.token)).expect(200)).body.ride.status).toBe('TRIP_STARTED');
+    expect((await h.http().get('/driver/rides/active').set(h.auth(driver.token)).expect(200)).body.ride.status).toBe('IN_TRANSIT');
 
     const done = (await h.http().post(`/driver/rides/${rideId}/complete`).set(h.auth(driver.token)).send({ distanceM: 6000, durationS: 900, waitingS: 0 }).expect(200)).body;
     expect(done.totalKobo).toBeGreaterThan(0);

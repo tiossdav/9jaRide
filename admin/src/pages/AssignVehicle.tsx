@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { post } from '../api';
 import { go, useConfirm, PlateInput } from '../bits';
-import { Modal, moneyInput, naira, toKobo, formatPlate } from '../ui';
+import { Modal, moneyInput, naira, toKobo, formatPlate, isValidPlate, plateProblem } from '../ui';
 
 const todayPlus = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 
@@ -15,7 +15,7 @@ export function AssignModal({ app, onClose, onDone }: { app: { id: string; drive
   const [notes, setNotes] = useState('');
   const confirm = useConfirm();
   const k = toKobo;
-  const ok = make.trim().length >= 2 && colour.trim().length >= 2 && plate.trim().length >= 5 && k(total) > 0 && k(deposit) >= 0 && k(deposit) <= k(total) && k(instalment) > 0 && !!startsOn;
+  const ok = make.trim().length >= 2 && colour.trim().length >= 2 && isValidPlate(plate) && k(total) > 0 && k(deposit) >= 0 && k(deposit) <= k(total) && k(instalment) > 0 && !!startsOn;
   const num = (set: (v: string) => void) => (e: { target: { value: string } }) => set(moneyInput(e.target.value));
   return (
     <Modal onClose={onClose}>
@@ -24,7 +24,7 @@ export function AssignModal({ app, onClose, onDone }: { app: { id: string; drive
       <div className="grid g2">
         <div className="field"><label htmlFor="av-cat">Category</label><select id="av-cat" className="select" value={category} onChange={(e) => setCategory(e.target.value)}>
           <option value="regular">Regular</option><option value="comfort">Comfort</option><option value="package">Send Package</option></select></div>
-        <div className="field"><label htmlFor="av-plate">Plate number</label><PlateInput id="av-plate" value={plate} onChange={setPlate} /></div>
+        <div className="field"><label htmlFor="av-plate">Plate number</label><PlateInput id="av-plate" value={plate} onChange={setPlate} />{plateProblem(plate) && <div className="note" style={{ color: 'var(--red, #d64545)' }}>{plateProblem(plate)}</div>}</div>
         <div className="field"><label htmlFor="av-make">Make and model</label><input id="av-make" className="input" placeholder="Toyota Corolla" value={make} onChange={(e) => setMake(e.target.value)} /></div>
         <div className="field"><label htmlFor="av-col">Colour</label><input id="av-col" className="input" placeholder="Silver" value={colour} onChange={(e) => setColour(e.target.value)} /></div>
       </div>

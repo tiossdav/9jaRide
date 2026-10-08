@@ -25,19 +25,19 @@ export class SettlementService {
       const ride = rows[0];
       if (!ride) throw new Error(`ride ${rideId} not found`);
       if (!ride.driver_id) throw new Error(`ride ${rideId} has no driver`);
-      if (!['TRIP_STARTED', 'TRIP_COMPLETED'].includes(ride.status)) {
+      if (!['IN_TRANSIT', 'TRIP_COMPLETED'].includes(ride.status)) {
         throw new Error(`ride ${rideId} cannot be completed from status ${ride.status}`);
       }
 
       const fare = await this.fares.finalize(client, rideId, measured);
 
       const moved = await client.query(
-        `UPDATE rides SET status = 'TRIP_COMPLETED', updated_at = now() WHERE id = $1 AND status = 'TRIP_STARTED'`,
+        `UPDATE rides SET status = 'TRIP_COMPLETED', updated_at = now() WHERE id = $1 AND status = 'IN_TRANSIT'`,
         [rideId],
       );
       if (moved.rowCount) {
         await client.query(
-          `INSERT INTO ride_status_history (ride_id, from_status, to_status, actor_id) VALUES ($1, 'TRIP_STARTED', 'TRIP_COMPLETED', $2)`,
+          `INSERT INTO ride_status_history (ride_id, from_status, to_status, actor_id) VALUES ($1, 'IN_TRANSIT', 'TRIP_COMPLETED', $2)`,
           [rideId, ride.driver_id],
         );
       }

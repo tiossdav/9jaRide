@@ -46,14 +46,14 @@ import com.ninejaride.rider.data.RideListItem
 import com.ninejaride.rider.data.ScheduleView
 import com.ninejaride.rider.state.Dest
 import com.ninejaride.rider.state.Dialog
-import com.ninejaride.rider.state.LAGOS
+import com.ninejaride.rider.state.NIGERIA_TIME
 import com.ninejaride.rider.state.RiderViewModel
 import com.ninejaride.rider.state.categoryLabel
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private val whenFmt = DateTimeFormatter.ofPattern("EEE d MMM, h:mm a", Locale.ENGLISH).withZone(LAGOS)
+private val whenFmt = DateTimeFormatter.ofPattern("EEE d MMM, h:mm a", Locale.ENGLISH).withZone(NIGERIA_TIME)
 
 fun whenText(iso: String?): String = iso?.let { runCatching { whenFmt.format(Instant.parse(it)) }.getOrNull() } ?: ""
 

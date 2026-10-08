@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import Redis from 'ioredis';
 import { REDIS } from './common/infra.module';
 import { keys } from './dispatch/dispatch.types';
-import { bootApp } from './testing/harness.testing';
+import { bootApp, uniquePlate } from './testing/harness.testing';
 
 // What the rider app relies on: profile, addresses, trip list, active ride, ratings. Real HTTP, Postgres and Valkey.
 // Skipped unless INTEGRATION=1 (writes rows to DATABASE_URL).
@@ -90,7 +90,7 @@ suite('rider app endpoints', () => {
     listener.on('notification', (n) => heard.push(n.payload ?? ''));
     await listener.query('LISTEN ride_status');
     const rideId = await h.completedRide(a.id, driver.id, 100_000);
-    await h.pool.query(`INSERT INTO ride_status_history (ride_id, from_status, to_status, reason) VALUES ($1, 'TRIP_STARTED', 'TRIP_COMPLETED', 'test')`, [rideId]);
+    await h.pool.query(`INSERT INTO ride_status_history (ride_id, from_status, to_status, reason) VALUES ($1, 'IN_TRANSIT', 'TRIP_COMPLETED', 'test')`, [rideId]);
     await new Promise((r) => setTimeout(r, 300));
     await listener.end();
     expect(heard).toContain(`${rideId}:TRIP_COMPLETED`);
@@ -148,7 +148,7 @@ suite('rider app endpoints', () => {
     const rider = await h.login('rider');
     const other = await h.login('rider');
     const driver = await h.login('driver', 'Victor');
-    await h.pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, 'package', 'Toyota', 'Blue', $2)`, [driver.id, `Z${randomUUID().replace(/-/g, '').slice(0, 7).toUpperCase()}`]);
+    await h.pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, 'package', 'Toyota', 'Blue', $2)`, [driver.id, uniquePlate()]);
     const q = await h.http().post('/rides/quote').set(h.auth(rider.token)).send({ category: 'package', distanceM: 3000, durationS: 500 }).expect(200);
     const made = await h.http().post('/rides').set(h.auth(rider.token)).set('Idempotency-Key', h.key())
       .send({ quoteId: q.body.quoteId, category: 'package', paymentMethod: 'cash', pickup, dropoff }).expect(200);

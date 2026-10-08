@@ -36,6 +36,8 @@ fun InputField(
     phone: Boolean = false,
     /** A number plate: capitals and digits are stored, and it is shown with its dash (KJA-482AB) without the cursor ever moving. */
     plate: Boolean = false,
+    /** What is wrong with this field, shown in red right under it. Everything else the person typed is left alone. */
+    error: String? = null,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Txt(label, 12.5f, 600, C.Muted)
@@ -48,14 +50,14 @@ fun InputField(
             modifier = Modifier.fillMaxWidth(),
             decorationBox = { inner ->
                 Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Surface).border(1.dp, C.Border, RoundedCornerShape(14.dp)).padding(horizontal = 16.dp, vertical = 15.dp),
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Surface).border(if (error != null) 1.5.dp else 1.dp, if (error != null) C.Red else C.Border, RoundedCornerShape(14.dp)).padding(horizontal = 16.dp, vertical = 15.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(Modifier.weight(1f)) { if (value.isEmpty()) Txt(hint, 15f, 500, C.Disabled); inner() }
                 }
             },
         )
-        helper?.let { Txt(it, 12f, 500, C.Muted) }
+        if (error != null) Txt(error, 12.5f, 600, C.RedText) else helper?.let { Txt(it, 12f, 500, C.Muted) }
     }
 }
 

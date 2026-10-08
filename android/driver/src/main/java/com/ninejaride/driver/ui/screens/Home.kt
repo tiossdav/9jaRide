@@ -68,7 +68,8 @@ import com.ninejaride.core.ui.components.Toggle
 import com.ninejaride.core.ui.components.Txt
 import com.ninejaride.core.ui.theme.C
 
-private val LAGOS = MapPoint(6.5244, 3.3792)
+/** Where the map looks until the phone has a position: the middle of Nigeria, zoomed out, so no city is assumed. */
+private val NIGERIA_CENTRE = MapPoint(9.082, 8.6753)
 
 @Composable
 fun HomeScreen(vm: DriverViewModel) {
@@ -92,13 +93,13 @@ fun HomeScreen(vm: DriverViewModel) {
         EarningsCard(vm)
 
         Box(Modifier.padding(horizontal = 20.dp).fillMaxWidth().height(mapHeight).clip(RoundedCornerShape(20.dp))) {
-            // The phone's real position when location is allowed; otherwise a wider view of Lagos.
+            // The phone's real position when location is allowed; otherwise the whole country.
             val here = vm.deviceLocation
             MapPanel(
                 Modifier.fillMaxSize(),
-                markers = listOf(MapMarker(here ?: LAGOS, MarkerKind.Car)),
-                center = here ?: LAGOS,
-                zoom = if (here != null) 16.0 else 12.0,
+                markers = if (here != null) listOf(MapMarker(here, MarkerKind.Car)) else emptyList(),
+                center = here ?: NIGERIA_CENTRE,
+                zoom = if (here != null) 16.0 else 5.5,
                 interactive = false,
             )
             Canvas(Modifier.fillMaxSize()) {

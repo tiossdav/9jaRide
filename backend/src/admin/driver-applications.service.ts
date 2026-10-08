@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { PushService } from '../push/push.service';
 import Redis from 'ioredis';
 import { Pool } from 'pg';
@@ -7,7 +7,8 @@ import { ACCESS_TOKEN_SECONDS } from '../auth/auth.types';
 import { normalisePhone } from '../auth/phone';
 import { TokensService } from '../auth/tokens.service';
 import { PG_POOL, REDIS } from '../common/infra.module';
-import { normalisePlate } from '../common/plate';
+import { normalisePlate, parsePlate } from '../common/plate';
+import { IdentifierKind, claimIdentifiers, identifierAvailable } from '../common/identifiers';
 import { keys } from '../dispatch/dispatch.types';
 import { FilesService } from '../files/files.service';
 import { FleetService, MAX_DEDUCTION_BPS } from '../fleet/fleet.service';
@@ -96,10 +97,9 @@ export class DriverApplicationsService {
     let make: string | null = null;
     let colour: string | null = null;
     if (arr.needs_vehicle_details) {
-      plate = normalisePlate(input.vehicle.plate ?? '');
+      plate = parsePlate(input.vehicle.plate ?? '');
       make = input.vehicle.make?.trim() ?? '';
       colour = input.vehicle.colour?.trim() ?? '';
-      if (!/^[A-Z0-9]{5,10}$/.test(plate)) throw new BadRequestException('enter the number plate letters and digits only');
       if (make.length < 2 || colour.length < 2) throw new BadRequestException('enter the model and colour of the vehicle');
     }
     let ownerName: string | null = null;
@@ -116,7 +116,7 @@ export class DriverApplicationsService {
     const email = p.email.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) throw new BadRequestException('enter a valid email address');
     if (!/^\d{11}$/.test(p.nin.trim())) throw new BadRequestException('the NIN is 11 digits');
-    if (p.lassdri.trim().length < 4) throw new BadRequestException('enter your LASSDRI number');
+    if (p.lassdri.trim().length < 4) throw new BadRequestException('enter your LASDRI number');
     if (p.address.trim().length < 5) throw new BadRequestException('enter your home address');
     const kinPhone = normalisePhone(p.nextOfKin.phone);
     if (p.nextOfKin.name.trim().length < 2 || !kinPhone || p.nextOfKin.address.trim().length < 5) throw new BadRequestException("enter your next of kin's name, phone number and address");
@@ -146,6 +146,11 @@ export class DriverApplicationsService {
       await client.query('BEGIN');
       const user = await client.query(`SELECT role, status FROM users WHERE id = $1 FOR UPDATE`, [driverId]);
       if (user.rows[0]?.role !== 'driver') throw new BadRequestException('only drivers can apply');
+      // The NIN, LASDRI number and licence number belong to one driver each. A refusal rolls everything back, so what the driver typed is
+      // never half saved, and the app keeps the rest of the form.
+      await claimIdentifiers(client, driverId, {
+        nin: p.nin, lassdri: p.lassdri, drivers_licence: input.documents.find((d) => d.kind === 'drivers_licence')?.number,
+      });
 
       const open = await client.query(
         `SELECT id, status FROM driver_applications WHERE driver_id = $1 AND status IN ('SUBMITTED', 'CHANGES_REQUESTED')`,
@@ -203,6 +208,18 @@ export class DriverApplicationsService {
     } finally {
       client.release();
     }
+  }
+
+  private readonly lookups = new Map<string, number[]>();
+
+  /** Is this number free for this driver? Limited, so the list of registered numbers cannot be read out one guess at a time. */
+  async identifierAvailable(driverId: string, kind: IdentifierKind, value: string): Promise<boolean> {
+    const now = Date.now();
+    const hits = (this.lookups.get(driverId) ?? []).filter((t) => now - t < 60_000);
+    if (hits.length >= 30) throw new HttpException('too many checks, wait a moment', HttpStatus.TOO_MANY_REQUESTS);
+    hits.push(now);
+    this.lookups.set(driverId, hits);
+    return identifierAvailable(this.pool, driverId, kind, value);
   }
 
   /** The driver's most recent application, everything they entered, and what staff said about it. */
@@ -318,7 +335,7 @@ export class DriverApplicationsService {
         if (!fv) throw new NotFoundException('vehicle not found');
         category = fv.category; // the category of the vehicle the driver is given
       }
-      if (!business && !/^[A-Z0-9]{5,10}$/.test(car.plate)) throw new BadRequestException('enter the number plate letters and digits only');
+      if (!business) car.plate = parsePlate(car.plate);
 
       const cat = await client.query(`SELECT active FROM asset_types WHERE code = $1`, [category]);
       if (!cat.rows[0]?.active) throw new ConflictException({ code: 'category_off', message: 'that vehicle category is switched off' });

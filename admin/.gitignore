@@ -4,5 +4,5 @@ playwright-report
 test-results
 coverage
 
-# local settings (Mapbox token and the like)
+# local settings (the Google Maps key and the like)
 *.local

@@ -1,4 +1,4 @@
-import { bootApp } from './testing/harness.testing';
+import { bootApp, uniquePlate } from './testing/harness.testing';
 
 // What the admin portal reads. Real HTTP, Postgres and Valkey. Skipped unless INTEGRATION=1.
 const suite = process.env.INTEGRATION && process.env.DATABASE_URL ? describe : describe.skip;
@@ -113,7 +113,7 @@ suite('admin console endpoints', () => {
     const finance = await h.staff('finance');
     const rider = await h.login('rider', 'Profiletest Rider');
     const driver = await h.login('driver', 'Profiletest Driver');
-    await h.pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, 'regular', 'Toyota', 'Grey', $2)`, [driver.id, `P${driver.id.replace(/-/g, '').slice(0, 7).toUpperCase()}`]);
+    await h.pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, 'regular', 'Toyota', 'Grey', $2)`, [driver.id, uniquePlate()]);
     await h.completedRide(rider.id, driver.id, 150_000);
     const get = (path: string, token = support.token) => h.http().get(`/admin/console/${path}`).set(h.auth(token));
 
@@ -193,7 +193,7 @@ suite('admin console endpoints', () => {
     const admin = await h.staff('admin');
     const support = await h.staff('support');
     const driver = await h.login('driver', 'Vehicletest Driver');
-    const plate = `V${driver.id.replace(/-/g, '').slice(0, 7).toUpperCase()}`;
+    const plate = uniquePlate();
     const vehicleId = (await h.pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, 'regular', 'Honda', 'Blue', $2) RETURNING id`, [driver.id, plate])).rows[0].id;
     const ping = () => h.http().post('/driver/location').set(h.auth(driver.token)).send({ lat: 6.52, lng: 3.37 });
     await ping().expect(204);
@@ -213,7 +213,7 @@ suite('admin console endpoints', () => {
     await ping().expect(204);
 
     // adding a vehicle is for admins, and retires the old one
-    const body = { driverId: driver.id, category: 'comfort', make: 'Toyota', colour: 'White', plate: `N${plate.slice(1)}` };
+    const body = { driverId: driver.id, category: 'comfort', make: 'Toyota', colour: 'White', plate: uniquePlate() };
     await h.http().post('/admin/console/vehicles').set(h.auth(support.token)).send(body).expect(403);
     await h.http().post('/admin/console/vehicles').set(h.auth(admin.token)).send(body).expect(200);
     await h.http().post('/admin/console/vehicles').set(h.auth(admin.token)).send(body).expect(409); // plate already registered

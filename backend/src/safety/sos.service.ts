@@ -49,8 +49,8 @@ export class SosService {
       // Resolve context on the server: the active ride and vehicle come from our data, not from the request.
       const ride = await client.query(
         input.role === 'driver'
-          ? `SELECT id FROM rides WHERE driver_id = $1 AND status IN ('DRIVER_ASSIGNED','DRIVER_ARRIVED','TRIP_STARTED') ORDER BY created_at DESC LIMIT 1`
-          : `SELECT id FROM rides WHERE rider_id = $1 AND status IN ('DRIVER_ASSIGNED','DRIVER_ARRIVED','TRIP_STARTED') ORDER BY created_at DESC LIMIT 1`,
+          ? `SELECT id FROM rides WHERE driver_id = $1 AND status IN ('DRIVER_ASSIGNED','DRIVER_ARRIVED','IN_TRANSIT') ORDER BY created_at DESC LIMIT 1`
+          : `SELECT id FROM rides WHERE rider_id = $1 AND status IN ('DRIVER_ASSIGNED','DRIVER_ARRIVED','IN_TRANSIT') ORDER BY created_at DESC LIMIT 1`,
         [input.userId],
       );
       const rideId: string | null = ride.rows[0]?.id ?? null;

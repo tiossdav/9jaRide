@@ -155,7 +155,7 @@ fun OfferScreen(vm: DriverViewModel) {
                 Txt("Trip ${o.code}", 12f, 500, C.Muted)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Btn("Decline", { vm.confirm("Decline this ride?", "The rider will be matched with another driver.", "Yes, decline", true, vm::decline) }, Modifier.weight(1f), kind = BtnKind.Outline)
+                Btn("Decline", vm::decline, Modifier.weight(1f), kind = BtnKind.Outline)
                 Btn("Accept", vm::accept, Modifier.weight(1f))
             }
             Txt("Declining or ignoring many requests can affect how often you receive them.", 12f, 500, C.Muted, align = TextAlign.Center, modifier = Modifier.fillMaxWidth())
@@ -205,7 +205,7 @@ fun ToPickupScreen(vm: DriverViewModel) {
             }
             ContactRow(vm, noShow = false)
             RouteBlock(o.pickup, o.dropoff)
-            Btn("I've arrived", { vm.confirm("Have you arrived?", "The rider is told you are at the pickup point and your waiting time starts.", "Yes, I've arrived", false, vm::arrived) }, Modifier.fillMaxWidth())
+            Btn("I've arrived", vm::arrived, Modifier.fillMaxWidth())
             Btn("Cancel trip", { vm.confirm("Cancel this trip?", "Cancelling often lowers how many rides you are offered.", "Yes, cancel trip", true, vm::cancelTrip) }, Modifier.fillMaxWidth(), kind = BtnKind.Outline, height = 46.dp)
         }
     }
@@ -270,7 +270,6 @@ fun InTripScreen(vm: DriverViewModel) {
                 }
             }
             ContactRow(vm, noShow = false)
-            if (!vm.demo) com.ninejaride.core.ui.components.ExtendTripButton(vm.extension, Modifier.fillMaxWidth())
             Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(C.Bg).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -284,7 +283,7 @@ fun InTripScreen(vm: DriverViewModel) {
             }
             Btn("End trip", { vm.confirm("End the trip?", "Do this at the drop-off point. The fare is worked out when you end the trip.", "Yes, end trip", false, vm::endTrip) }, Modifier.fillMaxWidth())
         }
-        if (!vm.demo) com.ninejaride.core.ui.components.ExtensionLayer(vm.extension, "driver", o.rider.name, onChat = { vm.chatOpen = true })
+        if (!vm.demo) com.ninejaride.core.ui.components.DestinationNotice(vm.destination, "driver")
     }
 }
 
@@ -359,7 +358,7 @@ fun CollectFareScreen(vm: DriverViewModel) {
             Icon24(Ic.Wallet, C.Muted, 20.dp)
             Txt(if (r.vehicleDeduction > 0) "The ${naira(r.serviceCharge, true)} service charge and ${naira(r.vehicleDeduction, true)} for your vehicle are taken from your wallet for cash trips." else "The ${naira(r.serviceCharge, true)} service charge is taken from your wallet for cash trips.", 12.5f, 500, C.Muted, Modifier.weight(1f))
         }
-        Btn("Cash collected", { vm.confirm("Have you collected the cash?", "Confirm only after the rider has paid you the full fare.", "Yes, collected", false, vm::cashCollected) }, Modifier.fillMaxWidth())
+        Btn("Cash collected", vm::cashCollected, Modifier.fillMaxWidth())
         Btn("Report a problem", { vm.push(com.ninejaride.driver.state.Dest.Help) }, Modifier.fillMaxWidth(), kind = BtnKind.Outline, height = 46.dp)
     }
 }
@@ -442,11 +441,6 @@ private fun SosStep(done: Boolean, title: String, detail: String) {
 @Composable
 fun RideFlow(vm: DriverViewModel) {
     // the chat with the rider covers the trip screens while it is open
-    if (vm.extension.picking && vm.phase == Phase.InTrip) {
-        androidx.activity.compose.BackHandler { vm.extension.picking = false }
-        com.ninejaride.core.ui.components.ExtendTripPicker(vm.extension, vm.demoDropoff, vm.offer.dropoff.substringBefore(','), vm.carPoint ?: vm.demoDropoff) { vm.extension.picking = false }
-        return
-    }
     if (vm.chatOpen && vm.phase in setOf(Phase.ToPickup, Phase.Waiting, Phase.InTrip)) {
         androidx.activity.compose.BackHandler { vm.chatOpen = false }
         com.ninejaride.core.ui.components.ChatScreen(vm.chat, "Chat with ${vm.offer.rider.name}", "rider") { vm.chatOpen = false }

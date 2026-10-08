@@ -134,5 +134,6 @@ fun App(vm: RiderViewModel = viewModel()) {
         if (vm.dialog == Dialog.NoDriver) NoDriverSheet(vm)
         vm.toast?.let { com.ninejaride.core.ui.components.TopToast(it.first, it.second) }
         vm.pendingConfirm?.let { com.ninejaride.core.ui.components.ConfirmSheet(it) { vm.pendingConfirm = null } }
+        com.ninejaride.core.ui.components.LoadingOverlay(vm.loading.message)
     }
 }

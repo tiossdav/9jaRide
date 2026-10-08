@@ -229,7 +229,7 @@ const areaSummary = (v: ServiceAreaRules) => (v.enabled ? v.areas.map((a) => `${
 
 export function OperatingArea() {
   return (
-    <RuleScreen<ServiceAreaRules> settingKey="service_area" title="Operating Area" intro="Where drivers work: Lagos to begin with, extended when drivers start in another city" summary={areaSummary} Form={OperatingAreaForm}
+    <RuleScreen<ServiceAreaRules> settingKey="service_area" title="Operating Area" intro="Where drivers work. All of Nigeria to begin with; narrow it to a city or state if you ever need to" summary={areaSummary} Form={OperatingAreaForm}
       rows={(v) => (
         <>
           <div className="line"><span className="note">Status</span><span>{v.enabled ? <Pill tone="green">Limited to these areas</Pill> : <Pill>No limit</Pill>}</span></div>

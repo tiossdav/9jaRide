@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import { normalisePlate } from '../common/plate';
+import { PLATE_MESSAGE, isValidPlate, normalisePlate } from '../common/plate';
 
 /** One line of a vehicle list, checked and ready to save. */
 export interface VehicleRow {
@@ -100,7 +100,7 @@ export function validateTable(table: string[][], categories: Map<string, string>
     const get = (name: string) => (at(name) >= 0 ? (cells[at(name)] ?? '').trim() : '');
     const plate = normalisePlate(get('plate'));
     const fail = (message: string) => errors.push({ row: line, plate: plate || null, message });
-    if (!/^[A-Z0-9]{5,10}$/.test(plate)) { fail('The plate number must be 5 to 10 letters and digits.'); continue; }
+    if (!isValidPlate(plate)) { fail(PLATE_MESSAGE); continue; }
     if (get('make_model').length < 2) { fail('The make and model are missing.'); continue; }
     if (get('colour').length < 2) { fail('The colour is missing.'); continue; }
     const category = categories.get(get('category').toLowerCase());

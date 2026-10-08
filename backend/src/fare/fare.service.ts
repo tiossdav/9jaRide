@@ -4,6 +4,7 @@ import { PG_POOL } from '../common/infra.module';
 import { Fare, Measured, Rates, computeFare, estimateFare } from './fare.calc';
 import { percentOf, roundToStep } from '../common/money';
 
+// The one price list for the whole country. The key is a legacy name: approved pricing rows can never be changed, so it was kept.
 const DEFAULT_ZONE = 'lagos';
 
 export class NoPricingError extends Error {
@@ -93,10 +94,10 @@ export class FareService {
   }
 
   /**
-   * What going further adds to a ride's fare: the distance and time fees for the extra stretch, by the pricing the ride was booked under.
-   * No booking fee or daily tax is added again; those were charged once for the whole trip.
+   * What a stretch of road still to drive costs: the distance and time fees by the pricing the ride was booked under. Used to see what a
+   * changed drop-off does to the fare (the new remaining route against the old one). No booking fee or daily tax is added again.
    */
-  async extensionEstimate(db: Pick<Pool, 'query'>, rideId: string, trip: { distanceM: number; durationS: number }) {
+  async remainingEstimate(db: Pick<Pool, 'query'>, rideId: string, trip: { distanceM: number; durationS: number }) {
     const { rows } = await db.query(`SELECT pv.* FROM rides r JOIN pricing_versions pv ON pv.id = r.pricing_version_id WHERE r.id = $1`, [rideId]);
     if (!rows[0]) throw new Error(`ride ${rideId} was never priced`);
     const rates = ratesFromRow(rows[0]);
@@ -143,7 +144,7 @@ export class FareService {
     const { rows } = await client.query(
       `SELECT r.id, r.pricing_version_id, q.low_kobo + x.low AS low_kobo, q.high_kobo + x.high AS high_kobo
          FROM rides r LEFT JOIN fare_quotes q ON q.id = r.fare_quote_id
-         CROSS JOIN LATERAL (SELECT COALESCE(sum(extra_low_kobo), 0) AS low, COALESCE(sum(extra_high_kobo), 0) AS high FROM ride_extensions WHERE ride_id = r.id AND status = 'ACCEPTED') x
+         CROSS JOIN LATERAL (SELECT COALESCE(sum(delta_low_kobo), 0) AS low, COALESCE(sum(delta_high_kobo), 0) AS high FROM ride_destination_changes WHERE ride_id = r.id) x
         WHERE r.id = $1 FOR UPDATE OF r`,
       [rideId],
     );

@@ -162,11 +162,6 @@ export class LedgerService {
     await client.query(`UPDATE wallet_holds SET amount_kobo = amount_kobo + $2 WHERE ride_id = $1 AND status = 'ACTIVE'`, [rideId, extra]);
   }
 
-  /** Can this wallet cover [extra] more on top of what is already held? Nothing is changed. */
-  async canHold(client: PoolClient, riderId: string, extra: number): Promise<boolean> {
-    return (await this.availableKobo(client, walletCode(riderId))) >= extra;
-  }
-
   async releaseHold(client: PoolClient, rideId: string): Promise<void> {
     await client.query(`UPDATE wallet_holds SET status = 'RELEASED' WHERE ride_id = $1 AND status = 'ACTIVE'`, [rideId]);
   }

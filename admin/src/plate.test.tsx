@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it } from 'vitest';
 import { PlateInput } from './bits';
-import { formatPlate, plateInput } from './ui';
+import { formatPlate, isValidPlate, plateInput, plateProblem } from './ui';
 
 function Box({ start = '' }: { start?: string }) {
   const [plain, setPlain] = useState(start);
@@ -29,15 +29,21 @@ describe('plate numbers', () => {
   });
 
   it('keep the cursor in place when typing and deleting in the middle', async () => {
-    render(<Box start="KJA482AB" />);
+    render(<Box start="KJA482A" />);
     input().focus();
-    input().setSelectionRange(6, 6); // KJA-48|2AB
+    input().setSelectionRange(6, 6); // KJA-48|2A
     await userEvent.keyboard('9');
-    expect(input().value).toBe('KJA-4892AB');
+    expect(input().value).toBe('KJA-4892A');
     expect(input().selectionStart).toBe(7); // right after the 9, not thrown to the end
     await userEvent.keyboard('{Backspace}');
-    expect(input().value).toBe('KJA-482AB');
+    expect(input().value).toBe('KJA-482A');
     expect(input().selectionStart).toBe(6);
+  });
+
+  it('never holds more than eight characters: three letters, three digits, two letters', async () => {
+    render(<Box />);
+    await userEvent.type(input(), 'kja482abxyz99');
+    expect(stored()).toBe('KJA482AB');
   });
 
   it('backspace over the dash removes the letter before it, and a pasted plate is cleaned up', async () => {
@@ -52,5 +58,8 @@ describe('plate numbers', () => {
     await userEvent.paste(' abc-123 de ');
     expect(input().value).toBe('ABC-123DE');
     expect(stored()).toBe('ABC123DE');
+    expect(isValidPlate(stored()!)).toBe(true);
+    expect(plateProblem('AB-123XY')).toContain('ABC-123XY');
+    expect(plateProblem('')).toBeNull();
   });
 });

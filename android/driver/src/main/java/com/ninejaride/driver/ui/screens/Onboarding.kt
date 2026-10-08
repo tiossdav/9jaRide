@@ -100,9 +100,9 @@ fun ApplyScreen(vm: DriverViewModel) {
                     DateField("Date of birth", vm.dateOfBirth, { vm.dateOfBirth = it; vm.applyError = null }, "Choose your date of birth",
                         latest = java.time.LocalDate.now().minusYears(18), opensAt = java.time.LocalDate.now().minusYears(30))
                     InputField("Home address", vm.address, edit { vm.address = it }, "House number, street, area, city")
-                    InputField("NIN (National Identification Number)", vm.nin, edit { vm.nin = it.filter { c -> c.isDigit() }.take(11) }, "11 digits", KeyboardType.Number,
-                        helper = "We check this number for you. There is no card photo to upload.")
-                    InputField("LASSDRI number (Lagos State)", vm.lassdri, edit { vm.lassdri = it.uppercase() }, "Your LASSDRI card number")
+                    InputField("NIN (National Identification Number)", vm.nin, edit { vm.nin = it.filter { c -> c.isDigit() }.take(11); vm.checkIdentifier("nin", "nin", vm.nin, vm.nin.length == 11) }, "11 digits", KeyboardType.Number,
+                        helper = "We check this number for you. There is no card photo to upload.", error = vm.fieldErrors["nin"])
+                    InputField("LASDRI number", vm.lassdri, edit { vm.lassdri = it.uppercase(); vm.checkIdentifier("lassdri", "lassdri", vm.lassdri, vm.lassdri.trim().length >= 4) }, "Your LASDRI card number", error = vm.fieldErrors["lassdri"])
                     InputField("Email address", vm.email, edit { vm.email = it.trim() }, "you@example.com", KeyboardType.Email)
                     DriverPhoto(vm, pics)
                     Txt("HOW SHOULD WE REACH YOU ABOUT YOUR APPLICATION?", 11f, 500, C.Muted, letterSpacing = 1f)
@@ -128,7 +128,7 @@ fun ApplyScreen(vm: DriverViewModel) {
                         Card { Txt("A business will give you a vehicle", 15f, 700); Gap(4.dp); Txt("Once you are approved, the business assigns a vehicle to you. It sets the share of your earnings that goes toward that vehicle, and you will see it before you start. You only need to be verified yourself; the business looks after the vehicle.", 13f, 500, C.Muted) }
                     }
                     if (a?.asksForVehicle == true) {
-                        InputField("Plate number", vm.plate, edit { vm.plate = it }, "KJA-482AB", plate = true)
+                        InputField("Plate number", vm.plate, edit { vm.plate = it; vm.fieldErrors.remove("plate") }, "ABC-123XY", plate = true, helper = "Three letters, three digits, two letters", error = vm.fieldErrors["plate"])
                         InputField("Model", vm.make, edit { vm.make = it }, "Toyota Corolla")
                         InputField("Colour", vm.colour, edit { vm.colour = it }, "Silver")
                         Txt(if (a.asksForOwner) "Owner: someone else, details below." else "Owner: you.", 12.5f, 600, C.Muted)
@@ -220,10 +220,10 @@ private fun DocumentsStep(vm: DriverViewModel, pics: PictureSource) {
             Gap(8.dp)
             when (kind) {
                 "drivers_licence" -> {
-                    InputField("Licence number", vm.licenceNumber, clear { vm.licenceNumber = it.uppercase() }, "ABC12345AA01")
+                    InputField("Licence number", vm.licenceNumber, clear { vm.licenceNumber = it.uppercase(); vm.checkIdentifier("licenceNumber", "drivers_licence", vm.licenceNumber, vm.licenceNumber.trim().length >= 4) }, "ABC12345AA01", error = vm.fieldErrors["licenceNumber"])
                     Gap(8.dp); DateField("Expiry date", vm.licenceExpiry, { vm.licenceExpiry = it; vm.applyError = null }, earliest = java.time.LocalDate.now().plusDays(1), opensAt = java.time.LocalDate.now().plusYears(1))
                 }
-                "lassdri" -> Txt("Both sides of your LASSDRI card.", 12.5f, 500, C.Muted)
+                "lassdri" -> Txt("Both sides of your LASDRI card.", 12.5f, 500, C.Muted)
                 "vehicle_photo" -> Txt("A clear photo of the car showing the plate number. It must be taken with the camera.", 12.5f, 500, C.Muted)
             }
             Gap(10.dp)

@@ -3,7 +3,7 @@ import { useNavigate, useOutletContext } from 'react-router-dom';
 import { sendForm } from '../api';
 import { Pager, PlateInput, SearchBox, Segmented, Toast, go, useConfirm } from '../bits';
 import { post } from '../api';
-import { AuthImage, Loading, Modal, Pill, Stat, formatPlate, title, useLoad } from '../ui';
+import { AuthImage, Loading, Modal, Pill, Stat, formatPlate, isValidPlate, plateProblem, title, useLoad } from '../ui';
 
 export interface FleetVehicle {
   id: string; plate: string; makeModel: string; colour: string; category: string; year: number | null; status: string; photoFileId: string | null;
@@ -93,14 +93,14 @@ function AddVehicle({ businesses, isBusiness, onClose, onDone }: { businesses: B
   const [biz, setBiz] = useState(''); const [plate, setPlate] = useState(''); const [model, setModel] = useState(''); const [colour, setColour] = useState('');
   const [category, setCategory] = useState('regular'); const [year, setYear] = useState(''); const [notes, setNotes] = useState('');
   const confirm = useConfirm();
-  const ok = (isBusiness || biz) && plate.length >= 5 && model.trim().length >= 2 && colour.trim().length >= 2;
+  const ok = (isBusiness || biz) && isValidPlate(plate) && model.trim().length >= 2 && colour.trim().length >= 2;
   return (
     <Modal onClose={onClose}>
       <h3 style={{ fontSize: 16, fontWeight: 700 }}>Add a vehicle</h3>
       <div className="note">It starts as waiting to be verified. Verify it once you have checked it; only verified vehicles can be given to drivers.</div>
       {!isBusiness && <BusinessPick businesses={businesses} value={biz} onChange={setBiz} />}
       <div className="grid g2">
-        <div className="field"><label htmlFor="fp">Plate number</label><PlateInput id="fp" value={plate} onChange={setPlate} /></div>
+        <div className="field"><label htmlFor="fp">Plate number</label><PlateInput id="fp" value={plate} onChange={setPlate} />{plateProblem(plate) && <div className="note" style={{ color: 'var(--red, #d64545)' }}>{plateProblem(plate)}</div>}</div>
         <div className="field"><label htmlFor="fc">Category</label><select id="fc" className="select" value={category} onChange={(e) => setCategory(e.target.value)}><option value="regular">Regular</option><option value="comfort">Comfort</option><option value="package">Send Package</option></select></div>
         <div className="field"><label htmlFor="fm">Make and model</label><input id="fm" className="input" placeholder="Toyota Corolla" value={model} onChange={(e) => setModel(e.target.value)} /></div>
         <div className="field"><label htmlFor="fo">Colour</label><input id="fo" className="input" placeholder="Silver" value={colour} onChange={(e) => setColour(e.target.value)} /></div>

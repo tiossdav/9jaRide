@@ -21,6 +21,7 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.NineJaRide">
+        <meta-data android:name="com.google.android.geo.API_KEY" android:value="${googleMapsKey}" />
         <service
             android:name=".location.LocationService"
             android:exported="false"
@@ -52,7 +53,7 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:launchMode="singleTop"
-            android:taskAffinity="com.ninejaride.driver.incoming"
+            android:taskAffinity="com.naijaridepro.driver.incoming"
             android:excludeFromRecents="true"
             android:theme="@style/Theme.NineJaRide" />
         <service android:name=".alert.DriverPushService" android:exported="false">

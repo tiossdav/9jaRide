@@ -102,6 +102,11 @@ class ApplicationDto {
   @IsArray() @ArrayMaxSize(12) @ValidateNested({ each: true }) @Type(() => DocumentDto) documents!: DocumentDto[];
 }
 
+class IdentifierQuery {
+  @IsIn(['nin', 'lassdri', 'drivers_licence']) kind!: 'nin' | 'lassdri' | 'drivers_licence';
+  @IsString() @MinLength(1) @MaxLength(40) value!: string;
+}
+
 @Controller('driver/application')
 @Roles('driver')
 export class DriverApplicationController {
@@ -121,6 +126,12 @@ export class DriverApplicationController {
   @Get('arrangements')
   async arrangements() {
     return { items: await this.applications.arrangements() };
+  }
+
+  /** Whether a NIN, LASDRI or licence number is free, so the app can say so beside the field before the form is sent. Yes or no only. */
+  @Get('identifier')
+  async identifier(@CurrentUser() me: Principal, @Query() q: IdentifierQuery) {
+    return { available: await this.applications.identifierAvailable(me.id, q.kind, q.value) };
   }
 }
 

@@ -1,10 +1,10 @@
 import { randomUUID } from 'crypto';
-import { bootApp } from './testing/harness.testing';
+import { bootApp, uniqueNin, uniquePlate } from './testing/harness.testing';
 
 // Sign-up and onboarding from a clean start: the temporary 0000 code, and each way a driver can come by a car.
 const suite = process.env.INTEGRATION && process.env.DATABASE_URL ? describe : describe.skip;
 const inFuture = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
-const plate = () => `S${randomUUID().replace(/-/g, '').slice(0, 7).toUpperCase()}`;
+const plate = uniquePlate;
 const phone = () => `+23480${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
 
 suite('sign-up with the temporary code', () => {
@@ -79,7 +79,7 @@ suite('sign-up with the temporary code', () => {
       await send({ personal: undefined }).then((r) => expect(r.status).toBe(400));
       await send({ vehicle: { category: 'comfort' } }).then((r) => expect(r.status).toBe(200));
       const mine = (await h.http().get('/driver/application').set(h.auth(driver.token)).expect(200)).body;
-      expect(mine).toMatchObject({ status: 'SUBMITTED', vehicle: { category: 'comfort' }, personal: { nin: '12345678901', contactPreference: 'whatsapp', nextOfKin: { name: 'Ngozi Test', phone: '+2348031230000' } } });
+      expect(mine).toMatchObject({ status: 'SUBMITTED', vehicle: { category: 'comfort' }, personal: { nin: expect.stringMatching(/^\d{11}$/), contactPreference: 'whatsapp', nextOfKin: { name: 'Ngozi Test', phone: '+2348031230000' } } });
       expect(mine.documents.map((d: { kind: string }) => d.kind).sort()).toEqual(['drivers_licence', 'lassdri', 'nin', 'selfie']);
     });
 
@@ -155,7 +155,7 @@ suite('sign-up with the temporary code', () => {
       expect(bad.body.message).toContain('could not find');
 
       // a service that has not answered yet leaves the check pending; the application is still accepted
-      const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send(await withNin('12345678000')).expect(200);
+      const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send(await withNin(uniqueNin('000'))).expect(200);
       expect((await h.http().get(`/admin/driver-applications/${sub.body.id}`).set(h.auth(admin.token)).expect(200)).body).toMatchObject({ ninCheck: { status: 'pending' }, missingDocuments: [] });
 
       // approval asks again; the service has answered by now
@@ -293,7 +293,7 @@ suite('sign-up with the temporary code', () => {
       const me = (await h.http().get('/driver/profile').set(h.auth(driver.token)).expect(200)).body;
       expect(me).toMatchObject({
         name: 'Ada Profile', phone: driver.phone, photoFileId: expect.any(String), application: { status: 'APPROVED', arrangement: 'own' },
-        personal: { email: 'driver@example.com', nin: '12345678901', lassdri: 'LAS-778899', address: '12 Marina Road, Lagos', nextOfKin: { name: 'Ngozi Test', phone: '+2348031230000' } },
+        personal: { email: 'driver@example.com', nin: expect.stringMatching(/^\d{11}$/), lassdri: expect.stringMatching(/^LAS-\d{8}$/), address: '12 Marina Road, Lagos', nextOfKin: { name: 'Ngozi Test', phone: '+2348031230000' } },
         vehicle: { plate: p.toUpperCase(), make: 'Honda Accord', colour: 'Grey', category: 'comfort', arrangement: 'own' },
       });
       // admins find the vehicle by plate however it is typed: lower case, with the dash, or with spaces

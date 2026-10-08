@@ -161,12 +161,13 @@ Use the **real GPS** of the driver's phone: the driver physically moves, the rid
 ## Rider home content
 Admin portal, Setup, **Rider home content**: the cards in the rider's "For you", "Ride announcements" and "Safety tips" rows, including the **Invite & Earn** reward amount (write {amount} in the title). Only an admin edits; riders get changes the next time the home screen opens.
 
-## Mapbox (maps, routes, search)
-Both apps and the admin live map use **Mapbox** when a public token is set (`mapboxToken=` in `android/local.properties`, and `VITE_MAPBOX_TOKEN` in `admin/.env.local` and on Render for the portal; GitHub refuses tokens in committed files); without one they fall back to the free OpenStreetMap services.
-- Routes and ETAs use Mapbox driving directions with live traffic.
-- Address search asks Mapbox (streets and addresses) and OpenStreetMap (landmarks such as malls, airports and shops) together and shows both.
-- The maps use the Mapbox street style, and its dark style at night.
-In the Mapbox account, restrict the token to the apps and the portal address so nobody else can use it.
+## Google Maps (maps, places, routes)
+Google Maps replaces every earlier map service. There are three keys, and none goes into git:
+- **Apps (map drawing):** `googleMapsKey=` in `android/local.properties`, or `-PgoogleMapsKey=...` on the build (Maps SDK for Android). Restrict it in Google Cloud to the two app package names and their signing certificates.
+- **Admin portal (live map):** `VITE_GOOGLE_MAPS_KEY` in `admin/.env.local` and on the host (Maps JavaScript API). Restrict it to the portal's web address.
+- **Server (search, addresses, routes):** `GOOGLE_MAPS_API_KEY` in the server's environment (Places API (New), Geocoding API, Routes API). Restrict it to the server's IP address. The apps never see it: they ask the 9jaRide server, which asks Google.
+- Place search is Nigeria-wide and puts matches near the phone's position first, then widens; with no position it searches the whole country.
+- Without a key the map shows a plain "not set up" message and routes fall back to a marked straight-line estimate.
 
 ## Push notifications (Firebase)
 The apps register their phone with the server after sign-in. Once the server has the Firebase key:

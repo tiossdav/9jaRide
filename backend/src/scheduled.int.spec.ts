@@ -4,7 +4,7 @@ import { REDIS } from './common/infra.module';
 import { DispatchService } from './dispatch/dispatch.service';
 import { keys } from './dispatch/dispatch.types';
 import { ScheduledRidesService } from './rides/scheduled-rides.service';
-import { bootApp } from './testing/harness.testing';
+import { bootApp, uniquePlate } from './testing/harness.testing';
 
 // Scheduled and weekly rides, rider cancellation, driver background location and app config, over real HTTP,
 // Postgres and Valkey. Skipped unless INTEGRATION=1 (writes rows to DATABASE_URL).
@@ -55,7 +55,7 @@ suite('scheduled rides, cancellation, background location, app config', () => {
   async function onlineDriver(at = pickup) {
     const d = await h.login('driver', 'Driver Dee');
     await h.pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, 'package', 'Toyota', 'Silver', $2)`, [
-      d.id, `T${randomUUID().replace(/-/g, '').slice(0, 7).toUpperCase()}`,
+      d.id, uniquePlate(),
     ]);
     const ping = () => h.http().post('/driver/location').set(h.auth(d.token)).send({ ...at, accuracyM: 8 }).expect(204);
     await ping();
@@ -268,7 +268,7 @@ suite('scheduled rides, cancellation, background location, app config', () => {
 
     it('puts a driver on the map only for a fresh reading, not an old one from the offline queue', async () => {
       const d = await h.login('driver');
-      await h.pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, 'package', 'Kia', 'Red', $2)`, [d.id, `K${randomUUID().replace(/-/g, '').slice(0, 7).toUpperCase()}`]);
+      await h.pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, 'package', 'Kia', 'Red', $2)`, [d.id, uniquePlate()]);
 
       const stale = await upload(d.token, [point(600), point(590)]).expect(200);
       expect(stale.body).toEqual({ accepted: 2, rejected: 0, live: false });
@@ -281,7 +281,7 @@ suite('scheduled rides, cancellation, background location, app config', () => {
 
     it('drops spoofed, future and ancient readings, and accepts an upload sent twice', async () => {
       const d = await h.login('driver');
-      await h.pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, 'package', 'Kia', 'Red', $2)`, [d.id, `K${randomUUID().replace(/-/g, '').slice(0, 7).toUpperCase()}`]);
+      await h.pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, 'package', 'Kia', 'Red', $2)`, [d.id, uniquePlate()]);
       const res = await upload(d.token, [
         point(5),
         point(5, { mockLocation: true }),

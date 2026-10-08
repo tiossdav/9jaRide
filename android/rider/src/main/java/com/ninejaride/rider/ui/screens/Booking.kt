@@ -62,7 +62,7 @@ import com.ninejaride.core.ui.theme.type
 import com.ninejaride.rider.state.CATEGORIES
 import com.ninejaride.rider.state.Dest
 import com.ninejaride.rider.state.Dialog
-import com.ninejaride.rider.state.LAGOS
+import com.ninejaride.rider.state.NIGERIA_TIME
 import com.ninejaride.rider.state.RiderViewModel
 import com.ninejaride.rider.state.categoryLabel
 import java.time.DayOfWeek
@@ -257,14 +257,15 @@ fun WhereToScreen(vm: RiderViewModel) {
             }
             PlaceRow("Set ${if (vm.activeField == 0) "pickup" else "drop-off"} on map", "Move the map to place the pin") { vm.mapPinAddress = null; vm.previewStart = null; vm.push(Dest.SetOnMap) }
             if (vm.searching) Txt("Searching...", 13f, 500, C.Muted, Modifier.padding(vertical = 12.dp))
+            vm.searchProblem?.let { Txt(it, 13f, 600, C.RedText, Modifier.padding(vertical = 12.dp)) }
             if (vm.suggestions.isNotEmpty()) Txt(if (vm.location.point != null) "NEARBY RESULTS" else "RESULTS", 11f, 700, C.Muted, Modifier.padding(top = 14.dp, bottom = 2.dp), letterSpacing = 1.2f)
             vm.suggestions.forEach { p ->
                 val parts = p.address.split(", ")
                 val away = p.distanceKm?.let { if (it < 1) "${(it * 1000).toInt().coerceAtLeast(50) / 10 * 10} m away" else "${"%.1f".format(it)} km away" }
                 PlaceRow(parts.first(), (listOf(parts.drop(1).joinToString(", ")) + listOfNotNull(away)).filter { it.isNotEmpty() }.joinToString("  ·  ").ifEmpty { null }) { vm.previewPlace(p) }
             }
-            if (!vm.searching && vm.suggestions.isEmpty() && (if (vm.activeField == 0) vm.pickupText else vm.dropoffText).length >= 3 && (if (vm.activeField == 0) vm.pickup else vm.dropoff) == null) {
-                Txt("No places found around you. Add the state, like \"Allen Avenue, Lagos\", or set it on the map.", 13f, 500, C.Muted, Modifier.padding(vertical = 12.dp))
+            if (!vm.searching && vm.searchProblem == null && vm.suggestions.isEmpty() && (if (vm.activeField == 0) vm.pickupText else vm.dropoffText).length >= 3 && (if (vm.activeField == 0) vm.pickup else vm.dropoff) == null) {
+                Txt("No places found. Try adding the area or town, like \"KFC Bodija, Ibadan\", or set it on the map.", 13f, 500, C.Muted, Modifier.padding(vertical = 12.dp))
             }
         }
     }
@@ -462,7 +463,7 @@ private fun LabeledPicker(label: String, value: String, onClick: () -> Unit) {
 
 @Composable
 private fun DatePickerSheet(selected: LocalDate?, onPick: (LocalDate) -> Unit) {
-    val today = LocalDate.now(LAGOS)
+    val today = LocalDate.now(NIGERIA_TIME)
     SheetOverlay(onDismiss = { onPick(selected ?: today) }) {
         Txt("Pick a date", 18f, 800)
         Column(Modifier.height(320.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -22,7 +22,7 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /** What the server said when a call did not succeed. status 0 means the phone could not reach it at all. */
-class ApiException(val status: Int, val code: String?, override val message: String, val ticket: String? = null) : Exception(message) {
+class ApiException(val status: Int, val code: String?, override val message: String, val ticket: String? = null, /** The form field the problem belongs to, when the server says ("nin", "plate"). */ val field: String? = null) : Exception(message) {
     val isNetwork get() = status == 0
 }
 
@@ -94,7 +94,7 @@ class ApiClient(context: Context, private val baseUrl: String, private val appVe
         val message = text("message")
             ?: (o["message"] as? kotlinx.serialization.json.JsonArray)?.firstNotNullOfOrNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull }?.let { "Please check what you entered: $it" }
             ?: "Something went wrong ($status)."
-        return ApiException(status, text("code"), message, text("registrationTicket"))
+        return ApiException(status, text("code"), message, text("registrationTicket"), text("field"))
     }
 
     /** Sends one file (a photo or PDF) as the form field "file". Signed in, with the same one retry after a token refresh. */

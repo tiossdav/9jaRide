@@ -75,14 +75,14 @@ val CANCEL_REASONS = listOf("Driver is taking too long", "I changed my plans", "
 /** The categories on offer right now, in the order an admin set. Filled from the server; these three are only the first-run fallback. */
 var CATEGORY_NAMES: Map<String, String> = linkedMapOf("regular" to "Regular", "comfort" to "Comfort", "package" to "Send Package")
 val CATEGORIES: List<String> get() = CATEGORY_NAMES.keys.toList()
-val LAGOS: ZoneId = ZoneId.of("Africa/Lagos")
+val NIGERIA_TIME: ZoneId = ZoneId.of("Africa/Lagos")
 
 fun categoryLabel(c: String) = CATEGORY_NAMES[c] ?: c.replace('_', ' ').replaceFirstChar { it.uppercase() }
 
 /** Shown until the server's cards arrive, or when they cannot be fetched. Same wording as the server's starting set. */
 val DEFAULT_HOME_CARDS = listOf(
     com.ninejaride.rider.data.HomeCard("d-invite", "invite", "Invite & Earn ₦1,000", "Invite your friends to 9jaRide and earn rewards when they complete their first eligible ride."),
-    com.ninejaride.rider.data.HomeCard("d-note", "announcement", "Welcome to 9jaRide", "Safe, fairly priced rides across Lagos. Book now or schedule ahead."),
+    com.ninejaride.rider.data.HomeCard("d-note", "announcement", "Welcome to 9jaRide", "Safe, fairly priced rides across Nigeria. Book now or schedule ahead."),
     com.ninejaride.rider.data.HomeCard("d-safe1", "safety", "Check before you ride", "Verify your driver's name, photo and vehicle plate before you get in."),
     com.ninejaride.rider.data.HomeCard("d-safe2", "safety", "Share your trip", "Let someone you trust know where you are going, and keep the SOS button within reach."),
     com.ninejaride.rider.data.HomeCard("d-feat", "feature", "Schedule ahead", "Book a ride for later, or set it to repeat every week."),
@@ -93,6 +93,7 @@ val DEFAULT_HOME_CARDS = listOf(
 class RiderViewModel(app: Application) : AndroidViewModel(app) {
     private val client = ApiClient(app, BuildConfig.API_BASE_URL, BuildConfig.VERSION_NAME)
     val api = RiderApi(client)
+    init { com.ninejaride.core.data.MapsGateway.client = client } // place search, addresses and routes go through the server
     val location = DeviceLocation(app)
     private val prefs = app.getSharedPreferences("rider_state", Context.MODE_PRIVATE)
 
@@ -277,6 +278,8 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     var activeField by mutableIntStateOf(1) // 0 pickup, 1 drop-off
     var suggestions by mutableStateOf<List<Place>>(emptyList())
     var searching by mutableStateOf(false)
+    /** Why the last search could not run (for example, search is not set up on the server), shown under the box. */
+    var searchProblem by mutableStateOf<String?>(null)
     var mapPinAddress by mutableStateOf<String?>(null)
     private var mapPinPoint: MapPoint? = null
     private var searchJob: Job? = null
@@ -338,8 +341,12 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         if (text.trim().length < 3) { suggestions = emptyList(); searching = false; return }
         searching = true
         searchJob = viewModelScope.launch {
-            delay(if (Geocoding.fast) 600 else 800) // a short pause after typing; the OpenStreetMap half of the search allows about one request a second
-            suggestions = Geocoding.search(text.trim(), location.point) { early -> suggestions = early }
+            delay(450) // a short pause after typing
+            searchProblem = null
+            try { suggestions = Geocoding.search(text.trim(), location.point) }
+            catch (e: com.ninejaride.core.data.ApiException) { suggestions = emptyList(); searchProblem = e.message }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { suggestions = emptyList(); searchProblem = "Search is not available right now." }
             searching = false
         }
     }
@@ -453,20 +460,22 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
             requesting = true
             val key = rideKey ?: RiderApi.newKey().also { rideKey = it }
             try {
-                val id = try {
-                    api.requestRide(key, q.id, selectedCategory, payMethod, a.point, a.address, b.point, b.address, promo?.code)
-                } catch (e: ApiException) {
-                    if (e.code != "quote_invalid") throw e
-                    // The quote only lasts five minutes: take a fresh one and try again once.
-                    val r = route ?: Routing.routeInfo(a.point, b.point)
-                    val fresh = api.quote(selectedCategory, r.distanceM, r.durationS)
-                    api.requestRide(RiderApi.newKey().also { rideKey = it }, fresh.id, selectedCategory, payMethod, a.point, a.address, b.point, b.address, promo?.code)
+                loading.run("Please wait while we find you a driver...") {
+                    val id = try {
+                        api.requestRide(key, q.id, selectedCategory, payMethod, a.point, a.address, b.point, b.address, promo?.code)
+                    } catch (e: ApiException) {
+                        if (e.code != "quote_invalid") throw e
+                        // The quote only lasts five minutes: take a fresh one and try again once.
+                        val r = route ?: Routing.routeInfo(a.point, b.point)
+                        val fresh = api.quote(selectedCategory, r.distanceM, r.durationS)
+                        api.requestRide(RiderApi.newKey().also { rideKey = it }, fresh.id, selectedCategory, payMethod, a.point, a.address, b.point, b.address, promo?.code)
+                    }
+                    rideKey = null
+                    startWatching(id)
+                    // leave the booking screens behind: the ride screens take over
+                    reset(Dest.Main)
+                    tab = 0
                 }
-                rideKey = null
-                startWatching(id)
-                // leave the booking screens behind: the ride screens take over
-                reset(Dest.Main)
-                tab = 0
             } catch (e: ApiException) {
                 when {
                     e.status == 402 -> push(Dest.WalletHold)
@@ -519,7 +528,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     var visible by mutableStateOf(true)
     private var carJob: Job? = null
     private var clockJob: Job? = null
-    private val watchedStatuses = setOf("DRIVER_ASSIGNED", "DRIVER_ARRIVED", "TRIP_STARTED")
+    private val watchedStatuses = setOf("DRIVER_ASSIGNED", "DRIVER_ARRIVED", "IN_TRANSIT")
 
     /** The "For you" cards. Starts with a built-in set so the home screen is never bare, and is replaced by what staff have set up. */
     var homeCards by mutableStateOf(DEFAULT_HOME_CARDS)
@@ -551,18 +560,18 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         fun stopHelpers() { carJob?.cancel(); clockJob?.cancel() }
         pollJob = viewModelScope.launch {
             var seen: String? = null
-            var seenExt: String? = null
+            var seenDest: String? = null
             while (true) {
                 try {
-                    val r = api.ride(id, waitFor = seen, waitSeconds = 20, ext = seenExt)
+                    val r = api.ride(id, waitFor = seen, waitSeconds = 20, dest = seenDest)
                     ride = r
-                    seenExt = r.extensionVersion
-                    extension.update(r.extension)
+                    seenDest = r.destinationVersion
+                    destination.observe(r.destinationVersion, r.destinationChanges)
                     // chat is open from the moment a driver is on the way until the trip ends
                     if (r.status in watchedStatuses && r.driver != null) { chatRide = r.id; chat.start(r.id) } else { chat.stop(); chatOpen = false }
                     seen = r.status
                     when (r.status) {
-                        "TRIP_COMPLETED" -> { extension.clear(); stopHelpers(); tripDone = r; ratingSent = r.myRating != null; refreshWallet(); refreshTrips(); return@launch }
+                        "TRIP_COMPLETED" -> { destination.clear(); stopHelpers(); tripDone = r; ratingSent = r.myRating != null; refreshWallet(); refreshTrips(); return@launch }
                         "NO_DRIVER_FOUND" -> { stopHelpers(); dialog = Dialog.NoDriver; refreshTrips(); return@launch }
                         "CANCELLED_BY_RIDER", "CANCELLED_BY_DRIVER", "CANCELLED_BY_SYSTEM" -> {
                             stopHelpers()
@@ -604,7 +613,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     // ---- the live route: the road the driver is following, as last fetched, for the part of the ride in progress
     private var legRoute: List<MapPoint> = emptyList()
     private var legFor: String? = null
-    /** A leg is the road for one part of one ride to one destination: a new destination (an accepted extension) is a new leg. */
+    /** A leg is the road for one part of one ride to one destination: a changed drop-off is a new leg. */
     private fun legKey(r: RideView) = "${r.id}:${r.status}:${r.dropoff.lat},${r.dropoff.lng}"
     private var legDurationS = 0
     private var legLengthM = 0.0
@@ -617,11 +626,11 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         if (!force && legFor == leg && now - etaAt < 30_000) return
         etaAt = now
         if (r.status == "DRIVER_ARRIVED") { driverEtaMin = null; toPickupM = null; pickupRoute = emptyList(); legRoute = emptyList(); legFor = leg; return }
-        val d = carTarget ?: driverPoint ?: if (r.status == "TRIP_STARTED") r.pickup else return
-        val to = if (r.status == "TRIP_STARTED") r.dropoff else r.pickup
+        val d = carTarget ?: driverPoint ?: if (r.status == "IN_TRANSIT") r.pickup else return
+        val to = if (r.status == "IN_TRANSIT") r.dropoff else r.pickup
         val info = Routing.routeInfo(d, to)
         legRoute = info.points; legDurationS = info.durationS; legLengthM = com.ninejaride.core.data.RouteProgress.lengthM(info.points); legFor = leg; offRoad = 0
-        if (r.status == "TRIP_STARTED") { tripRoute = info.points; tripRouteFor = r.id; pickupRoute = emptyList(); tripEtaMin = (info.durationS / 60).coerceAtLeast(1); toDropM = info.distanceM }
+        if (r.status == "IN_TRANSIT") { tripRoute = info.points; tripRouteFor = r.id; pickupRoute = emptyList(); tripEtaMin = (info.durationS / 60).coerceAtLeast(1); toDropM = info.distanceM }
         else { pickupRoute = info.points; driverEtaMin = (info.durationS / 60).coerceAtLeast(1); toPickupM = info.distanceM }
     }
 
@@ -639,7 +648,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         offRoad = 0
         moveCarTo(fix.onRoad)
         val mins = com.ninejaride.core.data.RouteProgress.minutesLeft(legDurationS, legLengthM, fix.remainingM)
-        if (r.status == "TRIP_STARTED") { tripRoute = fix.ahead; toDropM = fix.remainingM.toInt(); tripEtaMin = mins }
+        if (r.status == "IN_TRANSIT") { tripRoute = fix.ahead; toDropM = fix.remainingM.toInt(); tripEtaMin = mins }
         else if (r.status == "DRIVER_ASSIGNED") { pickupRoute = fix.ahead; toPickupM = fix.remainingM.toInt(); driverEtaMin = mins }
     }
 
@@ -669,8 +678,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         dialog = null
         viewModelScope.launch {
             try {
-                api.cancel(r.id, reason)
-                endRide(); refreshTrips()
+                loading.run("Please wait while the ride is being cancelled...") { api.cancel(r.id, reason); endRide(); refreshTrips() }
             } catch (e: ApiException) { say(words(e, "We could not cancel the ride. Please try again.")) }
         }
     }
@@ -696,7 +704,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         pollJob?.cancel()
         ride = null; tripDone = null; driverPoint = null; driverEtaMin = null; tripEtaMin = null; tripRoute = emptyList(); tripRouteFor = null
         pickupRoute = emptyList(); toPickupM = null; toDropM = null; pickupTravelledM = 0; tripTravelledM = 0; carAtMs = 0; carTarget = null; carAnim?.cancel()
-        chat.stop(); chatOpen = false; chatRide = null; extension.clear()
+        chat.stop(); chatOpen = false; chatRide = null; destination.clear()
         legRoute = emptyList(); legFor = null; offRoad = 0
         rating = 5; ratingTags = emptySet(); ratingComment = ""; feedbackThanks = false; ratingSent = false; sosOpen = false; sosSteps = 0; cancelReason = null
         clearBooking()
@@ -816,8 +824,10 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     /** True while the chat covers the ride screen. */
     var chatOpen by mutableStateOf(false)
 
-    // ---- going further than the booked destination
-    val extension = com.ninejaride.core.data.ExtensionController(viewModelScope, { api.http }, { ride?.id }, onAccepted = { etaAt = 0; refreshRideNow() })
+    // ---- changing the drop-off during the trip
+    /** Slow work (a request to the server) shows "Please wait..." over the whole screen while it runs. */
+    val loading = com.ninejaride.core.ui.components.BusyTracker()
+    val destination = com.ninejaride.core.data.DestinationController(viewModelScope, { api.http }, { ride?.id }, loading, onChanged = { etaAt = 0; refreshRideNow() })
 
     /** Reads the ride again at once (after an answer), so the new destination and fare show without waiting for the next held request. */
     private fun refreshRideNow() {
@@ -855,8 +865,8 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     private var schedKeys: List<String> = emptyList()
 
     fun openSchedule() {
-        if (schedDate == null) schedDate = LocalDate.now(LAGOS).plusDays(1)
-        if (schedFirstDate == null) schedFirstDate = LocalDate.now(LAGOS).plusDays(1)
+        if (schedDate == null) schedDate = LocalDate.now(NIGERIA_TIME).plusDays(1)
+        if (schedFirstDate == null) schedFirstDate = LocalDate.now(NIGERIA_TIME).plusDays(1)
         prepareBooking()
         push(Dest.ScheduleForm)
     }
@@ -876,7 +886,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         loadQuotes(a, b)
     }
 
-    private fun firstRideAt(day: LocalDate): java.time.Instant = day.atTime(schedTime).atZone(LAGOS).toInstant()
+    private fun firstRideAt(day: LocalDate): java.time.Instant = day.atTime(schedTime).atZone(NIGERIA_TIME).toInstant()
 
     fun saveSchedule() {
         val a = pickup ?: return

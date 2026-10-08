@@ -1,13 +1,13 @@
 import { randomUUID } from 'crypto';
 import { paystackSignature } from './payments/paystack.client';
 import { TEST_KEY } from './payments/testing/fake-provider.testing';
-import { bootApp } from './testing/harness.testing';
+import { bootApp, uniquePlate } from './testing/harness.testing';
 
 // Admin essentials over real HTTP, Postgres and Valkey. Skipped unless INTEGRATION=1 (writes rows to DATABASE_URL).
 const suite = process.env.INTEGRATION && process.env.DATABASE_URL ? describe : describe.skip;
 
 const inFuture = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
-const plate = () => `T${randomUUID().replace(/-/g, '').slice(0, 7).toUpperCase()}`;
+const plate = uniquePlate;
 
 suite('admin essentials', () => {
   let h: Awaited<ReturnType<typeof bootApp>>;

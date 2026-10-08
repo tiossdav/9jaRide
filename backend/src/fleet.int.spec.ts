@@ -1,11 +1,11 @@
 import ExcelJS from 'exceljs';
 import { randomUUID } from 'crypto';
 import { DispatchService } from './dispatch/dispatch.service';
-import { bootApp } from './testing/harness.testing';
+import { bootApp, uniquePlate } from './testing/harness.testing';
 
 // Businesses and their vehicles: the list, importing it, giving a vehicle to a driver, and the share taken from a driver's trips.
 const suite = process.env.INTEGRATION && process.env.DATABASE_URL ? describe : describe.skip;
-const plate = () => `F${randomUUID().replace(/-/g, '').slice(0, 7).toUpperCase()}`;
+const plate = uniquePlate;
 const pickup = { lat: 6.5244, lng: 3.3792 };
 const dropoff = { lat: 6.45, lng: 3.4 };
 

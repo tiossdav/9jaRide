@@ -24,9 +24,10 @@ import { RidesModule } from './rides/rides.module';
 import { SafetyModule } from './safety/safety.module';
 import { HomeContentModule } from './home-content/home-content.module';
 import { PushModule } from './push/push.module';
+import { MapsModule } from './maps/maps.controller';
 
 @Module({
   controllers: [HealthController],
-  imports: [ScheduleModule.forRoot(), InfraModule, SettingsModule, CatalogModule, AuthModule, LedgerModule, FareModule, PaymentsModule, DispatchModule, RidesModule, SafetyModule, AdminModule, ConsoleModule, FilesModule, FleetModule, DriverProfileModule, VehiclePlansModule, TeamModule, StakeholdersModule, PromoModule, SupportModule, AppConfigModule, HomeContentModule, PushModule],
+  imports: [ScheduleModule.forRoot(), InfraModule, SettingsModule, CatalogModule, AuthModule, LedgerModule, FareModule, PaymentsModule, DispatchModule, RidesModule, SafetyModule, AdminModule, ConsoleModule, FilesModule, FleetModule, DriverProfileModule, VehiclePlansModule, TeamModule, StakeholdersModule, PromoModule, SupportModule, AppConfigModule, HomeContentModule, PushModule, MapsModule],
 })
 export class AppModule {}

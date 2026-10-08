@@ -71,7 +71,8 @@ services:
     envVars:
       - key: VITE_API_BASE
         value: https://ninejaride-api.onrender.com
-      - key: VITE_MAPBOX_TOKEN   # public Mapbox token for the live map: set it in the Render dashboard
+      - key: VITE_GOOGLE_MAPS_KEY   # Google Maps key for the live map (Maps JavaScript API): set it in the Render dashboard
+      - key: GOOGLE_MAPS_API_KEY    # server-side key for place search, addresses and routes (Places, Geocoding, Routes): set it in the Render dashboard
         sync: false
     routes:
       - type: rewrite              # the portal's own pages (/trips, /drivers...) all load index.html

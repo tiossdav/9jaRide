@@ -67,7 +67,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private val LAGOS = ZoneId.of("Africa/Lagos")
+private val NIGERIA_TIME = ZoneId.of("Africa/Lagos")
 
 @Composable
 private fun StatTile(value: String, label: String, modifier: Modifier = Modifier, valueColor: Color = C.Ink) {
@@ -122,7 +122,7 @@ fun EarningsScreen(vm: DriverViewModel) {
 
 @Composable
 fun DateFilterSheet(vm: DriverViewModel) {
-    var month by remember { mutableStateOf(YearMonth.now(LAGOS)) }
+    var month by remember { mutableStateOf(YearMonth.now(NIGERIA_TIME)) }
     var start by remember { mutableStateOf<LocalDate?>(vm.filterStart) }
     var end by remember { mutableStateOf<LocalDate?>(vm.filterEnd) }
     val fmt = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)
@@ -192,7 +192,7 @@ private fun DateBox(label: String, value: String, modifier: Modifier, active: Bo
 /** D10: how today's money adds up. Cash and wallet are kept apart. */
 @Composable
 fun DailyEarningsScreen(vm: DriverViewModel) {
-    val today = LocalDate.now(LAGOS)
+    val today = LocalDate.now(NIGERIA_TIME)
     val trips = vm.trips
     val gross = trips.sumOf { it.receipt.total }
     val cash = trips.filter { it.payment == "Cash" }.sumOf { it.receipt.total }
@@ -202,7 +202,7 @@ fun DailyEarningsScreen(vm: DriverViewModel) {
     val earned = gross - service
     val takenFromWallet = trips.filter { it.payment == "Cash" }.sumOf { it.receipt.serviceCharge }
     Column(Modifier.fillMaxSize().background(C.Bg)) {
-        ScreenHeader("Daily earnings", today.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)) + " · Lagos time", vm::pop)
+        ScreenHeader("Daily earnings", today.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)) + " · Nigeria time", vm::pop)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(C.Green).padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Txt("You earned", 13f, 500, C.OnGreenMuted)

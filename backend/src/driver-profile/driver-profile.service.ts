@@ -54,7 +54,7 @@ export class DriverProfileService {
     await this.pool.query(`UPDATE users SET avatar_file_id = $2 WHERE id = $1`, [driverId, fileId]);
   }
 
-  /** Finished trips, newest first, with what the driver kept from each, and today's totals (Lagos time). */
+  /** Finished trips, newest first, with what the driver kept from each, and today's totals (Nigeria time). */
   async trips(driverId: string, limit = 30) {
     const { rows } = await this.pool.query(
       `SELECT r.id, r.short_code, r.payment_method, r.pickup_address, r.dropoff_address, r.created_at, COALESCE(r.promo_discount_kobo, 0)::bigint AS discount,

@@ -1,3 +1,4 @@
+import { uniquePlate } from './testing/harness.testing';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import * as jwt from 'jsonwebtoken';
@@ -212,7 +213,7 @@ suite('HTTP API (auth, rides, wallet, payouts, SOS)', () => {
 
     async function onlineDriver() {
       const d = await login('driver', 'Driver Dee');
-      driverVehiclePlate = `T${randomUUID().slice(0, 7).toUpperCase()}`;
+      driverVehiclePlate = uniquePlate();
       await pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, 'package', 'Toyota', 'Silver', $2)`, [d.id, driverVehiclePlate]);
       const ping = () => http().post('/driver/location').set(auth(d.token)).send({ lat: 6.5244, lng: 3.3792, accuracyM: 8 }).expect(204);
       await ping();

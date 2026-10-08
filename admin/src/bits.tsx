@@ -120,7 +120,7 @@ export const kv =(label: string, value: ReactNode) => <div className="line"><spa
  * every change the cursor is put back where the person was typing, counted in letters and digits, so typing in the
  * middle, deleting and pasting never throw it to the end.
  */
-export function PlateInput({ id, value, onChange, placeholder = 'KJA-482AB' }: { id?: string; value: string; onChange: (plain: string) => void; placeholder?: string }) {
+export function PlateInput({ id, value, onChange, placeholder = 'ABC-123XY' }: { id?: string; value: string; onChange: (plain: string) => void; placeholder?: string }) {
   const ref = useRef<HTMLInputElement>(null);
   const caret = useRef<number | null>(null); // letters and digits before the cursor
   useLayoutEffect(() => {

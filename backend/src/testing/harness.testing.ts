@@ -102,20 +102,29 @@ export async function bootApp(opts: { otpMode?: 'test' | 'live' } = {}) {
     return res.body.id as string;
   }
 
-  /** Every document an owner-driver must show, each with its own uploaded proof. */
+  /** Every document an owner-driver must show, each with its own uploaded proof. The licence number is new each time: one number, one driver. */
   async function ownerDocs(token: string, soon = 400) {
     const future = new Date(Date.now() + soon * 86_400_000).toISOString().slice(0, 10);
     const doc = async (kind: string, extra: object = {}) => ({ kind, fileId: await upload(token), ...extra });
     return [
-      await doc('selfie'), await doc('drivers_licence', { number: 'LIC12345', expiresOn: future }), await doc('nin'), await doc('lassdri'),
+      await doc('selfie'), await doc('drivers_licence', { number: uniqueLicence(), expiresOn: future }), await doc('nin'), await doc('lassdri'),
       await doc('vehicle_photo'),
     ];
   }
 
   const personal = () => ({
-    email: 'driver@example.com', contactPreference: 'whatsapp', nin: '12345678901', lassdri: 'LAS-778899', address: '12 Marina Road, Lagos',
+    email: 'driver@example.com', contactPreference: 'whatsapp', nin: uniqueNin(), lassdri: uniqueLassdri(), address: '12 Marina Road, Lagos',
     nextOfKin: { name: 'Ngozi Test', phone: '08031230000', relationship: 'Sister', address: '4 Allen Avenue, Ikeja' },
   });
 
   return { upload, ownerDocs, personal, app, pool, ledger, provider, codes, http, auth, key, freshIp, newPhone, login, staff, wallet, platform, fund, completedRide, close: () => app.close() };
 }
+
+const digits = (n: number) => Array.from({ length: n }, () => Math.floor(Math.random() * 10)).join('');
+const letters = (n: number) => Array.from({ length: n }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join('');
+/** A valid plate that nobody else has: three letters, three digits, two letters (ABC123XY). */
+export const uniquePlate = () => `${letters(3)}${digits(3)}${letters(2)}`;
+/** Eleven digits, never ending in 000 or 999, which the stand-in NIN check treats as "pending" and "not found". */
+export const uniqueNin = (ending = '12') => `${digits(11 - ending.length)}${ending}`;
+export const uniqueLassdri = () => `LAS-${digits(8)}`;
+export const uniqueLicence = () => `LIC${digits(8)}`;

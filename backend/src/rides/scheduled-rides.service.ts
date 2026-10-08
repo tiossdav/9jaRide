@@ -15,7 +15,7 @@ export const MAX_OPEN_SCHEDULED = Number(process.env.SCHEDULE_MAX_OPEN ?? 30); /
 const SEARCH_LEAD_MINUTES = Number(process.env.SCHEDULE_SEARCH_LEAD_MINUTES ?? 30); // dispatch starts this long before pickup (the design says 30)
 const SEARCH_WINDOW_SECONDS = Number(process.env.SCHEDULE_SEARCH_WINDOW_SECONDS ?? 900); // and may search this long
 const MISSED_GRACE_MINUTES = Number(process.env.SCHEDULE_MISSED_GRACE_MINUTES ?? 10); // too late to start after pickup + this
-const WEEK_MS = 7 * 24 * 3_600_000; // Lagos has no daylight saving, so "same time next week" is exactly 7 days
+const WEEK_MS = 7 * 24 * 3_600_000; // Nigeria has no daylight saving, so "same time next week" is exactly 7 days
 
 /** Tells the rider a scheduled ride was cancelled by the system. Real push/SMS plugs in here. */
 export interface ScheduleNotifier {

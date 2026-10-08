@@ -4,7 +4,7 @@ import { Pool } from 'pg';
 import { PG_POOL, REDIS } from '../common/infra.module';
 import { DispatchService } from '../dispatch/dispatch.service';
 import { ChatService } from './chat.service';
-import { ExtensionsService } from './extensions.service';
+import { DestinationService } from './destination.service';
 import { TrackingService } from './tracking.service';
 import { Category, keys } from '../dispatch/dispatch.types';
 import { PromoService } from '../promo/promo.service';
@@ -52,7 +52,7 @@ export class RidesService {
     private readonly settings: SettingsService,
     private readonly tracking: TrackingService,
     private readonly chat: ChatService,
-    private readonly extensions: ExtensionsService,
+    private readonly destination: DestinationService,
   ) {}
 
   async checkPromo(riderId: string, code: string, category: Category, trip: { distanceM: number; durationS: number }) {
@@ -123,8 +123,8 @@ export class RidesService {
     );
     const r = rows[0];
     if (!r) throw new NotFoundException('ride not found');
-    const extensions = await this.extensions.list(r.id, me.id);
-    const extra = await this.extensions.acceptedKobo(r.id);
+    const destinationChanges = await this.destination.list(r.id);
+    const extra = await this.destination.deltas(r.id);
     return {
       id: r.id,
       shortCode: r.short_code,
@@ -137,13 +137,13 @@ export class RidesService {
       createdAt: r.created_at,
       pickupAddress: r.pickup_address,
       dropoffAddress: r.dropoff_address,
-      // the quoted range, widened by anything agreed to go further for
+      // the quoted range, moved by any change of drop-off during the trip
       estimate: r.low_kobo == null ? null : { lowKobo: Number(r.low_kobo) + extra.low, highKobo: Number(r.high_kobo) + extra.high, expectedKobo: r.expected_kobo == null ? null : Number(r.expected_kobo) + extra.expected },
       fareKobo: r.total_kobo == null ? null : Number(r.total_kobo),
-      // Going further than the booked destination: the open or latest question, and everything asked on this trip
-      extension: extensions[0] ?? null,
-      extensions,
-      extensionVersion: await this.extensions.version(r.id),
+      // Drop-off changes made during the trip (newest first); the destination above is always the current one
+      destinationChanges,
+      destinationVersion: await this.destination.version(r.id),
+      canEditDestination: r.rider_id === me.id && ['DRIVER_ARRIVED', 'IN_TRANSIT'].includes(r.status),
       // What the rider actually pays: the fare less any promo code. Same as fareKobo when there is none.
       discountKobo: r.promo_discount_kobo == null ? 0 : Number(r.promo_discount_kobo),
       promoCode: r.promo_code ?? null,
@@ -163,7 +163,7 @@ export class RidesService {
         ? {
             name: r.driver_name,
             rating: r.driver_rating == null ? null : Number(r.driver_rating),
-            phone: ['DRIVER_ASSIGNED', 'DRIVER_ARRIVED', 'TRIP_STARTED'].includes(r.status) && r.rider_id === me.id ? r.driver_phone : null,
+            phone: ['DRIVER_ASSIGNED', 'DRIVER_ARRIVED', 'IN_TRANSIT'].includes(r.status) && r.rider_id === me.id ? r.driver_phone : null,
             vehicle: { make: r.make, colour: r.colour, plate: r.plate },
           }
         : null,
@@ -178,7 +178,7 @@ export class RidesService {
     );
     const ride = rows[0];
     if (!ride) throw new NotFoundException('ride not found');
-    if (!ride.driver_id || !['DRIVER_ASSIGNED', 'DRIVER_ARRIVED', 'TRIP_STARTED'].includes(ride.status)) return null;
+    if (!ride.driver_id || !['DRIVER_ASSIGNED', 'DRIVER_ARRIVED', 'IN_TRANSIT'].includes(ride.status)) return null;
     const state = await this.redis.hgetall(keys.driverState(ride.driver_id));
     if (!state.lat || !state.lng) return null;
     return { lat: Number(state.lat), lng: Number(state.lng), at: Number(state.at), ...(await this.tracking.progress(rideId)) };
@@ -186,7 +186,7 @@ export class RidesService {
 
   /** The rider's rides, newest first. `scope=active` is the ones still in progress; `history` is everything else. */
   async listForRider(riderId: string, scope: 'active' | 'history', limit = 50) {
-    const active = "('SCHEDULED','REQUESTED','SEARCHING_DRIVER','DRIVER_ASSIGNED','DRIVER_ARRIVED','TRIP_STARTED')";
+    const active = "('SCHEDULED','REQUESTED','SEARCHING_DRIVER','DRIVER_ASSIGNED','DRIVER_ARRIVED','IN_TRANSIT')";
     const { rows } = await this.pool.query(
       `SELECT r.id, r.short_code, r.status, r.payment_method, r.category, r.created_at, r.scheduled_for, r.schedule_id,
               r.pickup_address, r.dropoff_address, f.total_kobo, q.low_kobo, q.high_kobo,
@@ -219,7 +219,7 @@ export class RidesService {
   /** The ride the rider is in right now, so the app can pick it back up after being closed. SCHEDULED rides do not count. */
   async activeForRider(riderId: string) {
     const { rows } = await this.pool.query(
-      `SELECT id FROM rides WHERE rider_id = $1 AND status IN ('REQUESTED','SEARCHING_DRIVER','DRIVER_ASSIGNED','DRIVER_ARRIVED','TRIP_STARTED')
+      `SELECT id FROM rides WHERE rider_id = $1 AND status IN ('REQUESTED','SEARCHING_DRIVER','DRIVER_ASSIGNED','DRIVER_ARRIVED','IN_TRANSIT')
         ORDER BY created_at DESC LIMIT 1`,
       [riderId],
     );
@@ -245,7 +245,7 @@ export class RidesService {
     const ride = await this.get(me, rideId); // same visibility rule
     const fare = await this.fares.getReceipt(rideId);
     if (!fare) throw new NotFoundException('no receipt yet: the trip has not been completed');
-    return { ...fare, promoCode: ride.promoCode, discountKobo: ride.discountKobo, payableKobo: fare.totalKobo - ride.discountKobo, extensions: ride.extensions.filter((e) => e.status === 'ACCEPTED') };
+    return { ...fare, promoCode: ride.promoCode, discountKobo: ride.discountKobo, payableKobo: fare.totalKobo - ride.discountKobo, destinationChanges: ride.destinationChanges };
   }
 
   // ------------------------------------------------------------------ driver side
@@ -258,8 +258,8 @@ export class RidesService {
     return this.dispatch.declineOffer(rideId, driverId);
   }
 
-  /** DRIVER_ASSIGNED -> DRIVER_ARRIVED, or DRIVER_ARRIVED -> TRIP_STARTED. Only the assigned driver can do it. */
-  async advanceTrip(driverId: string, rideId: string, from: 'DRIVER_ASSIGNED' | 'DRIVER_ARRIVED', to: 'DRIVER_ARRIVED' | 'TRIP_STARTED') {
+  /** DRIVER_ASSIGNED -> DRIVER_ARRIVED, or DRIVER_ARRIVED -> IN_TRANSIT. Only the assigned driver can do it. */
+  async advanceTrip(driverId: string, rideId: string, from: 'DRIVER_ASSIGNED' | 'DRIVER_ARRIVED', to: 'DRIVER_ARRIVED' | 'IN_TRANSIT') {
     await this.ledger.withTransaction(async (client) => {
       const res = await client.query(
         `UPDATE rides SET status = $4, updated_at = now() WHERE id = $1 AND driver_id = $2 AND status = $3`,
@@ -286,7 +286,6 @@ export class RidesService {
     const { rows } = await this.pool.query(`SELECT 1 FROM rides WHERE id = $1 AND driver_id = $2`, [rideId, driverId]);
     if (!rows[0]) throw new NotFoundException('ride not found');
     const fare = await this.settlement.settleCompletedTrip(rideId, measured);
-    await this.extensions.closeOpen(rideId).catch((e) => this.log.error(`could not close open extension for ${rideId}: ${e}`));
     await this.tracking.finish(rideId).catch((e) => this.log.error(`could not close tracking for ${rideId}: ${e}`));
     const earnings = await this.driverEarnings(rideId, fare.totalKobo, fare.taxKobo);
     // Free the driver for matching again; their next ping puts them back on the map.
@@ -310,12 +309,12 @@ export class RidesService {
   // ------------------------------------------------------------------ what the driver app shows
 
   /** Holds until a ride's status is no longer [was], or the time is up. True when it changed. Checks once a second, cheaply. */
-  async waitForStatusChange(rideId: string, was: string, seconds: number, extWas?: string): Promise<boolean> {
+  async waitForStatusChange(rideId: string, was: string, seconds: number, destWas?: string): Promise<boolean> {
     const until = Date.now() + Math.min(seconds, 25) * 1000;
     while (Date.now() < until) {
       const { rows } = await this.pool.query(`SELECT status FROM rides WHERE id = $1`, [rideId]);
       if (!rows[0] || rows[0].status !== was) return true;
-      if (extWas !== undefined && (await this.extensions.version(rideId)) !== extWas) return true;
+      if (destWas !== undefined && (await this.destination.version(rideId)) !== destWas) return true;
       await new Promise((r) => setTimeout(r, Math.min(1000, Math.max(0, until - Date.now()))));
     }
     return false;
@@ -364,16 +363,16 @@ export class RidesService {
               ST_Y(r.pickup::geometry) AS plat, ST_X(r.pickup::geometry) AS plng, ST_Y(r.dropoff::geometry) AS dlat, ST_X(r.dropoff::geometry) AS dlng,
               q.expected_kobo, a.label AS category_label
          FROM rides r JOIN users u ON u.id = r.rider_id LEFT JOIN fare_quotes q ON q.id = r.fare_quote_id LEFT JOIN asset_types a ON a.code = r.category
-        WHERE r.driver_id = $1 AND r.status IN ('DRIVER_ASSIGNED', 'DRIVER_ARRIVED', 'TRIP_STARTED') ORDER BY r.updated_at DESC LIMIT 1`, [driverId],
+        WHERE r.driver_id = $1 AND r.status IN ('DRIVER_ASSIGNED', 'DRIVER_ARRIVED', 'IN_TRANSIT') ORDER BY r.updated_at DESC LIMIT 1`, [driverId],
     );
     const r = rows[0];
     if (!r) return null;
     return {
       rideId: r.id, code: r.short_code, status: r.status, category: r.category_label ?? r.category, paymentMethod: r.payment_method,
       pickup: { lat: r.plat, lng: r.plng, address: r.pickup_address }, dropoff: { lat: r.dlat, lng: r.dlng, address: r.dropoff_address },
-      expectedKobo: r.expected_kobo == null ? null : Number(r.expected_kobo) + (await this.extensions.acceptedKobo(r.id)).expected, rider: { name: String(r.rider_name).split(' ')[0], phone: r.rider_phone },
-      extension: (await this.extensions.list(r.id, driverId))[0] ?? null,
-      extensionVersion: await this.extensions.version(r.id),
+      expectedKobo: r.expected_kobo == null ? null : Number(r.expected_kobo) + (await this.destination.deltas(r.id)).expected, rider: { name: String(r.rider_name).split(' ')[0], phone: r.rider_phone },
+      destinationVersion: await this.destination.version(r.id),
+      destinationChange: (await this.destination.list(r.id))[0] ?? null,
       tracking: await this.tracking.progress(r.id),
       unreadMessages: await this.chat.unread(driverId, r.id),
     };
@@ -411,7 +410,7 @@ export class RidesService {
   private async checkTripDistance(rideId: string, driverId: string, claimedM: number): Promise<void> {
     const { rows } = await this.pool.query(
       `WITH started AS (
-         SELECT created_at AS t0 FROM ride_status_history WHERE ride_id = $1 AND to_status = 'TRIP_STARTED' ORDER BY id DESC LIMIT 1
+         SELECT created_at AS t0 FROM ride_status_history WHERE ride_id = $1 AND to_status = 'IN_TRANSIT' ORDER BY id DESC LIMIT 1
        )
        SELECT count(*)::int AS n,
               ST_Length(ST_MakeLine(p.location::geometry ORDER BY p.recorded_at)::geography)::float8 AS len

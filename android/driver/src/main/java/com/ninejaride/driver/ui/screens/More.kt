@@ -255,7 +255,7 @@ fun PersonalDetailsScreen(vm: DriverViewModel) {
                 LabeledBox("NIN", p.nin?.let { "*******" + it.takeLast(4) } ?: "Not added") {
                     if (p.nin == null && vm.demo) Txt("Add", 13.5f, 700, C.Green, Modifier.tap({ adding = true }, "Add NIN")) else if (p.nin != null) Chip("Added")
                 }
-                if (p.lassdri.isNotBlank()) LabeledBox("LASSDRI number", p.lassdri)
+                if (p.lassdri.isNotBlank()) LabeledBox("LASDRI number", p.lassdri)
                 if (p.address.isNotBlank()) { Txt("ADDRESS", 12f, 600, C.Muted, letterSpacing = 1f); LabeledBox("Home address", p.address) }
                 if (p.kinName.isNotBlank()) {
                     Txt("NEXT OF KIN", 12f, 600, C.Muted, letterSpacing = 1f)
@@ -348,7 +348,7 @@ fun BonusScreen(vm: DriverViewModel) {
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Txt("No bonus is running today. Check back tomorrow.", 14.5f, 600)
             }
-            Txt("Bonuses are paid into your wallet automatically after 12:00 am. Each day starts again at 12:00 am Lagos time. If you qualify for more than one bonus, you get the one that pays the most.", 12.5f, 500, C.Muted)
+            Txt("Bonuses are paid into your wallet automatically after 12:00 am. Each day starts again at 12:00 am Nigeria time. If you qualify for more than one bonus, you get the one that pays the most.", 12.5f, 500, C.Muted)
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(C.OrangeTint).padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Txt("Stay available for requests", 14.5f, 800)
                 Txt("Declining or ignoring trip requests, or cancelling trips after accepting them, could affect how often you receive requests.", 12.5f, 500, C.Muted)

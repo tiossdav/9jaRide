@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { planCashTrip, planWalletTrip } from './ledger/postings';
 import { discountFor } from './promo/promo.service';
-import { bootApp } from './testing/harness.testing';
+import { bootApp, uniquePlate } from './testing/harness.testing';
 
 jest.setTimeout(60_000);
 
@@ -109,7 +109,7 @@ suite('promo codes, end to end', () => {
     const finance = await h.staff('finance');
     const rider = await h.login('rider', 'Promo Rider');
     const driver = await h.login('driver', 'Promo Driver');
-    await h.pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, 'package', 'Honda', 'Red', $2)`, [driver.id, `P${randomUUID().replace(/-/g, '').slice(0, 7).toUpperCase()}`]);
+    await h.pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, 'package', 'Honda', 'Red', $2)`, [driver.id, uniquePlate()]);
     const code = newCode();
     await h.http().post('/admin/promos').set(h.auth(finance.token)).send({ code, kind: 'percent', value: 2000, perRiderLimit: 1 }).expect(200);
 
@@ -127,8 +127,8 @@ suite('promo codes, end to end', () => {
     const ride = (await book(code, 200)).body.rideId as string;
 
     // drive it to completion
-    await h.pool.query(`UPDATE rides SET status = 'TRIP_STARTED', driver_id = $2 WHERE id = $1`, [ride, driver.id]);
-    await h.pool.query(`INSERT INTO ride_status_history (ride_id, from_status, to_status) VALUES ($1, 'DRIVER_ARRIVED', 'TRIP_STARTED')`, [ride]);
+    await h.pool.query(`UPDATE rides SET status = 'IN_TRANSIT', driver_id = $2 WHERE id = $1`, [ride, driver.id]);
+    await h.pool.query(`INSERT INTO ride_status_history (ride_id, from_status, to_status) VALUES ($1, 'DRIVER_ARRIVED', 'IN_TRANSIT')`, [ride]);
     const promoBefore = await h.platform('platform:promo');
     const done = (await h.http().post(`/driver/rides/${ride}/complete`).set(h.auth(driver.token)).send({ distanceM: 4000, durationS: 700, waitingS: 0 }).expect(200)).body;
 

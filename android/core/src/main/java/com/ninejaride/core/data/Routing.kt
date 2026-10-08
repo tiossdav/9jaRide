@@ -1,76 +1,44 @@
 package com.ninejaride.core.data
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import java.util.concurrent.TimeUnit
 import kotlin.math.cos
 import kotlin.math.hypot
 
 data class MapPoint(val lat: Double, val lng: Double)
 
-/** A road route: the line to draw, and how far and how long it is (what the fare quote needs). */
-data class RouteInfo(val points: List<MapPoint>, val distanceM: Int, val durationS: Int)
-
 /**
- * Road route between two points, for drawing on the map.
- *
- * This uses the public OSRM demo server, which is fine to develop against but is not meant for production traffic and
- * has no uptime promise. Before launch, swap this one function for a paid directions service (Google, Mapbox, or your
- * own OSRM). If the call fails the map falls back to a straight line, so a ride screen never breaks on it.
+ * A road route: the line to draw, and how far and how long it is (what the fare quote needs). [estimated] is true when Google could not
+ * be reached and the numbers are a straight-line guess, so a screen never pretends a guess is a road route.
  */
-object Routing {
-    private val http = OkHttpClient.Builder().connectTimeout(6, TimeUnit.SECONDS).readTimeout(12, TimeUnit.SECONDS).build()
-    private val json = Json { ignoreUnknownKeys = true }
+data class RouteInfo(val points: List<MapPoint>, val distanceM: Int, val durationS: Int, val estimated: Boolean = false)
 
+/** Road routes, from Google through the 9jaRide server. */
+object Routing {
     suspend fun route(from: MapPoint, to: MapPoint): List<MapPoint> = routeInfo(from, to).points
 
-    private val mapboxToken = com.ninejaride.core.BuildConfig.MAPBOX_TOKEN
-
-    /**
-     * Same as [route] with distance and time. Mapbox (with live traffic) when a token is set, else the public OSRM server; if
-     * neither answers, the numbers come from a straight line at 25 km/h.
-     */
-    suspend fun routeInfo(from: MapPoint, to: MapPoint): RouteInfo = withContext(Dispatchers.IO) {
+    /** Distance, time and the line to draw. If the server cannot answer, a straight line at city speed stands in and is marked [RouteInfo.estimated]. */
+    suspend fun routeInfo(from: MapPoint, to: MapPoint): RouteInfo {
         val straightKm = haversineKm(from, to)
-        val straight = RouteInfo(listOf(from, to), (straightKm * 1000).toInt(), (straightKm / 25.0 * 3600).toInt())
-        if (mapboxToken.isNotBlank()) {
-            val url = "https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson&access_token=$mapboxToken"
-            fetchRoute(url, straight)?.let { return@withContext it }
-        }
-        for (attempt in 1..2) try {
-            val url = "https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson"
-            http.newCall(Request.Builder().url(url).header("User-Agent", "9jaRide-Pro").build()).execute().use { res ->
-                if (!res.isSuccessful) return@withContext straight
-                val root = json.parseToJsonElement(res.body?.string().orEmpty()).jsonObject
-                val r = root["routes"]?.jsonArray?.firstOrNull()?.jsonObject ?: return@withContext straight
-                val coords = r["geometry"]?.jsonObject?.get("coordinates")?.jsonArray ?: return@withContext straight
-                val pts = coords.map { c -> val a = c.jsonArray; MapPoint(a[1].jsonPrimitive.content.toDouble(), a[0].jsonPrimitive.content.toDouble()) }
-                if (pts.size < 2) return@withContext straight
-                return@withContext RouteInfo(pts, r["distance"]?.jsonPrimitive?.content?.toDouble()?.toInt() ?: straight.distanceM, r["duration"]?.jsonPrimitive?.content?.toDouble()?.toInt() ?: straight.durationS)
-            }
+        val straight = RouteInfo(listOf(from, to), (straightKm * 1000).toInt(), (straightKm / 25.0 * 3600).toInt(), estimated = true)
+        val client = MapsGateway.client ?: return straight
+        return try {
+            parse(client.call("POST", "/maps/route", """{"from":{"lat":${from.lat},"lng":${from.lng}},"to":{"lat":${to.lat},"lng":${to.lng}}}""", auth = true), straight)
         } catch (e: Exception) {
-            // one more try: the public server is sometimes slow on the first call
+            straight
         }
-        straight
     }
 
-    /** One request in the OSRM/Mapbox shape (both answer the same way). Null when it did not work. */
-    private fun fetchRoute(url: String, fallback: RouteInfo): RouteInfo? = try {
-        http.newCall(Request.Builder().url(url).header("User-Agent", "9jaRide").build()).execute().use { res ->
-            if (!res.isSuccessful) return null
-            val r = json.parseToJsonElement(res.body?.string().orEmpty()).jsonObject["routes"]?.jsonArray?.firstOrNull()?.jsonObject ?: return null
-            val coords = r["geometry"]?.jsonObject?.get("coordinates")?.jsonArray ?: return null
-            val pts = coords.map { c -> val a = c.jsonArray; MapPoint(a[1].jsonPrimitive.content.toDouble(), a[0].jsonPrimitive.content.toDouble()) }
-            if (pts.size < 2) null
-            else RouteInfo(pts, r["distance"]?.jsonPrimitive?.content?.toDouble()?.toInt() ?: fallback.distanceM, r["duration"]?.jsonPrimitive?.content?.toDouble()?.toInt() ?: fallback.durationS)
-        }
-    } catch (e: Exception) { null }
+    /** The server's answer as a route. Anything unusable gives [fallback]. */
+    internal fun parse(o: JsonObject, fallback: RouteInfo): RouteInfo {
+        val distance = o["distanceM"]?.jsonPrimitive?.doubleOrNull?.toInt() ?: return fallback
+        val duration = o["durationS"]?.jsonPrimitive?.doubleOrNull?.toInt() ?: return fallback
+        val line = o["polyline"]?.jsonPrimitive?.contentOrNull?.let { PolylineCodec.decode(it) }.orEmpty()
+        val real = o["source"]?.jsonPrimitive?.contentOrNull == "google" && line.size >= 2
+        return RouteInfo(if (line.size >= 2) line else fallback.points, distance, duration, estimated = !real)
+    }
 
     fun haversineKm(a: MapPoint, b: MapPoint): Double {
         val r = 6371.0

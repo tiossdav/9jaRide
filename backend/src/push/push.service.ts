@@ -16,7 +16,7 @@ export interface PushMessage {
 const RIDER_MESSAGES: Record<string, (driver: string) => { title: string; body: string }> = {
   DRIVER_ASSIGNED: (d) => ({ title: 'Your driver is on the way', body: `${d} accepted your ride.` }),
   DRIVER_ARRIVED: (d) => ({ title: 'Your driver has arrived', body: `${d} is at the pickup point.` }),
-  TRIP_STARTED: () => ({ title: 'Trip started', body: 'Enjoy your ride with 9jaRide.' }),
+  IN_TRANSIT: () => ({ title: 'You are in transit', body: 'Enjoy your ride with 9jaRide.' }),
   TRIP_COMPLETED: () => ({ title: 'You have arrived', body: 'Your trip is complete. Tap to rate your driver.' }),
   CANCELLED_BY_DRIVER: () => ({ title: 'Ride cancelled', body: 'Your driver cancelled. Open 9jaRide to book again.' }),
   CANCELLED_BY_SYSTEM: () => ({ title: 'Ride cancelled', body: 'Your ride was cancelled. Open 9jaRide to book again.' }),

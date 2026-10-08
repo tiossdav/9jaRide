@@ -6,7 +6,7 @@ import { displayPlate, plateLike } from '../common/plate';
 import { VehiclePlansService } from '../vehicle-plans/vehicle-plans.service';
 
 const TZ = `'Africa/Lagos'`;
-const ACTIVE = `('DRIVER_ASSIGNED', 'DRIVER_ARRIVED', 'TRIP_STARTED')`;
+const ACTIVE = `('DRIVER_ASSIGNED', 'DRIVER_ARRIVED', 'IN_TRANSIT')`;
 const CANCELLED = `('CANCELLED_BY_RIDER', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_SYSTEM', 'NO_DRIVER_FOUND')`;
 
 export interface TripQuery {
@@ -81,7 +81,7 @@ export class ConsoleService {
               count(*) FILTER (WHERE status IN ${ACTIVE})::int AS ongoing
          FROM rides`,
     );
-    // "Today" is always the Lagos calendar day, worked out from the clock each time, so the numbers start again from zero at
+    // "Today" is always the Nigerian calendar day, worked out from the clock each time, so the numbers start again from zero at
     // midnight without anything being reset. A trip counts on the day it finished, not the day it was booked.
     const [today] = await this.q(
       `SELECT COALESCE(sum(f.total_kobo), 0)::bigint AS kobo, count(*)::int AS completed

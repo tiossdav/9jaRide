@@ -133,7 +133,7 @@ val DEMO_RECEIPT = FareReceipt(
 fun documentLabel(kind: String): String = when (kind) {
     "drivers_licence" -> "Driver's licence"
     "nin" -> "NIN slip or card"
-    "lassdri" -> "LASSDRI card"
+    "lassdri" -> "LASDRI card"
     "vehicle_photo" -> "Vehicle photo"
     "selfie" -> "Your photo"
     else -> kind.replace('_', ' ').replaceFirstChar { it.uppercase() }

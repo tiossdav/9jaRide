@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Query, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Put, Query, UseInterceptors } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsBooleanString, IsDate, IsIn, IsInt, Matches, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested,
@@ -8,7 +8,7 @@ import { StaffAuditInterceptor } from '../common/audit.interceptor';
 import { AssetTypesService } from '../catalog/asset-types.service';
 import { IdempotencyKey } from '../common/idempotency-key';
 import { ChatService } from './chat.service';
-import { ExtensionsService } from './extensions.service';
+import { DestinationService } from './destination.service';
 import { LocationService, MAX_BATCH } from './location.service';
 import { RidesService } from './rides.service';
 import { ScheduledRidesService } from './scheduled-rides.service';
@@ -79,16 +79,10 @@ class ReadDto {
   @IsInt() @Min(0) upTo!: number;
 }
 
-class ExtensionDto {
+class DestinationDto {
   @IsNumber() @Min(-90) @Max(90) lat!: number;
   @IsNumber() @Min(-180) @Max(180) lng!: number;
   @IsOptional() @IsString() @MaxLength(200) address?: string;
-  @IsInt() @Min(1) @Max(500_000) distanceM!: number;
-  @IsInt() @Min(0) @Max(86_400) durationS!: number;
-}
-
-class ExtensionAnswerDto {
-  @IsOptional() @IsString() @MaxLength(200) reason?: string;
 }
 
 class ListQuery {
@@ -127,8 +121,8 @@ class CompleteDto {
 const cleanDevice = (v?: string): string | undefined => (v && /^[A-Za-z0-9-]{8,64}$/.test(v) ? v : undefined);
 
 class WaitQuery {
-  /** The extensionVersion the app already shows: the held answer is also released when an extension is asked or answered. */
-  @IsOptional() @IsString() @MaxLength(80) ext?: string;
+  /** The destinationVersion the app already shows: the held answer is also released when the drop-off changes. */
+  @IsOptional() @IsString() @MaxLength(80) dest?: string;
   @IsOptional() @IsString() @MaxLength(40) waitFor?: string;
   /** How long the server may hold the answer, in seconds. Capped at 25 so connections never sit open for long. */
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(25) wait?: number;
@@ -142,7 +136,7 @@ export class RidesController {
     private readonly scheduled: ScheduledRidesService,
     private readonly assetTypes: AssetTypesService,
     private readonly chat: ChatService,
-    private readonly extensions: ExtensionsService,
+    private readonly destination: DestinationService,
   ) {}
 
   // ------------------------------------------------------------------ rider
@@ -207,27 +201,12 @@ export class RidesController {
 
   // ------------------------------------------------------------------ chat between the rider and driver of a ride
 
-  // ------------------------------------------------------------------ going further than the booked destination
+  // ------------------------------------------------------------------ changing the drop-off during a trip
 
-  /** Either side proposes a new destination; the other is asked. Only one question is open at a time. */
-  @Roles('rider', 'driver') @Post('rides/:id/extension') @HttpCode(200)
-  askExtension(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ExtensionDto) {
-    return this.extensions.request(me.id, id, dto);
-  }
-
-  @Roles('rider', 'driver') @Post('rides/:id/extension/:extId/accept') @HttpCode(200)
-  acceptExtension(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Param('extId', ParseUUIDPipe) extId: string) {
-    return this.extensions.respond(me.id, id, extId, true);
-  }
-
-  @Roles('rider', 'driver') @Post('rides/:id/extension/:extId/decline') @HttpCode(200)
-  declineExtension(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Param('extId', ParseUUIDPipe) extId: string, @Body() dto: ExtensionAnswerDto) {
-    return this.extensions.respond(me.id, id, extId, false, dto.reason);
-  }
-
-  @Roles('rider', 'driver') @Post('rides/:id/extension/:extId/withdraw') @HttpCode(200)
-  withdrawExtension(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Param('extId', ParseUUIDPipe) extId: string) {
-    return this.extensions.withdraw(me.id, id, extId);
+  /** The rider picks a new drop-off. Allowed from the moment the driver has arrived until the trip is over; the trip stays the same trip. */
+  @Roles('rider') @Put('rides/:id/destination') @HttpCode(200)
+  changeDestination(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() dto: DestinationDto) {
+    return this.destination.change(me.id, id, dto);
   }
 
   /** Messages after `after`; with `wait` the answer is held until a new one arrives. Only this ride's rider and driver may read. */
@@ -260,7 +239,7 @@ export class RidesController {
   async get(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Query() q: WaitQuery) {
     const first = await this.rides.get(me, id); // also checks this person may see the ride
     if (!q.waitFor || first.status !== q.waitFor) return first;
-    const changed = await this.rides.waitForStatusChange(id, q.waitFor, q.wait ?? 20, q.ext);
+    const changed = await this.rides.waitForStatusChange(id, q.waitFor, q.wait ?? 20, q.dest);
     return changed ? this.rides.get(me, id) : first;
   }
 
@@ -336,7 +315,7 @@ export class RidesController {
 
   @Roles('driver') @Post('driver/rides/:id/start') @HttpCode(204)
   async start(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string) {
-    await this.rides.advanceTrip(me.id, id, 'DRIVER_ARRIVED', 'TRIP_STARTED');
+    await this.rides.advanceTrip(me.id, id, 'DRIVER_ARRIVED', 'IN_TRANSIT');
   }
 
   @Roles('driver') @Post('driver/rides/:id/complete') @HttpCode(200)

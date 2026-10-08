@@ -41,11 +41,11 @@ export class TrackingService {
         await client.query(
           `SELECT r.status, ST_Y(r.pickup::geometry) AS plat, ST_X(r.pickup::geometry) AS plng,
                   (SELECT created_at FROM ride_status_history WHERE ride_id = r.id AND to_status = 'DRIVER_ARRIVED' ORDER BY id DESC LIMIT 1) AS arrived_at,
-                  (SELECT created_at FROM ride_status_history WHERE ride_id = r.id AND to_status = 'TRIP_STARTED' ORDER BY id DESC LIMIT 1) AS started_at
+                  (SELECT created_at FROM ride_status_history WHERE ride_id = r.id AND to_status = 'IN_TRANSIT' ORDER BY id DESC LIMIT 1) AS started_at
              FROM rides r WHERE r.id = $1 AND r.driver_id = $2`, [rideId, driverId],
         )
       ).rows[0];
-      if (!ride || !['DRIVER_ASSIGNED', 'DRIVER_ARRIVED', 'TRIP_STARTED'].includes(ride.status)) { await client.query('ROLLBACK'); return; }
+      if (!ride || !['DRIVER_ASSIGNED', 'DRIVER_ARRIVED', 'IN_TRANSIT'].includes(ride.status)) { await client.query('ROLLBACK'); return; }
 
       await client.query(`INSERT INTO ride_tracking (ride_id) VALUES ($1) ON CONFLICT (ride_id) DO NOTHING`, [rideId]);
       const t = (await client.query(`SELECT * FROM ride_tracking WHERE ride_id = $1 FOR UPDATE`, [rideId])).rows[0];

@@ -57,7 +57,7 @@ import com.ninejaride.rider.state.categoryLabel
 fun rideIsLive(vm: RiderViewModel): Boolean {
     if (vm.tripDone != null) return true
     val s = vm.ride?.status ?: return false
-    return s in setOf("REQUESTED", "SEARCHING_DRIVER", "DRIVER_ASSIGNED", "DRIVER_ARRIVED", "TRIP_STARTED")
+    return s in setOf("REQUESTED", "SEARCHING_DRIVER", "DRIVER_ASSIGNED", "DRIVER_ARRIVED", "IN_TRANSIT")
 }
 
 @Composable
@@ -70,9 +70,9 @@ fun RideOverlay(vm: RiderViewModel) {
         com.ninejaride.core.ui.components.ChatScreen(vm.chat, "Chat with ${r.driver?.name?.substringBefore(' ') ?: "your driver"}", "driver") { vm.chatOpen = false }
         return
     }
-    if (vm.extension.picking) {
-        androidx.activity.compose.BackHandler { vm.extension.picking = false }
-        com.ninejaride.core.ui.components.ExtendTripPicker(vm.extension, r.dropoff, r.dropoffAddress ?: "your destination", vm.location.point ?: vm.driverPoint) { vm.extension.picking = false }
+    if (vm.destination.picking) {
+        androidx.activity.compose.BackHandler { vm.destination.picking = false }
+        com.ninejaride.core.ui.components.DestinationPicker(vm.destination, r.dropoff, r.dropoffAddress ?: "your destination", vm.location.point ?: vm.driverPoint) { vm.destination.picking = false }
         return
     }
     Box(Modifier.fillMaxSize().background(C.Bg)) {
@@ -85,10 +85,10 @@ fun RideOverlay(vm: RiderViewModel) {
         MapPanel(
             // the map keeps clear of the card below so the pins and the car are never hidden behind it
             Modifier.fillMaxSize().padding(bottom = if (searching) 300.dp else 420.dp), markers = markers,
-            route = when (r.status) { "TRIP_STARTED" -> vm.tripRoute; "DRIVER_ASSIGNED" -> vm.pickupRoute; else -> emptyList() },
+            route = when (r.status) { "IN_TRANSIT" -> vm.tripRoute; "DRIVER_ASSIGNED" -> vm.pickupRoute; else -> emptyList() },
             fit = !searching, center = r.pickup, zoom = 15.0, interactive = false, fitBorderDp = 60,
         )
-        if (r.status == "TRIP_STARTED" || r.status == "DRIVER_ASSIGNED" || r.status == "DRIVER_ARRIVED") {
+        if (r.status == "IN_TRANSIT" || r.status == "DRIVER_ASSIGNED" || r.status == "DRIVER_ARRIVED") {
             Box(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp)) { SosButton(vm) }
         }
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp).navigationBarsPadding()) {
@@ -96,11 +96,11 @@ fun RideOverlay(vm: RiderViewModel) {
                 "REQUESTED", "SEARCHING_DRIVER" -> SearchingCard(vm, r)
                 "DRIVER_ASSIGNED" -> DriverCard(vm, r, "Your driver is on the way", vm.driverEtaMin?.let { "Arriving in about $it min" } ?: "Arriving shortly", canCancel = true, progress = pickupProgress(vm))
                 "DRIVER_ARRIVED" -> DriverCard(vm, r, "Your driver has arrived", "Meet them at the pickup point", canCancel = true, progress = null)
-                "TRIP_STARTED" -> DriverCard(vm, r, "On your way", vm.tripEtaMin?.let { "About $it min to go" } ?: "Enjoy the ride", canCancel = false, progress = tripProgress(vm))
+                "IN_TRANSIT" -> DriverCard(vm, r, "In transit", vm.tripEtaMin?.let { "About $it min to go" } ?: "Enjoy the ride", canCancel = false, progress = tripProgress(vm))
             }
         }
         if (vm.sosOpen) SosOverlay(vm)
-        if (r.status == "TRIP_STARTED") com.ninejaride.core.ui.components.ExtensionLayer(vm.extension, "rider", r.driver?.name?.substringBefore(' ') ?: "Your driver", onChat = { vm.chatOpen = true })
+        com.ninejaride.core.ui.components.DestinationNotice(vm.destination, "rider")
     }
     when (vm.dialog) {
         Dialog.CancelRide -> CancelSheet(vm)
@@ -188,7 +188,7 @@ private fun DriverCard(vm: RiderViewModel, r: RideView, title: String, subtitle:
             }
             CommButton("Chat", Ic.Chat, vm.chat.unread, Modifier.weight(1f)) { vm.chatOpen = true }
         }
-        if (r.status == "TRIP_STARTED") { Gap(8.dp); com.ninejaride.core.ui.components.ExtendTripButton(vm.extension, Modifier.fillMaxWidth()) }
+        if (r.canEditDestination) { Gap(8.dp); com.ninejaride.core.ui.components.EditDestinationButton(vm.destination, Modifier.fillMaxWidth()) }
         Gap(12.dp)
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Raised).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {

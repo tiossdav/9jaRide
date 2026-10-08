@@ -1,7 +1,7 @@
 const BASE: string = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:3000';
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public field?: string) {
     super(message);
   }
 }
@@ -48,11 +48,38 @@ function refresh(): Promise<boolean> {
 
 async function fail(res: Response): Promise<never> {
   let message = `Something went wrong (${res.status}).`;
-  try { const j = await res.json(); if (typeof j.message === 'string') message = j.message; else if (Array.isArray(j.message)) message = j.message.join(', '); } catch { /* keep default */ }
-  throw new ApiError(res.status, message);
+  let field: string | undefined;
+  try { const j = await res.json(); if (typeof j.message === 'string') message = j.message; else if (Array.isArray(j.message)) message = j.message.join(', '); if (typeof j.field === 'string') field = j.field; } catch { /* keep default */ }
+  throw new ApiError(res.status, message, field);
 }
 
-export async function call<T = any>(method: string, path: string, body?: unknown, extra: Record<string, string> = {}): Promise<T> {
+// Anything that changes something (a save, an approval, an upload) is counted while it runs, so a "please wait" screen can cover the page
+// and a second click cannot repeat it. Reading a page does not count: pages show their own loading state.
+let writing: string[] = [];
+const writeWatchers = new Set<() => void>();
+const tell = () => writeWatchers.forEach((w) => w());
+export const subscribeWrites = (w: () => void) => { writeWatchers.add(w); return () => { writeWatchers.delete(w); }; };
+/** What the person is waiting for, or null when nothing is being saved. */
+export const writingNow = (): string | null => writing[0] ?? null;
+const SAYS: [RegExp, string][] = [
+  [/\/files|upload|import/, 'Please wait while the file is being uploaded...'],
+  [/approve/, 'Please wait while the application is being approved...'],
+  [/verify|nin/, 'Please wait while we verify...'],
+  [/request-changes|reject/, 'Please wait while your answer is being sent...'],
+];
+const says = (path: string) => SAYS.find(([r]) => r.test(path))?.[1] ?? 'Please wait...';
+async function whileWriting<T>(method: string, path: string, run: () => Promise<T>): Promise<T> {
+  if (method === 'GET') return run();
+  const text = says(path);
+  writing = [...writing, text]; tell();
+  try { return await run(); } finally { const i = writing.indexOf(text); writing = [...writing.slice(0, i), ...writing.slice(i + 1)]; tell(); }
+}
+
+export function call<T = any>(method: string, path: string, body?: unknown, extra: Record<string, string> = {}): Promise<T> {
+  return whileWriting(method, path, () => callNow<T>(method, path, body, extra));
+}
+
+async function callNow<T = any>(method: string, path: string, body?: unknown, extra: Record<string, string> = {}): Promise<T> {
   let res = await raw(method, path, body, read()?.accessToken, extra);
   if (res.status === 401 && read()) {
     if (await refresh()) res = await raw(method, path, body, read()?.accessToken, extra);
@@ -63,7 +90,11 @@ export async function call<T = any>(method: string, path: string, body?: unknown
 }
 
 /** Sends a form with a file in it (an upload, or a list of vehicles), signed in, with the same one retry after a refresh. */
-export async function sendForm<T = any>(path: string, form: FormData): Promise<T> {
+export function sendForm<T = any>(path: string, form: FormData): Promise<T> {
+  return whileWriting('POST', path, () => sendFormNow<T>(path, form));
+}
+
+async function sendFormNow<T = any>(path: string, form: FormData): Promise<T> {
   const go = async (token?: string) => {
     try { return await fetch(BASE + path, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: form }); } catch { throw new ApiError(0, 'Cannot reach the server. Check your connection.'); }
   };

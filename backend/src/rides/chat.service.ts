@@ -5,7 +5,7 @@ import { PG_POOL, REDIS } from '../common/infra.module';
 import { PushService } from '../push/push.service';
 
 /** Writing is open only while the driver is on their way, at the pickup, or driving. */
-const ACTIVE = ['DRIVER_ASSIGNED', 'DRIVER_ARRIVED', 'TRIP_STARTED'];
+const ACTIVE = ['DRIVER_ASSIGNED', 'DRIVER_ARRIVED', 'IN_TRANSIT'];
 const MAX_PER_MINUTE = 30;
 const PAGE = 100;
 

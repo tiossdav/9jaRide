@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { post } from '../api';
 import { go, useConfirm } from '../bits';
-import { LeafletMap, Loading, initials, timeOnly, title, useLoad } from '../ui';
+import { LiveMap, Loading, initials, timeOnly, title, useLoad } from '../ui';
 import { sosChip } from './Safety';
 
 interface Sos {
@@ -51,7 +51,7 @@ export default function SosDetail() {
             </div>
           </div>
           {s.location && <div className="card"><h3>Location</h3><div className="hint" style={{ marginBottom: 10 }}>Last known position of the person who raised the alert.</div>
-            <LeafletMap dots={[{ lat: s.location.lat, lng: s.location.lng, color: '#e5484d', label: s.raisedBy.name }]} height={260} /></div>}
+            <LiveMap dots={[{ lat: s.location.lat, lng: s.location.lng, color: '#e5484d', label: s.raisedBy.name }]} height={260} /></div>}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="card">

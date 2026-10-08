@@ -80,13 +80,18 @@ describe('defaults', () => {
 });
 
 describe('operating area', () => {
-  const lagosOnly = DEFAULTS.service_area;
-  it('serves Lagos by default, and not Ibadan', () => {
-    expect(insideServiceArea(lagosOnly, 6.5244, 3.3792)).toBe(true); // Lagos Island
-    expect(insideServiceArea(lagosOnly, 6.6018, 3.3515)).toBe(true); // Ikeja
-    expect(insideServiceArea(lagosOnly, 7.3775, 3.947)).toBe(false); // Ibadan
+  const nigeria = DEFAULTS.service_area;
+  const lagosOnly = validate('service_area', { enabled: true, areas: [{ name: 'Lagos', lat: 6.5244, lng: 3.3792, radiusKm: 45 }] });
+  it('covers every part of Nigeria by default, and nowhere abroad', () => {
+    for (const [lat, lng] of [[6.5244, 3.3792], [7.3775, 3.947], [9.0765, 7.3986], [4.8156, 7.0498], [12.0022, 8.592], [11.8333, 13.15], [6.4541, 3.3947]]) {
+      expect(insideServiceArea(nigeria, lat, lng)).toBe(true); // Lagos, Ibadan, Abuja, Port Harcourt, Kano, Maiduguri, Victoria Island
+    }
+    expect(insideServiceArea(nigeria, 5.6037, -0.187)).toBe(false); // Accra
+    expect(insideServiceArea(nigeria, 48.85, 2.35)).toBe(false);    // Paris
   });
-  it('can be extended, and switched off', () => {
+  it('can still be narrowed by an admin, for example to Lagos, and widened again', () => {
+    expect(insideServiceArea(lagosOnly, 6.6018, 3.3515)).toBe(true);
+    expect(insideServiceArea(lagosOnly, 7.3775, 3.947)).toBe(false);
     const more = validate('service_area', { enabled: true, areas: [...lagosOnly.areas, { name: 'Ibadan', lat: 7.3775, lng: 3.947, radiusKm: 30 }] });
     expect(insideServiceArea(more, 7.4478, 3.9552)).toBe(true);
     expect(insideServiceArea({ enabled: false, areas: [] }, 9.07, 7.4)).toBe(true);

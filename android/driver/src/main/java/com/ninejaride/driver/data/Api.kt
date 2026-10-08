@@ -36,8 +36,9 @@ class ServerRide(val rideId: String, val code: String, val status: String, val c
                  val pickupTravelledM: Int = 0, val tripTravelledM: Int = 0,
                  /** The rider's number, given to the assigned driver for the length of the trip so the phone's dialler can call it. Never shown on screen. */
                  val riderPhone: String? = null,
-                 /** Going further than the booked destination: the newest request on this trip, asked by either side. */
-                 val extension: com.ninejaride.core.data.TripExtension? = null)
+                 /** Changes whenever the rider changes the drop-off, and the newest change, so the app can follow the new route. */
+                 val destinationVersion: String = "",
+                 val destinationChange: com.ninejaride.core.data.DestinationChange? = null)
 
 class ServerFare(val lines: List<Pair<String, Long>>, val totalKobo: Long, val commissionKobo: Long, val driverEarnKobo: Long, val taxKobo: Long, val vehicleDeductionKobo: Long = 0)
 
@@ -238,13 +239,17 @@ class Api(context: Context) {
     /** With [waitSeconds] the server holds the answer until an offer arrives, so this is one request in place of many. */
     suspend fun offer(waitSeconds: Int = 0): ServerOffer? = parseOffer(client.call("GET", if (waitSeconds > 0) "/driver/offer?wait=$waitSeconds" else "/driver/offer", auth = true, patient = waitSeconds > 0))
 
+    /** Whether a NIN, LASDRI number or licence number is free for this driver. Yes or no only: it never says who has it. */
+    suspend fun identifierAvailable(kind: String, value: String): Boolean =
+        client.call("GET", "/driver/application/identifier?kind=$kind&value=${java.net.URLEncoder.encode(value, "UTF-8")}", auth = true)["available"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content == "true" } ?: true
+
     suspend fun activeRide(): ServerRide? {
         val o = client.call("GET", "/driver/rides/active", auth = true).obj("ride") ?: return null
         return ServerRide(
             o.str("rideId")!!, o.str("code") ?: "", o.str("status") ?: "", o.str("category") ?: "Ride", o.str("paymentMethod") ?: "cash",
             pt(o.obj("pickup")), o.obj("pickup")?.str("address"), pt(o.obj("dropoff")), o.obj("dropoff")?.str("address"), o.lng("expectedKobo"), o.obj("rider")?.str("name") ?: "Rider",
             (o.obj("tracking")?.lng("pickupTravelledM") ?: 0).toInt(), (o.obj("tracking")?.lng("tripTravelledM") ?: 0).toInt(),
-            o.obj("rider")?.str("phone"), com.ninejaride.core.data.parseExtension(o.obj("extension")),
+            o.obj("rider")?.str("phone"), o.str("destinationVersion") ?: "", com.ninejaride.core.data.parseDestinationChange(o.obj("destinationChange")),
         )
     }
 

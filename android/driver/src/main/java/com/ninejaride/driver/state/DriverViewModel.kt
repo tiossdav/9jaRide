@@ -27,6 +27,7 @@ import com.ninejaride.driver.BuildConfig
 import com.ninejaride.driver.data.Api
 import com.ninejaride.core.data.ApiException
 import androidx.compose.ui.graphics.asImageBitmap
+import com.ninejaride.core.format.plateProblem
 import com.ninejaride.core.format.properName
 import com.ninejaride.driver.data.ApplicationForm
 import com.ninejaride.driver.data.Arrangement
@@ -228,6 +229,21 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     var contactPreference by mutableStateOf("whatsapp")
     var dateOfBirth by mutableStateOf("")
     var nin by mutableStateOf("")
+    /** What is wrong with a single field ("nin", "lassdri", "plate", "licenceNumber"), shown right under it. Cleared when the person edits that field. */
+    val fieldErrors = androidx.compose.runtime.mutableStateMapOf<String, String>()
+    private val identifierChecks = mutableMapOf<String, kotlinx.coroutines.Job>()
+
+    /** Asks the server, a moment after the person stops typing, whether this number is already registered, so they hear about it before sending the form. */
+    fun checkIdentifier(field: String, kind: String, value: String, ready: Boolean) {
+        identifierChecks.remove(field)?.cancel()
+        fieldErrors.remove(field)
+        if (demo || !ready) return
+        identifierChecks[field] = viewModelScope.launch {
+            delay(600)
+            val free = try { api.identifierAvailable(kind, value) } catch (e: ApiException) { true } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { true }
+            if (!free) fieldErrors[field] = when (kind) { "nin" -> "This NIN is already registered."; "lassdri" -> "This LASDRI number is already registered."; else -> "This driver's licence number is already registered." }
+        }
+    }
     var lassdri by mutableStateOf("")
     var address by mutableStateOf("")
     var kinName by mutableStateOf("")
@@ -374,8 +390,8 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     /** The "Check status" button: asks the server and says where the application stands. */
     fun checkStatus() {
         viewModelScope.launch {
-            val app = runCatching { api.application() }.getOrNull()
-            if (app == null) { say("No connection", "We could not check your status. Please try again."); return@launch }
+            val app = loading.run("Please wait while we check your application...") { runCatching { api.application() }.getOrNull() }
+            if (app == null) { if (!loading.isBusy) say("No connection", "We could not check your status. Please try again."); return@launch }
             application = app
             when (app.status) {
                 "SUBMITTED" -> dialog = Dialog.Verifying
@@ -469,7 +485,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                 dateOrNull(dateOfBirth, future = false) == null -> "Choose your date of birth. You must be at least 18."
                 address.trim().length < 5 -> "Enter your home address."
                 nin.filter { it.isDigit() }.length != 11 -> "Your NIN is 11 digits."
-                lassdri.trim().length < 4 -> "Enter your LASSDRI number."
+                lassdri.trim().length < 4 -> "Enter your LASDRI number."
                 !emailOk -> "Enter a valid email address."
                 uploads["selfie"] == null -> "Add your photo. Riders and our team need to recognise you."
                 else -> null
@@ -481,7 +497,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                 else -> null
             }
             3 -> when {
-                a.asksForVehicle && plate.trim().length < 5 -> "Enter the number plate."
+                a.asksForVehicle && plateProblem(plate) != null -> "Check the plate number."
                 a.asksForVehicle && (make.trim().length < 2 || colour.trim().length < 2) -> "Enter the model and colour of the vehicle."
                 a.asksForOwner && ownerName.trim().length < 2 -> "Enter the name of the person who owns the car."
                 a.asksForOwner && !phoneOk(ownerPhone) -> "Enter the owner's 11-digit phone number."
@@ -499,7 +515,14 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun applyNext() {
-        applyProblem()?.let { applyError = it; return }
+        applyProblem()?.let {
+            applyError = it
+            if (applyStep == 3 && chosen?.asksForVehicle == true) plateProblem(plate)?.let { p -> fieldErrors["plate"] = p }
+            return
+        }
+        // a number already shown as taken is not sent again until it is changed
+        val blocked = listOf("nin" to 1, "lassdri" to 1, "plate" to 3, "licenceNumber" to 4).firstOrNull { (f, step) -> fieldErrors.containsKey(f) && applyStep == step }
+        if (blocked != null) { applyError = "Please correct the number marked in red."; return }
         applyError = null
         if (isLastApplyStep) submitApplication() else applyStep = applySteps.first { it > applyStep }
     }
@@ -534,12 +557,15 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     /** Reads the picked photo, shrinks it so it uploads quickly on mobile data, and sends it. */
     fun uploadDocument(kind: String, uri: android.net.Uri) {
         viewModelScope.launch {
+            if (loading.isBusy) return@launch // one thing at a time: a second upload waits for the first
             uploading = kind; applyError = null
             try {
-                val bytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { shrinkedJpeg(uri) } ?: throw ApiException(0, null, "That photo could not be read. Try another.")
-                uploads[kind] = api.uploadFile(bytes, "$kind.jpg", "image/jpeg")
-                if (kind !in replaced) replaced.add(kind)
-                if (kind == "selfie") photoPreview = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, android.graphics.BitmapFactory.Options().apply { inSampleSize = 4 })?.asImageBitmap()
+                loading.run("Please wait while your document is being uploaded...") {
+                    val bytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { shrinkedJpeg(uri) } ?: throw ApiException(0, null, "That photo could not be read. Try another.")
+                    uploads[kind] = api.uploadFile(bytes, "$kind.jpg", "image/jpeg")
+                    if (kind !in replaced) replaced.add(kind)
+                    if (kind == "selfie") photoPreview = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, android.graphics.BitmapFactory.Options().apply { inSampleSize = 4 })?.asImageBitmap()
+                }
             } catch (e: kotlinx.coroutines.CancellationException) { throw e
             } catch (e: ApiException) { applyError = if (e.status >= 500) "The upload did not work. Please try again." else e.message
             } catch (e: Throwable) { applyError = "That photo could not be used. Please take or choose it again." // a huge picture or a file that cannot be read must never close the app
@@ -596,14 +622,26 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             if (a.asksForOwner) Math.round((sharePercent.toDoubleOrNull() ?: 0.0) * 100).toInt() else 0,
         )
         viewModelScope.launch {
+            if (loading.isBusy) return@launch
             applying = true; applyError = null
             try {
-                api.submitApplication(form)
-                application = api.application()
-                clearDraft()
-                reset(Dest.ApplicationStatus)
-                dialog = Dialog.Verifying
-            } catch (e: ApiException) { applyError = if (e.status >= 500) "We could not send that. Please try again." else e.message } finally { applying = false }
+                loading.run("Please wait while we verify your details and documents...") {
+                    api.submitApplication(form)
+                    application = api.application()
+                    clearDraft()
+                    reset(Dest.ApplicationStatus)
+                    dialog = Dialog.Verifying
+                }
+            } catch (e: ApiException) {
+                // a number the server refuses is marked on its own field, on the step that has it; everything else typed is kept
+                val field = e.field
+                val step = when (field) { "nin", "lassdri" -> 1; "plate" -> 3; "licenceNumber" -> 4; else -> null }
+                if (field != null && step != null) {
+                    fieldErrors[field] = e.message
+                    if (step in applySteps) applyStep = step
+                    applyError = "Please correct the number marked in red."
+                } else applyError = if (e.status >= 500) "We could not send that. Please try again." else e.message
+            } finally { applying = false }
         }
     }
 
@@ -987,14 +1025,18 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         super.onCleared()
     }
 
-    private fun clearRide() { carPoint = null; routeToPickup = emptyList(); routeTrip = emptyList(); stopChat(); extension.clear() }
+    private fun clearRide() { carPoint = null; routeToPickup = emptyList(); routeTrip = emptyList(); stopChat(); destination.clear() }
 
-    // ---- going further than the booked destination
-    val extension = com.ninejaride.core.data.ExtensionController(viewModelScope, { api.client }, { realRideId }, onAccepted = {
+    // ---- the rider changing the drop-off during the trip
+    /** Slow work (a request to the server) shows "Please wait..." over the whole screen while it runs. */
+    val loading = com.ninejaride.core.ui.components.BusyTracker()
+    /** The driver only hears about a change: the rider makes it. The notice says where the trip goes now. */
+    val destination = com.ninejaride.core.data.DestinationController(viewModelScope, { api.client }, { realRideId }, loading, onChanged = {
         viewModelScope.launch { runCatching { api.activeRide() }.getOrNull()?.let { applyDestination(it) } }
     })
+    init { com.ninejaride.core.data.MapsGateway.client = api.client } // place search, addresses and routes go through the server
 
-    /** The server's view of the ride: if the destination was changed (an extension was accepted), the screens, route and fare follow it. */
+    /** The server's view of the ride: if the rider changed the destination, the screens, route and fare follow it. */
     private fun applyDestination(r: com.ninejaride.driver.data.ServerRide) {
         if (r.rideId != realRideId) return
         val moved = com.ninejaride.core.data.Routing.haversineKm(demoDropoff, r.dropoff) > 0.01
@@ -1076,7 +1118,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                             rideJob?.cancel(); clearRide(); realRideId = null; phase = Phase.None
                             say("Ride cancelled", "The rider cancelled this ride.")
                         }
-                        Phase.InTrip -> api.activeRide()?.let { r -> extension.update(r.extension); applyDestination(r) }
+                        Phase.InTrip -> api.activeRide()?.let { r -> destination.observe(r.destinationVersion, listOfNotNull(r.destinationChange)); applyDestination(r) }
                         else -> {}
                     }
                 } catch (e: ApiException) {
@@ -1236,9 +1278,9 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Runs a call to the server for the driver; a refusal is shown as a short notice instead of silently doing nothing. */
-    private fun server(failTitle: String, block: suspend () -> Unit) {
+    private fun server(failTitle: String, wait: String = "Please wait...", block: suspend () -> Unit) {
         viewModelScope.launch {
-            try { block() } catch (e: ApiException) { say(failTitle, if (e.status >= 500) "Something went wrong. Please try again." else e.message) }
+            try { loading.run(wait) { block() } } catch (e: ApiException) { say(failTitle, if (e.status >= 500) "Something went wrong. Please try again." else e.message) }
         }
     }
 
@@ -1281,8 +1323,10 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             val id = realRideId ?: return
             viewModelScope.launch {
                 try {
-                    if (api.accept(id)) beginPickupLeg()
-                    else { rideJob?.cancel(); clearRide(); realRideId = null; phase = Phase.None; say("Too late", "That ride was taken or timed out.") }
+                    loading.run("Please wait while the ride is being accepted...") {
+                        if (api.accept(id)) beginPickupLeg()
+                        else { rideJob?.cancel(); clearRide(); realRideId = null; phase = Phase.None; say("Too late", "That ride was taken or timed out.") }
+                    }
                 } catch (e: ApiException) { say("Could not accept", if (e.status >= 500) "Something went wrong. Please try again." else e.message) }
             }
             return
@@ -1301,7 +1345,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun arrived() {
-        if (!demo) { val id = realRideId ?: return; server("Could not update") { api.arrive(id); beginWaiting() }; return }
+        if (!demo) { val id = realRideId ?: return; server("Could not update", "Please wait...") { api.arrive(id); beginWaiting() }; return }
         waitingSeconds = 0
         carPoint = demoPickup
         phase = Phase.Waiting
@@ -1320,7 +1364,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun startTrip() {
-        if (!demo) { val id = realRideId ?: return; server("Could not start") { api.startTrip(id); beginTripLeg() }; return }
+        if (!demo) { val id = realRideId ?: return; server("Could not start", "Please wait while the trip is being started...") { api.startTrip(id); beginTripLeg() }; return }
         tripSeconds = 0; tripKm = 0.0; stopReason = null
         phase = Phase.InTrip
         rideJob?.cancel()
@@ -1337,7 +1381,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     fun endTrip() {
         if (demo) { rideJob?.cancel(); carPoint = demoDropoff; phase = Phase.Collect; return }
         val id = realRideId ?: return
-        server("Could not end the trip") {
+        server("Could not end the trip", "Please wait while the trip is being completed...") {
             val fare = api.completeTrip(id, (tripKm * 1000).toInt(), tripSeconds, waitingSeconds)
             rideJob?.cancel()
             receipt = FareReceipt(fare.lines.map { FareLine(it.first, it.second) }, fare.totalKobo, fare.commissionKobo, fare.driverEarnKobo, if (fare.totalKobo > 0) Math.round(fare.commissionKobo * 100.0 / Math.max(1L, fare.totalKobo - fare.taxKobo)).toInt() else 0,

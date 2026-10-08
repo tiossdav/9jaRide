@@ -42,8 +42,8 @@ export function insideServiceArea(rules: ServiceAreaRules, lat: number, lng: num
 
 export const DEFAULTS: SettingValues = {
   revenue: { commissionBps: 1200, taxBase: 'excluded', shares: [{ name: 'Platform', bps: 10000 }] },
-  // Lagos to begin with; more places are added here as drivers start working there
-  service_area: { enabled: true, areas: [{ name: 'Lagos', lat: 6.5244, lng: 3.3792, radiusKm: 45 }] },
+  // All of Nigeria to begin with. An admin can propose narrower areas (a city, a state) and a different admin approves them.
+  service_area: { enabled: true, areas: [{ name: 'Nigeria', lat: 9.082, lng: 8.6753, radiusKm: 800 }] },
   cancellation: {
     enabled: false, windowDays: 7, minRequests: 10,
     tiers: [{ fromPct: 20, toPct: 34, penaltyMinutes: 2 }, { fromPct: 35, toPct: 49, penaltyMinutes: 5 }, { fromPct: 50, toPct: 100, penaltyMinutes: 10 }],
@@ -104,7 +104,7 @@ export function validate<K extends SettingKey>(key: K, raw: unknown): SettingVal
       const lat = a?.lat, lng = a?.lng, radiusKm = a?.radiusKm;
       if (typeof lat !== 'number' || lat < 3 || lat > 15) throw bad(`${name}: the latitude must be a place in Nigeria`);
       if (typeof lng !== 'number' || lng < 2 || lng > 15) throw bad(`${name}: the longitude must be a place in Nigeria`);
-      if (typeof radiusKm !== 'number' || radiusKm < 1 || radiusKm > 300) throw bad(`${name}: the radius must be from 1 to 300 km`);
+      if (typeof radiusKm !== 'number' || radiusKm < 1 || radiusKm > 1000) throw bad(`${name}: the radius must be from 1 to 1000 km`);
       return { name, lat, lng, radiusKm };
     });
     return { enabled: v.enabled, areas } as SettingValues[K];

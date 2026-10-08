@@ -58,10 +58,12 @@ data class RideView(
     /** Distance the driver really drove (from their GPS), apart for the way to the pickup and the trip. Final once the trip is done. */
     val pickupTravelledM: Int = 0,
     val tripTravelledM: Int = 0,
-    /** Going further than the booked destination: the newest request on this trip (asked by either side), if any. */
-    val extension: com.ninejaride.core.data.TripExtension? = null,
-    /** Changes whenever an extension is asked or answered, so the held request knows to answer. */
-    val extensionVersion: String = "",
+    /** Changes of drop-off made during this trip, newest first. [dropoff] is always the current one; the pickup never changes. */
+    val destinationChanges: List<com.ninejaride.core.data.DestinationChange> = emptyList(),
+    /** Changes whenever the drop-off changes, so the held request knows to answer. */
+    val destinationVersion: String = "",
+    /** True once the driver has arrived and until the trip ends: the rider may edit the drop-off. */
+    val canEditDestination: Boolean = false,
 )
 
 /** One card of the "For you" strip. */
@@ -134,7 +136,8 @@ private fun ride(o: JsonObject): RideView {
         myRating = o.int("myRating"), scheduledFor = o.str("scheduledFor"), statusChangedAt = o.str("statusChangedAt"),
         createdAt = o.str("createdAt"), cancelReason = o.str("cancelReason"),
         pickupTravelledM = o.obj("tracking")?.int("pickupTravelledM") ?: 0, tripTravelledM = o.obj("tracking")?.int("tripTravelledM") ?: 0,
-        extension = com.ninejaride.core.data.parseExtension(o.obj("extension")), extensionVersion = o.str("extensionVersion") ?: "",
+        destinationChanges = com.ninejaride.core.data.parseDestinationChanges(o["destinationChanges"] as? kotlinx.serialization.json.JsonArray), destinationVersion = o.str("destinationVersion") ?: "",
+        canEditDestination = (o["canEditDestination"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "true",
         driver = d?.let { DriverView(it.str("name") ?: "Driver", it.dbl("rating"), it.str("phone"), v?.str("make") ?: "", v?.str("colour") ?: "", com.ninejaride.core.format.formatPlate(v?.str("plate") ?: "")) },
     )
 }
@@ -184,10 +187,10 @@ class RiderApi(private val client: ApiClient) {
     }
 
     /** With [waitFor] (the status the screen already shows) the server holds the answer until the status changes, up to [waitSeconds]. */
-    suspend fun ride(id: String, waitFor: String? = null, waitSeconds: Int = 20, ext: String? = null): RideView =
-        ride(if (waitFor == null) client.call("GET", "/rides/$id", auth = true) else client.call("GET", "/rides/$id?waitFor=$waitFor&wait=$waitSeconds${if (ext != null) "&ext=${java.net.URLEncoder.encode(ext, "UTF-8")}" else ""}", auth = true, patient = true))
+    suspend fun ride(id: String, waitFor: String? = null, waitSeconds: Int = 20, dest: String? = null): RideView =
+        ride(if (waitFor == null) client.call("GET", "/rides/$id", auth = true) else client.call("GET", "/rides/$id?waitFor=$waitFor&wait=$waitSeconds${if (dest != null) "&dest=${java.net.URLEncoder.encode(dest, "UTF-8")}" else ""}", auth = true, patient = true))
 
-    /** The connection the extension calls go through. */
+    /** The connection the destination-change calls go through. */
     val http get() = client
 
     suspend fun activeRideId(): String? = client.call("GET", "/rides/active", auth = true).str("rideId")

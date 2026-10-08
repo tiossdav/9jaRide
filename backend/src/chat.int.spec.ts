@@ -64,7 +64,7 @@ suite('rider-driver chat', () => {
   it('holds a request until a message arrives, and answers at once when one does', async () => {
     const rider = await h.login('rider');
     const driver = await h.login('driver');
-    const id = await ride(rider.id, driver.id, 'TRIP_STARTED');
+    const id = await ride(rider.id, driver.id, 'IN_TRANSIT');
     const started = Date.now();
     const waiting = h.http().get(`/rides/${id}/messages?after=0&wait=10`).set(h.auth(driver.token)).then((r) => r);
     await new Promise((r) => setTimeout(r, 700));

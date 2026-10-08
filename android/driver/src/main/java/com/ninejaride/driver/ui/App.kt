@@ -126,5 +126,6 @@ fun App(vm: DriverViewModel = viewModel()) {
         }
         vm.toast?.let { com.ninejaride.core.ui.components.TopToast(it.first, it.second, warning = vm.toastWarn) }
         vm.pendingConfirm?.let { com.ninejaride.core.ui.components.ConfirmSheet(it) { vm.pendingConfirm = null } }
+        com.ninejaride.core.ui.components.LoadingOverlay(vm.loading.message)
     }
 }

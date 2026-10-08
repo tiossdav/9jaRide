@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Inject, Injectable, NotFoundExc
 import Redis from 'ioredis';
 import { Pool, PoolClient } from 'pg';
 import { PG_POOL, REDIS } from '../common/infra.module';
-import { normalisePlate } from '../common/plate';
+import { normalisePlate, parsePlate } from '../common/plate';
 import { FilesService } from '../files/files.service';
 import { FileKind, VehicleRow, fileKind, parseCsv, parseXlsx, validateTable } from './fleet-import';
 
@@ -95,8 +95,7 @@ export class FleetService {
   }
 
   async create(input: { businessId: string; plate: string; makeModel: string; colour: string; category: string; year?: number | null; vin?: string; notes?: string }, actorId: string) {
-    const plate = normalisePlate(input.plate);
-    if (!/^[A-Z0-9]{5,10}$/.test(plate)) throw new BadRequestException('the plate number must be 5 to 10 letters and digits');
+    const plate = parsePlate(input.plate);
     const cat = await this.pool.query(`SELECT active FROM asset_types WHERE code = $1`, [input.category]);
     if (!cat.rows[0]?.active) throw new BadRequestException('choose a category that is switched on');
     const ownerId = await this.ownerOfBusiness(this.pool, input.businessId);
