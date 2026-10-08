@@ -76,7 +76,7 @@ fun ExtendTripPicker(controller: ExtensionController, from: MapPoint, fromName: 
         if (query.trim().length < 3 || chosen?.address == query) { results = emptyList(); searching = false; return@LaunchedEffect }
         searching = true
         delay(650)
-        results = Geocoding.search(query.trim(), near ?: from)
+        results = Geocoding.search(query.trim(), near ?: from) { early -> results = early }
         searching = false
     }
 

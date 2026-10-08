@@ -406,7 +406,7 @@ fun SosSentScreen(vm: DriverViewModel) {
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 SosStep(true, "Alert saved", "Your location and trip are attached")
                 SosStep(vm.sosSteps >= 2, "Admin team notified", "Phone alert sent to staff on duty")
-                SosStep(vm.sosSteps >= 3, "Admin has acknowledged", vm.sosAdmin ?: "You will see their name here when they do")
+                SosStep(vm.sosSteps >= 3, if (vm.sosAdmin != null) "Admin has acknowledged" else "Waiting for the admin team", vm.sosAdmin ?: "Keep your phone with you. Staff will call you")
             }
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Txt("SHARED WITH ADMIN", 12f, 500, C.Muted, letterSpacing = 1f)

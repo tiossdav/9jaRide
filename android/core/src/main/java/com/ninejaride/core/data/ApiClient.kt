@@ -85,8 +85,17 @@ class ApiClient(context: Context, private val baseUrl: String, private val appVe
         }
     }
 
-    private fun failure(status: Int, o: JsonObject) =
-        ApiException(status, o["code"]?.jsonPrimitive?.contentOrNull, o["message"]?.jsonPrimitive?.contentOrNull ?: "Something went wrong ($status).", o["registrationTicket"]?.jsonPrimitive?.contentOrNull)
+    /**
+     * The server's complaint as an exception. Its "message" is usually one sentence, but a request that failed the checks on its
+     * fields sends a LIST of them; reading that as one sentence used to crash the app. It is now shown as the first problem.
+     */
+    private fun failure(status: Int, o: JsonObject): ApiException {
+        fun text(k: String) = (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
+        val message = text("message")
+            ?: (o["message"] as? kotlinx.serialization.json.JsonArray)?.firstNotNullOfOrNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull }?.let { "Please check what you entered: $it" }
+            ?: "Something went wrong ($status)."
+        return ApiException(status, text("code"), message, text("registrationTicket"))
+    }
 
     /** Sends one file (a photo or PDF) as the form field "file". Signed in, with the same one retry after a token refresh. */
     suspend fun upload(path: String, bytes: ByteArray, filename: String, mime: String): JsonObject = withContext(Dispatchers.IO) {

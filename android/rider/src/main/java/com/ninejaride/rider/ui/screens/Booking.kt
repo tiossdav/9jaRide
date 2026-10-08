@@ -210,7 +210,10 @@ private fun AddressInput(label: String, value: String, active: Boolean, hint: St
     // Kept as a text-and-selection pair so that tapping into a box selects what is in it: typing then replaces the old address
     // instead of being added to it ("Current location" + what the rider types is not a place).
     var field by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(value)) }
-    if (field.text != value) field = androidx.compose.ui.text.input.TextFieldValue(value, androidx.compose.ui.text.TextRange(value.length))
+    // The text comes back from the view model a moment after it is typed. A value that is just an echo of what was typed must not
+    // overwrite the box (a fast typist would lose letters); only a value that did not come from this box (a picked place, a clear) does.
+    val echoes = remember { ArrayDeque<String>() }
+    if (field.text != value && value !in echoes) { field = androidx.compose.ui.text.input.TextFieldValue(value, androidx.compose.ui.text.TextRange(value.length)); echoes.clear() }
     var focused by remember { mutableStateOf(false) }
     LaunchedEffect(focused) { if (focused) field = field.copy(selection = androidx.compose.ui.text.TextRange(0, field.text.length)) }
     Row(
@@ -219,7 +222,7 @@ private fun AddressInput(label: String, value: String, active: Boolean, hint: St
     ) {
         Box(Modifier.size(10.dp).clip(CircleShape).background(color))
         BasicTextField(
-            value = field, onValueChange = { field = it; if (it.text != value) onChange(it.text) }, singleLine = true,
+            value = field, onValueChange = { field = it; if (it.text != value) { echoes.addLast(it.text); if (echoes.size > 12) echoes.removeFirst(); onChange(it.text) } }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
             textStyle = type(14.5f, 600, C.Ink), cursorBrush = SolidColor(C.GreenAccent),
             modifier = Modifier.weight(1f).let { if (focus != null) it.focusRequester(focus) else it }

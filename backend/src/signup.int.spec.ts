@@ -83,6 +83,20 @@ suite('sign-up with the temporary code', () => {
       expect(mine.documents.map((d: { kind: string }) => d.kind).sort()).toEqual(['drivers_licence', 'lassdri', 'nin', 'selfie']);
     });
 
+    it('accepts an older app that still sends the documents no longer asked for, and leaves them out', async () => {
+      const driver = await h.login('driver');
+      const docs = await h.ownerDocs(driver.token);
+      const future = new Date(Date.now() + 300 * 86_400_000).toISOString().slice(0, 10);
+      const old = [{ kind: 'inspection_certificate', fileId: await h.upload(driver.token), expiresOn: future }, { kind: 'owner_consent', fileId: await h.upload(driver.token) }, { kind: 'insurance', fileId: await h.upload(driver.token), number: 'POL-1', expiresOn: future }];
+      const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send({ ...(await base(driver.token, { arrangement: 'own', vehicle: { category: 'regular', make: 'Honda', colour: 'Grey', plate: plate() } })), documents: [...docs, ...old] }).expect(200);
+      const kept = await h.pool.query(`SELECT kind FROM application_documents WHERE application_id = $1`, [sub.body.id]);
+      expect(kept.rows.map((r) => r.kind)).not.toContain('inspection_certificate');
+      expect(kept.rows.map((r) => r.kind)).not.toContain('owner_consent');
+      expect(kept.rows.map((r) => r.kind)).not.toContain('insurance');
+      // a made-up kind is still refused
+      await h.http().post('/driver/application').set(h.auth((await h.login('driver')).token)).send({ ...(await base(driver.token, {})), documents: [{ kind: 'nonsense', fileId: await h.upload(driver.token) }] }).expect(400);
+    });
+
     it('lets the reviewer confirm a different category after inspecting the vehicle', async () => {
       const driver = await h.login('driver');
       const admin = await h.staff('admin');

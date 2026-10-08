@@ -339,7 +339,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         searching = true
         searchJob = viewModelScope.launch {
             delay(if (Geocoding.fast) 600 else 800) // a short pause after typing; the OpenStreetMap half of the search allows about one request a second
-            suggestions = Geocoding.search(text.trim(), location.point)
+            suggestions = Geocoding.search(text.trim(), location.point) { early -> suggestions = early }
             searching = false
         }
     }

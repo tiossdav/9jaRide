@@ -223,10 +223,6 @@ private fun DocumentsStep(vm: DriverViewModel, pics: PictureSource) {
                     InputField("Licence number", vm.licenceNumber, clear { vm.licenceNumber = it.uppercase() }, "ABC12345AA01")
                     Gap(8.dp); DateField("Expiry date", vm.licenceExpiry, { vm.licenceExpiry = it; vm.applyError = null }, earliest = java.time.LocalDate.now().plusDays(1), opensAt = java.time.LocalDate.now().plusYears(1))
                 }
-                "insurance" -> {
-                    InputField("Policy number", vm.insuranceNumber, clear { vm.insuranceNumber = it }, "Policy number")
-                    Gap(8.dp); DateField("Expiry date", vm.insuranceExpiry, { vm.insuranceExpiry = it; vm.applyError = null }, earliest = java.time.LocalDate.now().plusDays(1), opensAt = java.time.LocalDate.now().plusYears(1))
-                }
                 "lassdri" -> Txt("Both sides of your LASSDRI card.", 12.5f, 500, C.Muted)
                 "vehicle_photo" -> Txt("A clear photo of the car showing the plate number. It must be taken with the camera.", 12.5f, 500, C.Muted)
             }

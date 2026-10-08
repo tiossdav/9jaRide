@@ -39,7 +39,7 @@ suite('admin essentials', () => {
       expect(queue.body.map((a: { id: string }) => a.id)).toContain(sub.body.id);
       const detail = await h.http().get(`/admin/driver-applications/${sub.body.id}`).set(h.auth(support.token)).expect(200);
       expect(detail.body).toMatchObject({ status: 'SUBMITTED', missingDocuments: [] });
-      expect(detail.body.documents).toHaveLength(6);
+      expect(detail.body.documents).toHaveLength(5);
 
       await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(support.token)).expect(204);
       await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(support.token)).expect(409); // decided
@@ -52,12 +52,12 @@ suite('admin essentials', () => {
       const driver = await h.login('driver');
       const support = await h.staff('support');
       const docs = (await h.ownerDocs(driver.token))
-        .filter((d) => d.kind !== 'insurance') // insurance missing
+        .filter((d) => d.kind !== 'vehicle_photo') // the car photo is missing
         .map((d) => (d.kind === 'drivers_licence' ? { ...d, expiresOn: inFuture(-5) } : d)); // licence expired
       const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send(await application(driver.token, { documents: docs })).expect(200);
       const res = await h.http().post(`/admin/driver-applications/${sub.body.id}/approve`).set(h.auth(support.token)).expect(409);
       expect(res.body.code).toBe('documents_not_ready');
-      expect(res.body.message).toContain('insurance is missing');
+      expect(res.body.message).toContain('vehicle_photo is missing');
       expect(res.body.message).toContain('drivers_licence has expired');
       const { rows } = await h.pool.query(`SELECT 1 FROM vehicles WHERE driver_id = $1`, [driver.id]);
       expect(rows).toHaveLength(0); // nothing half-created

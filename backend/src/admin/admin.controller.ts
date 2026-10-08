@@ -1,5 +1,5 @@
 import { Body, Controller, ForbiddenException, Get, HttpCode, Param, ParseUUIDPipe, Post, Query, UseInterceptors } from '@nestjs/common';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize, IsDefined, IsArray, IsDateString, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested,
 } from 'class-validator';
@@ -65,6 +65,8 @@ class ApproveDto {
   @IsOptional() @Matches(/^[a-z][a-z0-9_]{1,29}$/) category?: string;
 }
 
+const RETIRED_DOCUMENTS = ['inspection_certificate', 'owner_consent', 'insurance'];
+
 class DocumentDto {
   @IsIn(DOCUMENT_KINDS) kind!: DocumentKind;
   @IsOptional() @IsString() @MaxLength(60) number?: string;
@@ -95,6 +97,8 @@ class ApplicationDto {
   @IsDefined() @ValidateNested() @Type(() => VehicleDto) vehicle!: VehicleDto;
   @IsOptional() @ValidateNested() @Type(() => OwnerDto) owner?: OwnerDto;
   @IsDefined() @ValidateNested() @Type(() => PersonalDto) personal!: PersonalDto;
+  // Older copies of the apps still send documents that are no longer asked for (the inspection certificate, owner consent and insurance). They are left out instead of failing the whole application.
+  @Transform(({ value }) => (Array.isArray(value) ? value.filter((d) => !RETIRED_DOCUMENTS.includes(d?.kind)) : value))
   @IsArray() @ArrayMaxSize(12) @ValidateNested({ each: true }) @Type(() => DocumentDto) documents!: DocumentDto[];
 }
 

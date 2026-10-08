@@ -147,7 +147,9 @@ class LocationService : Service() {
             // "online" with a heartbeat). On a trip the rider is watching, so it is every 3 s. The network position is the
             // fallback when there is no view of the sky, and is asked far less often.
             val gps = if (tripMode) Triple(3_000L, 0f, true) else Triple(10_000L, 15f, true)
-            val net = if (tripMode) Triple(15_000L, 0f, true) else Triple(30_000L, 50f, true)
+            // The network position is asked even when the phone has not moved: indoors, or in a garage, it is the only position there is, and
+            // without it a parked driver would never be seen as online.
+            val net = if (tripMode) Triple(15_000L, 0f, true) else Triple(30_000L, 0f, true)
             if (lm.allProviders.contains(LocationManager.GPS_PROVIDER)) lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, gps.first, gps.second, l, Looper.getMainLooper())
             if (lm.allProviders.contains(LocationManager.NETWORK_PROVIDER)) lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, net.first, net.second, l, Looper.getMainLooper())
             listener = l
@@ -243,10 +245,15 @@ class LocationService : Service() {
      * without a real fix it stops, so a driver whose GPS has died does not look online.
      */
     private fun heartbeat() {
-        val g = lastGood ?: return
-        if (queue.size() > 0) return
         val now = System.currentTimeMillis()
-        if (now - g.recordedAtMillis > 180_000L) return
+        val g = lastGood
+        if (g == null || now - g.recordedAtMillis > 180_000L) {
+            // No usable position for three minutes: the server no longer counts this driver as online, so say so instead of "sharing".
+            LocationStatus.problem = "Waiting for your location. Move to an open area or turn on Wi-Fi."
+            return
+        }
+        if (LocationStatus.problem?.startsWith("Waiting for your location") == true) LocationStatus.problem = null
+        if (queue.size() > 0) return
         queue.add(g.copy(recordedAtMillis = now))
         LocationStatus.pending = queue.size()
     }

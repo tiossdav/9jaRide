@@ -87,7 +87,7 @@ object Geocoding {
      * in a state or well-known town ("Allen Avenue Lagos", "Bodija, Ibadan"): then it looks in that state instead. Inside the area,
      * places within 5 km come first, nearest first, then the rest, and nothing from outside the area is shown.
      */
-    suspend fun search(query: String, near: MapPoint?): List<Place> = withContext(Dispatchers.IO) {
+    suspend fun search(query: String, near: MapPoint?, onPartial: (List<Place>) -> Unit = {}): List<Place> = withContext(Dispatchers.IO) {
         val q = expand(query.trim())
         val state = NigeriaStates.trailing(q)
         // where to look, how far from there is still "the area", and what distances are measured from
@@ -97,12 +97,23 @@ object Geocoding {
             else -> null
         }
         val anchor = if (state != null && near != null && Routing.haversineKm(near, state.centre) > state.radiusKm) state.centre else near
+        // Whatever has arrived so far is ranked and handed over at once, so the first results show while the slower service is still working.
+        val parts = java.util.concurrent.ConcurrentHashMap<String, List<Place>>()
+        val me = kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]
+        fun publish() {
+            if (me?.isActive == false) return // a newer search has taken over: this one's late answers are dropped
+            val soFar = parts.values.flatten()
+            val inside = if (region == null) soFar else soFar.filter { Routing.haversineKm(region.first, it.point) <= region.second }
+            onPartial(rank(q, inside.distinctBy { it.address.lowercase() }, anchor).take(8))
+        }
         val found = coroutineScope {
-            val streets = async { if (fast) mapboxSearch(q, anchor ?: region?.first).orEmpty() else emptyList() }
+            val streets = async { (if (fast) mapboxSearch(q, anchor ?: region?.first).orEmpty() else emptyList()).also { parts["mapbox"] = it; publish() } }
             val landmarks = async {
                 // the 5 km perimeter first, then the whole area, stopping as soon as there is enough
                 var all = if (anchor != null) osmSearch(q, anchor, bounded = true, span = 0.05) else emptyList()
+                parts["osm-near"] = all; publish()
                 if (region != null && all.size < 4) all = (all + osmSearch(q, region.first, bounded = true, span = region.second / 111.0)).distinctBy { it.address.lowercase() }
+                parts["osm-near"] = all; publish()
                 all
             }
             landmarks.await() + streets.await()

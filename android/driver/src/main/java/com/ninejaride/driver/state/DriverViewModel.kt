@@ -248,8 +248,6 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     // documents: the numbers and dates typed in, and the id of the photo uploaded for each
     var licenceNumber by mutableStateOf("")
     var licenceExpiry by mutableStateOf("")
-    var insuranceNumber by mutableStateOf("")
-    var insuranceExpiry by mutableStateOf("")
     val uploads = androidx.compose.runtime.mutableStateMapOf<String, String>() // document kind -> uploaded file id
     var uploading by mutableStateOf<String?>(null)
     /** The driver's photo as picked, shown on the "About you" step. */
@@ -262,7 +260,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         val a = chosen ?: return emptyList()
         return buildList {
             add("drivers_licence"); add("lassdri") // the NIN is checked by a service, so no photo of it is asked for
-            if (a.asksForVehicle) { add("vehicle_photo"); add("insurance") }
+            if (a.asksForVehicle) { add("vehicle_photo") }
         }
     }
 
@@ -300,7 +298,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         "arrangement" to arrangementCode, "category" to vehicleCategory, "email" to email, "contact" to contactPreference, "dob" to dateOfBirth,
         "nin" to nin, "lassdri" to lassdri, "address" to address, "kinName" to kinName, "kinPhone" to kinPhone, "kinRel" to kinRelationship,
         "kinAddress" to kinAddress, "plate" to plate, "make" to make, "colour" to colour, "ownerName" to ownerName, "ownerPhone" to ownerPhone,
-        "share" to sharePercent, "licence" to licenceNumber, "licenceExp" to licenceExpiry, "insurance" to insuranceNumber, "insuranceExp" to insuranceExpiry,
+        "share" to sharePercent, "licence" to licenceNumber, "licenceExp" to licenceExpiry, 
         "step" to applyStep.toString(), "uploads" to uploads.entries.joinToString(",") { it.key + "=" + it.value },
     )
 
@@ -318,7 +316,6 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         dateOfBirth = g("dob"); nin = g("nin"); lassdri = g("lassdri"); address = g("address"); kinName = g("kinName"); kinPhone = g("kinPhone")
         kinRelationship = g("kinRel"); kinAddress = g("kinAddress"); plate = g("plate"); make = g("make"); colour = g("colour"); ownerName = g("ownerName")
         ownerPhone = g("ownerPhone"); sharePercent = g("share").ifEmpty { "20" }; licenceNumber = g("licence"); licenceExpiry = g("licenceExp")
-        insuranceNumber = g("insurance"); insuranceExpiry = g("insuranceExp")
         uploads.clear(); g("uploads").split(",").filter { it.contains("=") }.forEach { uploads[it.substringBefore("=")] = it.substringAfter("=") }
         applyStep = g("step").toIntOrNull() ?: 0
         return true
@@ -361,7 +358,6 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             fun show(iso: String?) = iso?.takeIf { it.length == 10 }?.let { "${it.substring(8, 10)}/${it.substring(5, 7)}/${it.substring(0, 4)}" } ?: ""
             when (d.kind) {
                 "drivers_licence" -> { licenceNumber = d.number ?: ""; licenceExpiry = show(d.expiresOn) }
-                "insurance" -> { insuranceNumber = d.number ?: ""; insuranceExpiry = show(d.expiresOn) }
             }
         }
     }
@@ -495,8 +491,6 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             else -> when {
                 licenceNumber.trim().length < 4 -> "Enter your driver's licence number."
                 dateOrNull(licenceExpiry) == null -> "Choose when your licence expires. It must be in the future."
-                a.asksForVehicle && insuranceNumber.trim().length < 3 -> "Enter the insurance policy number."
-                a.asksForVehicle && dateOrNull(insuranceExpiry) == null -> "Choose when the insurance expires. It must be in the future."
                 updateMode && updateItems.any { it !in setOf("about_you", "next_of_kin", "vehicle", "selfie") && it !in replaced } -> "Take a new photo of: " + updateItems.filter { it !in setOf("about_you", "next_of_kin", "vehicle", "selfie") && it !in replaced }.joinToString(", ") { documentLabel(it) } + "."
                 neededDocuments().any { uploads[it] == null } -> "Upload a photo for: " + neededDocuments().filter { uploads[it] == null }.joinToString(", ") { documentLabel(it) } + "."
                 else -> null
@@ -591,7 +585,6 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         val docs = (listOf("selfie") + neededDocuments()).map {
             when (it) {
                 "drivers_licence" -> doc(it, licenceNumber, licenceExpiry)
-                "insurance" -> doc(it, insuranceNumber, insuranceExpiry)
                 else -> doc(it)
             }
         }
@@ -1395,7 +1388,6 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     fun askSos() { dialog = Dialog.Sos }
 
     fun sendSos() {
-        if (!demo) server("The alert could not be sent. Call 112 now.") { api.sos(java.util.UUID.randomUUID().toString(), deviceLocation ?: demoPickup.takeIf { realRideId != null }) }
         dialog = null
         phaseBeforeSos = phase
         sosSteps = 1
@@ -1403,8 +1395,13 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         phase = Phase.SosSent
         sosJob?.cancel()
         sosJob = viewModelScope.launch {
-            delay(1500); sosSteps = 2
-            delay(5000); sosSteps = 3; sosAdmin = "Ada, Safety team"
+            if (demo) { delay(1500); sosSteps = 2; delay(5000); sosSteps = 3; sosAdmin = "Safety team (demo)"; return@launch }
+            // Real alert: each step is ticked only when it has really happened. "Admin has acknowledged" is not ticked here, because
+            // nothing tells this phone when staff acknowledge; it stays as a plain note instead of pretending.
+            try {
+                api.sos(java.util.UUID.randomUUID().toString(), deviceLocation ?: demoPickup.takeIf { realRideId != null })
+                sosSteps = 2
+            } catch (e: ApiException) { say("The alert could not be sent", "Call 112 now.") }
         }
     }
 
