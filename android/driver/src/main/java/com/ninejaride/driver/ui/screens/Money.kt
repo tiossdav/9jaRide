@@ -385,7 +385,7 @@ fun TransactionsScreen(vm: DriverViewModel) {
     }
 }
 
-/** E6 then top-up. Paying needs a verified email, because the payment provider sends the receipt there. */
+/** E6 then top-up. In the demo, paying needs a verified email; for real, Paystack takes the payment and the server credits the wallet. */
 @Composable
 fun FundWalletScreen(vm: DriverViewModel) {
     val debt: Kobo = if (vm.walletKobo < 0) -vm.walletKobo else 0
@@ -394,7 +394,7 @@ fun FundWalletScreen(vm: DriverViewModel) {
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         ScreenHeader("Fund wallet", null, vm::pop)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            if (!vm.profile.emailVerified) {
+            if (vm.demo && !vm.profile.emailVerified) {
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(Modifier.size(64.dp).clip(CircleShape).background(C.GreenTint), contentAlignment = Alignment.Center) { Icon24(Ic.Mail, C.GreenAccent, 28.dp) }
                     Txt("Verify your email first", 18f, 800, align = TextAlign.Center)
@@ -430,7 +430,7 @@ fun FundWalletScreen(vm: DriverViewModel) {
                 Txt("You pay with your card or bank transfer on a secure Paystack page.", 12.5f, 500, C.Muted)
             }
         }
-        if (vm.profile.emailVerified) {
+        if (!vm.demo || vm.profile.emailVerified) {
             Box(Modifier.padding(horizontal = 20.dp).navigationBarsPadding().padding(bottom = 20.dp)) {
                 Btn("Pay ${naira(amount)}", { vm.confirm("Pay ${naira(amount)}?", "This amount is added to your wallet to cover what you owe.", "Yes, pay", false) { vm.topUp(amount); vm.pop() } }, Modifier.fillMaxWidth(), enabled = amount >= debt)
             }

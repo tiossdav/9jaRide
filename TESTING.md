@@ -78,7 +78,7 @@ Android: in Android Studio, open the `android/` folder, choose the `rider` or `d
 
 - Android component tests are written but only run when a phone is connected; there is no automated end-to-end test of the apps themselves.
 - Load and failure-injection tests (many drivers pinging at once, Paystack down, Redis down) are not written.
-- Payment provider calls are tested against a fake provider, never the live Paystack.
+- Payment provider calls are tested against a fake provider and a stand-in for Paystack's web address, never the live Paystack. A payment with Paystack TEST keys has to be run by hand (see "Paystack" below).
 
 ## Starting from a clean slate
 
@@ -95,7 +95,7 @@ The starting fares are placeholders so a ride can be booked on day one. Change t
 
 Until an SMS provider is connected, `OTP_MODE=test` (the default): every sign-in code is **0000**, nothing is sent, and the apps show "Testing mode: enter 0000". Testers can ask for codes as often as they like; wrong guesses are still limited to five per code.
 
-When the provider is ready: plug it into `OTP_SENDER` in `backend/src/auth/auth.module.ts` and set `OTP_MODE=live`. Codes become random six digits again, request limits return, and the apps adjust by themselves because the server tells them the code length. The sign-in and sign-up flow does not change. A production start refuses `OTP_MODE=test` unless `OTP_ALLOW_TEST_IN_PRODUCTION=true` is set on purpose.
+Termii is already plugged into `OTP_SENDER` (see "Sign-in codes (Termii)" below): set `TERMII_API_KEY` and `OTP_MODE=live`. Codes become random six digits again, request limits return, and the apps adjust by themselves because the server tells them the code length. The sign-in and sign-up flow does not change. A production start refuses `OTP_MODE=test` unless `OTP_ALLOW_TEST_IN_PRODUCTION=true` is set on purpose.
 
 ## Driver sign-up and vehicle arrangements
 
@@ -161,13 +161,30 @@ Use the **real GPS** of the driver's phone: the driver physically moves, the rid
 ## Rider home content
 Admin portal, Setup, **Rider home content**: the cards in the rider's "For you", "Ride announcements" and "Safety tips" rows, including the **Invite & Earn** reward amount (write {amount} in the title). Only an admin edits; riders get changes the next time the home screen opens.
 
-## Google Maps (maps, places, routes)
-Google Maps replaces every earlier map service. There are three keys, and none goes into git:
-- **Apps (map drawing):** `googleMapsKey=` in `android/local.properties`, or `-PgoogleMapsKey=...` on the build (Maps SDK for Android). Restrict it in Google Cloud to the two app package names and their signing certificates.
-- **Admin portal (live map):** `VITE_GOOGLE_MAPS_KEY` in `admin/.env.local` and on the host (Maps JavaScript API). Restrict it to the portal's web address.
-- **Server (search, addresses, routes):** `GOOGLE_MAPS_API_KEY` in the server's environment (Places API (New), Geocoding API, Routes API). Restrict it to the server's IP address. The apps never see it: they ask the 9jaRide server, which asks Google.
+## Maps (Mapbox now, Google later)
+The map provider is a server setting, not a code change. Place search, addresses for a pin and driving routes are asked of the 9jaRide server, which asks the provider named by `MAPS_PROVIDER` (`mapbox` or `google`; empty means Mapbox when `MAPBOX_ACCESS_TOKEN` is set, otherwise Google when `GOOGLE_MAPS_API_KEY` is set). The apps, the fare and the dispatch never know which one answered. No token goes into git.
+- **Server (search, addresses, routes):** `MAPBOX_ACCESS_TOKEN` in the server's environment. It uses Mapbox Search Box and Geocoding for places and addresses, and Directions (with live traffic) for routes and ETAs.
+- **Apps (drawing the map):** `mapboxToken=pk...` in `android/local.properties`, or `-PmapboxToken=...` on the build. This is a PUBLIC token; restrict it on mapbox.com to the two app ids. Without it the map is drawn from OpenStreetMap (fine for a quick look, not for a launch).
+- **Admin portal (live map):** `VITE_MAPBOX_TOKEN` (public token) in `admin/.env.local` and on the host, restricted to the portal's web address.
+- **Later, Google:** set `GOOGLE_MAPS_API_KEY` (Places API (New), Geocoding API, Routes API) and `MAPS_PROVIDER=google`, restart the server. Nothing else changes.
 - Place search is Nigeria-wide and puts matches near the phone's position first, then widens; with no position it searches the whole country.
-- Without a key the map shows a plain "not set up" message and routes fall back to a marked straight-line estimate.
+- With no provider set up, search says "not set up" and routes fall back to a marked straight-line estimate (the trip is never blocked by a map outage).
+- To check the server's setup as an admin: `GET /maps/status` shows which provider is answering.
+
+## Paystack (wallet top-ups)
+1. Put a TEST key in the server: `PAYSTACK_SECRET_KEY=sk_test_...`, and `PUBLIC_API_URL=https://<your api>`.
+2. In the Paystack dashboard (Settings, API Keys and Webhooks) set the **Test webhook URL** to `https://<your api>/webhooks/paystack`.
+3. In the rider app: Wallet, Top up, Pay. Paystack's page opens in the browser. Use Paystack's test card (for example `4084 0840 8408 4081`, any future expiry, CVV 408; Paystack's docs list the cards that make a payment succeed, fail or ask for a PIN or OTP).
+4. Back in the app, a message says what happened: **Payment received** (and the wallet shows the new balance), **Payment not completed** (you closed or cancelled the page), **Payment failed**, or **Confirming your payment** (Paystack has not said yet; it settles itself within a minute or two, by webhook or the hourly check).
+5. The wallet is credited only by the server, only after it has asked Paystack and the amount and currency match. Paying twice for the same top-up, or the webhook arriving five times, credits once.
+The driver app uses the same flow from Earnings, Fund wallet. Withdrawals (payouts) need a second person to approve them in the admin portal.
+
+## Sign-in codes (Termii)
+1. On the server set `OTP_MODE=live`, `TERMII_API_KEY=...`, and `TERMII_SENDER_ID` (a sender name approved on your Termii account; until then Termii's shared `N-Alert` works). Keep the key out of git.
+2. Request a code in either app. A text arrives with a 6-digit code valid for 5 minutes. "Call me instead" makes Termii phone the number and read the code out.
+3. Limits: 3 requests per number per 10 minutes, 10 per day, 20 per source address per hour; 5 wrong guesses lock a code; a new request cancels the previous code; a code works once.
+4. If Termii refuses (wrong key, no balance, sender not approved, number cannot receive texts), the person is told the code could not be sent (or that the number is not valid), and the server log names the reason without the key or the code.
+5. A network failure or Termii outage is tried once more before giving up.
 
 ## Push notifications (Firebase)
 The apps register their phone with the server after sign-in. Once the server has the Firebase key:

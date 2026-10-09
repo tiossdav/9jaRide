@@ -23,7 +23,7 @@ export class TransferRejectedError extends Error {}
 export interface PaymentProvider {
   /** Authenticates a webhook. Must be checked against the RAW request body, before parsing. */
   verifySignature(rawBody: Buffer | string, signature: string | undefined): boolean;
-  initialize(input: { reference: string; amountKobo: Kobo; email: string }): Promise<{ authorizationUrl: string }>;
+  initialize(input: { reference: string; amountKobo: Kobo; email: string; callbackUrl?: string; metadata?: Record<string, unknown> }): Promise<{ authorizationUrl: string }>;
   /** Ask the provider directly. Webhook payloads are never trusted for amounts. null = provider has no such reference. */
   verifyTransaction(reference: string): Promise<ProviderTransaction | null>;
   /** Successful transactions in a window, for reconciliation. */

@@ -6,7 +6,10 @@ import { LedgerService } from '../ledger/ledger.service';
 import { PayoutsService } from './payouts.service';
 import { PAYMENT_PROVIDER, PaymentProvider, TOPUP_MAX_KOBO, TOPUP_MIN_KOBO } from './payments.types';
 
-export type SettleOutcome = 'credited' | 'duplicate' | 'pending' | 'failed' | 'mismatch' | 'unknown_reference';
+export type SettleOutcome = 'credited' | 'duplicate' | 'pending' | 'failed' | 'cancelled' | 'mismatch' | 'unknown_reference';
+
+/** What a person is told about a top-up. Only 'success' means the wallet was credited. */
+export type TopUpState = 'success' | 'pending' | 'failed' | 'cancelled' | 'mismatch';
 
 export class InvalidWebhookSignatureError extends Error {
   constructor() {
@@ -33,12 +36,51 @@ export class PaymentsService {
     const { rows } = await this.pool.query(`SELECT phone FROM users WHERE id = $1`, [userId]);
     if (!rows[0]) throw new Error(`user ${userId} not found`);
     // Paystack needs an email and riders only have a phone. Placeholder address until real emails are collected.
-    const email = `${String(rows[0].phone).replace(/\D/g, '')}@${process.env.PAYMENT_EMAIL_DOMAIN ?? 'example.invalid'}`;
+    const email = `${String(rows[0].phone).replace(/\D/g, '')}@${process.env.PAYMENT_EMAIL_DOMAIN ?? 'pay.9jaridepro.com'}`;
 
     const reference = `topup_${randomUUID()}`;
     await this.pool.query(`INSERT INTO payment_intents (user_id, reference, amount_kobo) VALUES ($1, $2, $3)`, [userId, reference, amountKobo]);
-    const { authorizationUrl } = await this.provider.initialize({ reference, amountKobo, email });
+    // After paying (or cancelling) Paystack sends the person to this page, which asks Paystack what happened.
+    const base = (process.env.PUBLIC_API_URL ?? 'https://api.9jaridepro.com').replace(/\/+$/, '');
+    const { authorizationUrl } = await this.provider.initialize({
+      reference, amountKobo, email, callbackUrl: `${base}/payments/return`, metadata: { userId, purpose: 'wallet_topup' },
+    });
     return { reference, authorizationUrl };
+  }
+
+  /**
+   * Where one of the person's own top-ups stands, asked of Paystack right now. This is what the app calls when the
+   * person comes back from the payment page: the wallet is credited here (once) if Paystack confirms the payment,
+   * never because the app says so. Unknown or someone else's reference answers null.
+   */
+  async topUpStatus(userId: string, reference: string): Promise<{ reference: string; state: TopUpState; amountKobo: number } | null> {
+    const { rows } = await this.pool.query(`SELECT user_id, status, amount_kobo FROM payment_intents WHERE reference = $1`, [reference]);
+    if (!rows[0] || rows[0].user_id !== userId) return null;
+    const amountKobo = Number(rows[0].amount_kobo);
+    return { reference, state: await this.stateOf(reference, rows[0].status), amountKobo };
+  }
+
+  /** The same lookup for the page Paystack redirects to, where there is no signed-in person. Only reports the state. */
+  async stateAfterReturn(reference: string): Promise<TopUpState | null> {
+    const { rows } = await this.pool.query(`SELECT status FROM payment_intents WHERE reference = $1`, [reference]);
+    return rows[0] ? this.stateOf(reference, rows[0].status) : null;
+  }
+
+  private async stateOf(reference: string, status: string): Promise<TopUpState> {
+    if (status === 'SUCCESS') return 'success';
+    if (status === 'AMOUNT_MISMATCH') return 'mismatch';
+    let outcome: SettleOutcome;
+    try {
+      outcome = await this.settleIntent(reference);
+    } catch (e) {
+      this.log.warn(`could not check ${reference} with the provider just now: ${e}`);
+      return 'pending'; // the hourly reconciliation and the webhook will still settle it
+    }
+    if (outcome === 'credited' || outcome === 'duplicate') return 'success';
+    if (outcome === 'mismatch') return 'mismatch';
+    if (outcome === 'cancelled') return 'cancelled';
+    if (outcome === 'failed') return 'failed';
+    return 'pending';
   }
 
   /**
@@ -91,7 +133,8 @@ export class PaymentsService {
     if (!tx || tx.status === 'pending') return 'pending';
     if (tx.status !== 'success') {
       await this.pool.query(`UPDATE payment_intents SET status = 'FAILED', updated_at = now() WHERE reference = $1 AND status = 'PENDING'`, [reference]);
-      return 'failed';
+      // "abandoned" is the person closing or cancelling the payment page; a later successful payment on the same reference still credits.
+      return tx.status === 'abandoned' ? 'cancelled' : 'failed';
     }
 
     if (tx.amountKobo !== Number(intent.amount_kobo) || tx.currency !== 'NGN') {

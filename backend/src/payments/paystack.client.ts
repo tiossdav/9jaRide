@@ -24,8 +24,9 @@ function normaliseStatus(s: string): ProviderTransaction['status'] {
 }
 
 /**
- * Paystack over plain fetch. Written from Paystack's public API docs and NOT yet exercised against a live or
- * test account; only the signature check is covered by tests. Try it against Paystack test keys before trusting it.
+ * Paystack over plain fetch, written from Paystack's public API docs. Tests cover the signature check, the request
+ * and the response handling against a stand-in for Paystack; run a payment with Paystack TEST keys (sk_test_...)
+ * before going live.
  */
 @Injectable()
 export class PaystackClient implements PaymentProvider, PayoutProvider {
@@ -54,12 +55,14 @@ export class PaystackClient implements PaymentProvider, PayoutProvider {
     return { status: res.status, json };
   }
 
-  async initialize(input: { reference: string; amountKobo: number; email: string }) {
+  async initialize(input: { reference: string; amountKobo: number; email: string; callbackUrl?: string; metadata?: Record<string, unknown> }) {
     const { status, json } = await this.call('POST', '/transaction/initialize', {
       reference: input.reference,
       amount: input.amountKobo, // Paystack amounts are already in the lowest unit (kobo)
       email: input.email,
       currency: 'NGN',
+      ...(input.callbackUrl ? { callback_url: input.callbackUrl } : {}),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
     });
     if (status >= 300 || !json?.status) throw new Error(`paystack initialize failed (${status}): ${json?.message ?? 'no message'}`);
     return { authorizationUrl: json.data.authorization_url as string };

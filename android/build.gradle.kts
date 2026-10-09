@@ -6,7 +6,8 @@ plugins {
     id("com.google.gms.google-services") version "4.4.2" apply false
 }
 
-// The Google Maps key for drawing the map comes from -PgoogleMapsKey=... or android/local.properties, never from a file in git.
-// (Place search, addresses and routes use a separate key that lives on the server.) Empty means the map shows a "not set up" message.
-extra["googleMapsKey"] = (project.findProperty("googleMapsKey") as String?)
-    ?: java.util.Properties().also { p -> file("local.properties").takeIf { it.exists() }?.inputStream()?.use { p.load(it) } }.getProperty("googleMapsKey", "")
+// The Mapbox token the apps draw the map with: -PmapboxToken=... or android/local.properties, never a file in git. It is a PUBLIC token
+// (starts with pk.), restricted on mapbox.com to this app's id. Place search, addresses and routes use a separate token that lives on the server.
+// Empty means the map falls back to OpenStreetMap's own pictures.
+extra["mapboxToken"] = (project.findProperty("mapboxToken") as String?)
+    ?: java.util.Properties().also { p -> file("local.properties").takeIf { it.exists() }?.inputStream()?.use { p.load(it) } }.getProperty("mapboxToken", "")

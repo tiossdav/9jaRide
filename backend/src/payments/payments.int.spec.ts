@@ -99,6 +99,58 @@ suite('payments and payouts (real Postgres)', () => {
       expect(Number(intent.rows[0].provider_amount_kobo)).toBe(50_000);
     });
 
+    describe('asking after a top-up (what the app does when the person comes back from the payment page)', () => {
+      it('credits a paid top-up once, even when the webhook never came, and keeps saying success', async () => {
+        const rider = await user('rider');
+        const { reference } = await payments.initiateTopUp(rider, 500_000);
+        expect((await payments.topUpStatus(rider, reference))?.state).toBe('pending'); // not paid yet: nothing credited
+        expect(await balance(rider)).toBe(0);
+        paid(reference, 500_000);
+        expect((await payments.topUpStatus(rider, reference))?.state).toBe('success');
+        expect((await payments.topUpStatus(rider, reference))?.state).toBe('success');
+        expect(await balance(rider)).toBe(500_000); // credited once, not twice
+      });
+
+      it('tells a cancelled payment from a failed one, and credits neither', async () => {
+        const rider = await user('rider');
+        const a = (await payments.initiateTopUp(rider, 500_000)).reference;
+        const b = (await payments.initiateTopUp(rider, 500_000)).reference;
+        provider.txs.set(a, { reference: a, status: 'abandoned', amountKobo: 500_000, currency: 'NGN' });
+        provider.txs.set(b, { reference: b, status: 'failed', amountKobo: 500_000, currency: 'NGN' });
+        expect((await payments.topUpStatus(rider, a))?.state).toBe('cancelled');
+        expect((await payments.topUpStatus(rider, b))?.state).toBe('failed');
+        expect(await balance(rider)).toBe(0);
+      });
+
+      it('still credits a payment finished after the person had cancelled once', async () => {
+        const rider = await user('rider');
+        const { reference } = await payments.initiateTopUp(rider, 500_000);
+        provider.txs.set(reference, { reference, status: 'abandoned', amountKobo: 500_000, currency: 'NGN' });
+        expect((await payments.topUpStatus(rider, reference))?.state).toBe('cancelled');
+        paid(reference, 500_000);
+        expect((await payments.topUpStatus(rider, reference))?.state).toBe('success');
+        expect(await balance(rider)).toBe(500_000);
+      });
+
+      it('reports a wrong amount as needing a person, and answers nothing about another person top-up', async () => {
+        const rider = await user('rider');
+        const other = await user('rider');
+        const { reference } = await payments.initiateTopUp(rider, 500_000);
+        paid(reference, 50_000);
+        expect((await payments.topUpStatus(rider, reference))?.state).toBe('mismatch');
+        expect(await payments.topUpStatus(other, reference)).toBeNull();
+        expect(await payments.topUpStatus(rider, 'topup_does-not-exist')).toBeNull();
+        expect(await balance(rider)).toBe(0);
+      });
+
+      it('says pending, not an error, when Paystack cannot be reached', async () => {
+        const rider = await user('rider');
+        const { reference } = await payments.initiateTopUp(rider, 500_000);
+        provider.verifyTransaction = async () => { throw new Error('network down'); };
+        expect((await payments.topUpStatus(rider, reference))?.state).toBe('pending');
+      });
+    });
+
     it('refuses out-of-range top-ups', async () => {
       const rider = await user('rider');
       await expect(payments.initiateTopUp(rider, 5)).rejects.toThrow(RangeError);

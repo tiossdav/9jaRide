@@ -113,7 +113,7 @@ A driver on a trip who kept sending location pings was put back in matching as `
 - **Every payout needs a second approver**, with no amount threshold. The requester can never approve (service check plus a database CHECK). Approvers are plain ids until the staff/auth module exists.
 - **Ledger flow for a payout:** request moves wallet -> `platform:payout`; paid moves `platform:payout` -> `platform:cash`; failed or rejected moves it back to the wallet. A driver whose cash commission debt has taken the wallet negative cannot withdraw.
 - **A transfer the provider never received** is refunded after 30 minutes (`PAYOUT_STUCK_SECONDS`). A transfer with an unknown outcome stays `PROCESSING` and is never refunded until the provider says so.
-- **Paystack needs an email**, riders only have a phone, so top-ups use `<phone digits>@example.invalid` (`PAYMENT_EMAIL_DOMAIN`). Replace once emails are collected.
+- **Paystack needs an email**, riders only have a phone, so top-ups use `<phone digits>@pay.9jaridepro.com` (`PAYMENT_EMAIL_DOMAIN`). Replace once emails are collected.
 - **Reconciliation** runs hourly over the last 25 hours, takes a Postgres advisory lock so only one instance runs, and records runs and findings in `reconciliation_runs` / `reconciliation_findings`. It only auto-completes a paid-but-uncredited top-up and a settled payout; anything else (unknown reference, amount mismatch, credit the provider cannot confirm, stuck or paid-after-failed payout, ledger imbalance) is a finding for a person. Nothing reads findings yet: no admin screen or alert.
 - **Bank details** are stored as plain text on the payout row. Encrypt them before real use.
 
@@ -125,7 +125,7 @@ A driver on a trip who kept sending location pings was put back in matching as `
 - Rate limiting beyond sign-in (a general per-user/IP limiter backed by Valkey), request logging, and metrics.
 - A real SMS/voice provider for codes. Outside production the code is written to the log; in production sending fails until a provider is wired in.
 
-- Paystack client (`paystack.client.ts`) is written from the public docs and has **never been called against Paystack**, not even test keys; only the signature check is tested. With no `PAYSTACK_SECRET_KEY` it refuses every call and every webhook, so an unconfigured environment cannot move money.
+- Paystack client (`paystack.client.ts`) is written from the public docs. Its requests and answers are tested against a stand-in for Paystack, but it has **not been called against Paystack itself**, not even with test keys; do that with `sk_test_` keys (TESTING.md, "Paystack") before going live. With no `PAYSTACK_SECRET_KEY` it refuses every call and every webhook, so an unconfigured environment cannot move money.
 - Bank account name verification, bank list, and payout destination management.
 
 - Real channels: Socket.IO gateway and FCM (offers), SMS and voice providers (SOS), Paystack webhooks. These are stubs behind interfaces that log a warning.

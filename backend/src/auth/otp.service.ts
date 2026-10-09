@@ -4,6 +4,7 @@ import { Pool } from 'pg';
 import { PG_POOL } from '../common/infra.module';
 import { OTP_MAX_ATTEMPTS, OTP_SENDER, OTP_TTL_SECONDS, OtpSender, TEST_OTP_CODE, otpCodeLength, otpTestMode } from './auth.types';
 import { normalisePhone } from './phone';
+import { TermiiError } from './termii.sender';
 
 // Limits (placeholders until agreed): per phone 3 codes / 10 min and 10 / day; per IP 20 / hour.
 const PHONE_BURST = { max: 3, seconds: 600 };
@@ -63,7 +64,9 @@ export class OtpService {
       await this.sender.send(phone, code, channel);
     } catch (e) {
       await this.pool.query(`UPDATE otp_challenges SET consumed_at = now() WHERE id = $1`, [rows[0].id]);
-      this.log.error(`sending code failed: ${e}`);
+      this.log.error(`sending code failed: ${e instanceof TermiiError ? e.message : String(e).slice(0, 200)}`);
+      // Termii says the number itself is wrong: tell the person, so they fix it instead of waiting for a text that will not come.
+      if (e instanceof TermiiError && e.failure === 'invalid_number') throw new BadRequestException('that phone number cannot receive a code, check it and try again');
       throw new ServiceUnavailableException('could not send the code, try again');
     }
     return { phone, expiresInSeconds: OTP_TTL_SECONDS, codeLength: otpCodeLength(), testMode: otpTestMode() };

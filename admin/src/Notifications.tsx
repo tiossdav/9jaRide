@@ -95,7 +95,7 @@ export function SosIndicator({ api }: { api: Api }) {
   );
 }
 
-const mapLink = (l: { lat: number; lng: number }) => `https://www.google.com/maps?q=${l.lat},${l.lng}`;
+const mapLink = (l: { lat: number; lng: number }) => `https://www.openstreetmap.org/?mlat=${l.lat}&mlon=${l.lng}#map=17/${l.lat}/${l.lng}`;
 
 /** The stack in the corner. Mounted once in the layout, so it shows whichever page is open. */
 export function NotificationStack({ api }: { api: Api }) {

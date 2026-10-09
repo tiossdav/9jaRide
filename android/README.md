@@ -34,7 +34,7 @@ Deliberate gaps: referral rewards, inbox messages, in-app problem reports (the H
 
 ## Before launch
 
-- **Maps, routes, place search:** OpenStreetMap tiles, the public OSRM demo server and Nominatim are development-only. Swap `ui/components/MapPanel.kt`, `data/Routing.kt` and `data/Geocoding.kt` for paid providers; the screens do not change.
+- **Maps, routes, place search:** the map is drawn from Mapbox pictures (public token `mapboxToken` in `android/local.properties`; without it OpenStreetMap is used, which is for development only). Place search, addresses and routes are asked of the 9jaRide server, which uses the provider named by `MAPS_PROVIDER` (Mapbox now, Google later) so the apps do not change when the provider does.
 - **Tokens** are in app-private preferences; move them to the Android Keystore.
 - **Push notifications** (driver offers, rider updates) are not built; the rider app polls every 3 seconds while open.
 - **Service charge:** the design takes 12% of the fare including tax (₦271.20 on ₦2,260); the backend takes it without tax (₦267.60). Decide with your accountant.

@@ -22,7 +22,6 @@ android {
         // Phone on USB:  adb reverse tcp:3000 tcp:3000  then use http://localhost:3000.  Emulator: http://10.0.2.2:3000.
         val apiBase = (project.findProperty("apiBase") as String?) ?: "http://localhost:3000"
         buildConfigField("String", "API_BASE_URL", "\"$apiBase\"")
-        manifestPlaceholders["googleMapsKey"] = rootProject.extra["googleMapsKey"] as String
     }
 
     buildTypes {

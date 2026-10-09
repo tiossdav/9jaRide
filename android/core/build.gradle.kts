@@ -5,7 +5,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-val googleMapsKey = rootProject.extra["googleMapsKey"] as String
+val mapboxToken = rootProject.extra["mapboxToken"] as String
 
 android {
     namespace = "com.ninejaride.core"
@@ -13,8 +13,8 @@ android {
     defaultConfig {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // empty means the map shows a "not set up" message
-        buildConfigField("String", "GOOGLE_MAPS_KEY", "\"$googleMapsKey\"")
+        // empty means the map uses OpenStreetMap's own pictures
+        buildConfigField("String", "MAPBOX_TOKEN", "\"$mapboxToken\"")
     }
     testOptions { unitTests.isReturnDefaultValues = true }
     compileOptions {
@@ -39,7 +39,7 @@ dependencies {
     api("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     api("com.squareup.okhttp3:okhttp:4.12.0")
-    api("com.google.android.gms:play-services-maps:19.2.0")
+    api("org.osmdroid:osmdroid-android:6.1.20")
     // push notifications; inert in an app built without google-services.json
     api(platform("com.google.firebase:firebase-bom:33.7.0"))
     api("com.google.firebase:firebase-messaging")

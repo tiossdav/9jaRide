@@ -26,7 +26,6 @@ android {
         val demoMode = (project.findProperty("demoMode") as String?) ?: "true"
         val apiBase = (project.findProperty("apiBase") as String?) ?: "http://10.0.2.2:3000"
         buildConfigField("String", "API_BASE_URL", "\"$apiBase\"")
-        manifestPlaceholders["googleMapsKey"] = rootProject.extra["googleMapsKey"] as String
         buildConfigField("boolean", "DEMO_MODE", demoMode)
     }
 

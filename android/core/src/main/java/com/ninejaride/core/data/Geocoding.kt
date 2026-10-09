@@ -12,7 +12,7 @@ import java.net.URLEncoder
 data class Place(val address: String, val point: MapPoint, /** How far from the person who searched, when known. */ val distanceKm: Double? = null)
 
 /**
- * Turns words into places and places into words, with Google Places and Geocoding through the 9jaRide server.
+ * Turns words into places and places into words, through the 9jaRide server, which asks whichever map provider it is set to use.
  *
  * The search is Nigeria-wide and not tied to any one city. The phone sends where it is, and the server puts matches near that spot first
  * and expands outward only when nothing is near, so "Computer Village" in Lagos finds Lagos first, and "KFC in Ibadan" finds Ibadan's

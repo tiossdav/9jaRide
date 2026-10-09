@@ -5,42 +5,34 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
-import android.os.Bundle
+import android.graphics.drawable.BitmapDrawable
+import android.os.Handler
+import android.os.Looper
 import android.view.MotionEvent
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.background
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.GoogleMap
-import com.google.android.gms.maps.MapView
-import com.google.android.gms.maps.MapsInitializer
-import com.google.android.gms.maps.model.BitmapDescriptorFactory
-import com.google.android.gms.maps.model.Cap
-import com.google.android.gms.maps.model.LatLng
-import com.google.android.gms.maps.model.LatLngBounds
-import com.google.android.gms.maps.model.MapStyleOptions
-import com.google.android.gms.maps.model.MarkerOptions
-import com.google.android.gms.maps.model.PolylineOptions
-import com.google.android.gms.maps.model.RoundCap
-import com.ninejaride.core.R
 import com.ninejaride.core.data.MapPoint
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.ITileSource
+import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.BoundingBox
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.util.MapTileIndex
+import org.osmdroid.views.CustomZoomButtonsController
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.CopyrightOverlay
+import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polyline
+import java.io.File
 
 enum class MarkerKind { Car, Pickup, Dropoff }
 
@@ -51,7 +43,38 @@ private class StaticMapView(context: Context) : MapView(context) {
     override fun dispatchTouchEvent(ev: MotionEvent?): Boolean = false
 }
 
-private fun markerIcon(context: Context, kind: MarkerKind): com.google.android.gms.maps.model.BitmapDescriptor {
+private var osmReady = false
+
+/** The public Mapbox token the map is drawn with (set in android/local.properties, never in git). Empty: OpenStreetMap's own tiles are used. */
+private val MAPBOX_TOKEN = com.ninejaride.core.BuildConfig.MAPBOX_TOKEN
+
+/** Mapbox map pictures (streets, or dark at night), drawn by the same map view. */
+private class MapboxTiles(style: String, private val token: String) : OnlineTileSourceBase(
+    "mapbox-$style", 1, 20, 256, "", arrayOf("https://api.mapbox.com/styles/v1/mapbox/$style/tiles/256/"), "© Mapbox © OpenStreetMap",
+) {
+    override fun getTileURLString(index: Long): String =
+        baseUrl + MapTileIndex.getZoom(index) + "/" + MapTileIndex.getX(index) + "/" + MapTileIndex.getY(index) + "@2x?access_token=" + token
+}
+
+private val mapboxLight by lazy { MapboxTiles("streets-v12", MAPBOX_TOKEN) }
+private val mapboxDark by lazy { MapboxTiles("dark-v11", MAPBOX_TOKEN) }
+
+/** The tiles to draw: Mapbox when a token is set, OpenStreetMap otherwise so a build without a token still shows a map. */
+private fun tilesFor(dark: Boolean): ITileSource =
+    if (MAPBOX_TOKEN.isBlank()) TileSourceFactory.MAPNIK else if (dark) mapboxDark else mapboxLight
+
+private fun configureOsm(context: Context) {
+    if (osmReady) return
+    val cfg = Configuration.getInstance()
+    cfg.load(context, context.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
+    // Keep tiles in the app's own cache: no storage permission, and Android clears it when space is short.
+    cfg.osmdroidBasePath = File(context.cacheDir, "osmdroid")
+    cfg.osmdroidTileCache = File(context.cacheDir, "osmdroid/tiles")
+    cfg.userAgentValue = context.packageName // the tile providers ask for an identifying user agent
+    osmReady = true
+}
+
+private fun markerIcon(context: Context, kind: MarkerKind): BitmapDrawable {
     val d = context.resources.displayMetrics.density
     val size = (when (kind) { MarkerKind.Car -> 38f; MarkerKind.Pickup -> 26f; MarkerKind.Dropoff -> 26f } * d).toInt()
     val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
@@ -76,43 +99,38 @@ private fun markerIcon(context: Context, kind: MarkerKind): com.google.android.g
             p.color = 0xFFD9631A.toInt(); c.drawRoundRect(RectF(3f * d, 3f * d, size - 3f * d, size - 3f * d), 4f * d, 4f * d, p)
         }
     }
-    return BitmapDescriptorFactory.fromBitmap(bmp)
-}
-
-private fun LatLng(p: MapPoint) = LatLng(p.lat, p.lng)
-
-/** The map's ready state: Google gives us the map object a moment after the view exists. */
-private class MapHolder {
-    var map: GoogleMap? = null
-    var render: ((GoogleMap) -> Unit)? = null
-    var lastKey: String? = null
-    var following = false
-    var darkApplied: Boolean? = null
+    return BitmapDrawable(context.resources, bmp)
 }
 
 /**
- * Frames [points] in the view, keeping [borderDp] clear around them. Does nothing and says so when the view has no size yet (screen off,
- * app in the background), and treats a single spot, or points almost on top of each other, as "centre here" because framing those
- * would zoom in endlessly. False when the view is not ready and framing should be tried again.
+ * Frames [points] in the view, keeping [borderDp] clear around them. The map library loops endlessly (freezing the app) if
+ * asked to frame while the view has no size (screen off, app in the background) or with more border than view, or to frame
+ * a single spot; so those cases are handled here. False when the view is not ready and framing should be tried again.
  */
-private fun frame(v: MapView, map: GoogleMap, points: List<MapPoint>, borderDp: Int): Boolean {
+private fun frame(v: MapView, points: List<MapPoint>, borderDp: Int): Boolean {
     if (!v.isAttachedToWindow || v.width <= 0 || v.height <= 0) return false
     val ok = points.filter { it.lat.isFinite() && it.lng.isFinite() && Math.abs(it.lat) <= 85 && Math.abs(it.lng) <= 180 }
     if (ok.isEmpty()) return true
     val latSpan = ok.maxOf { it.lat } - ok.minOf { it.lat }
     val lngSpan = ok.maxOf { it.lng } - ok.minOf { it.lng }
-    if (ok.size < 2 || (latSpan < 0.0003 && lngSpan < 0.0003)) {
-        map.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(ok.first()), 16.5f))
+    if (ok.size < 2 || (latSpan < 0.0003 && lngSpan < 0.0003)) { // one spot (about 30 m): just centre on it
+        v.controller.setZoom(16.5)
+        v.controller.setCenter(GeoPoint(ok.first()))
         return true
     }
+    // never more border than a quarter of the view, so there is always room left to fit into
     val border = minOf((borderDp * v.resources.displayMetrics.density).toInt(), v.width / 4, v.height / 4)
-    val bounds = LatLngBounds.builder().apply { ok.forEach { include(LatLng(it)) } }.build()
-    return runCatching { map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, border)) }.isSuccess
+    return runCatching {
+        v.zoomToBoundingBox(BoundingBox.fromGeoPoints(ok.map { GeoPoint(it) }).increaseByScale(1.15f), false, border)
+    }.isSuccess
 }
 
+private fun GeoPoint(p: MapPoint) = GeoPoint(p.lat, p.lng)
+
 /**
- * The live map, drawn by Google Maps. The rest of the app only talks to this function. Where the car is comes from the driver's GPS through
- * the 9jaRide server; this view only draws what it is given.
+ * The live map, drawn from Mapbox's map pictures. The rest of the app only talks to this function, so the map's look and where its pictures
+ * come from live in this one file. Where the car is comes from the driver's GPS through the 9jaRide server; this view only draws what it is given.
+ * Searching places, finding addresses and routing are separate (see Geocoding and Routing) and are answered by the server.
  *
  * @param route a road line to draw; when [fit] is true the camera frames it and all the markers.
  * @param center where to look when there is no route to frame.
@@ -135,95 +153,96 @@ fun MapPanel(
     follow: MapPoint? = null,
     followZoom: Double = 17.0,
 ) {
-    if (com.ninejaride.core.BuildConfig.GOOGLE_MAPS_KEY.isBlank()) {
-        // No Google key in this build: say so plainly instead of showing a blank grey box
-        Box(modifier.background(Color(0xFF1B2A20)), contentAlignment = Alignment.Center) {
-            BasicText("The map is not set up in this build (no Google Maps key).", Modifier.padding(16.dp), style = TextStyle(color = Color(0xFFB9C7BD), fontSize = 13.sp))
-        }
-        return
-    }
     val context = LocalContext.current
-    val holder = remember { MapHolder() }
     val view = remember(interactive) {
-        MapsInitializer.initialize(context.applicationContext)
-        (if (interactive) MapView(context) else StaticMapView(context)).also { v ->
-            v.onCreate(Bundle())
-            v.getMapAsync { map ->
-                holder.map = map
-                map.uiSettings.isZoomControlsEnabled = false
-                map.uiSettings.isMapToolbarEnabled = false
-                map.uiSettings.isCompassEnabled = false
-                map.uiSettings.isMyLocationButtonEnabled = false
-                map.uiSettings.isRotateGesturesEnabled = false
-                map.uiSettings.isTiltGesturesEnabled = false
-                if (!interactive) map.uiSettings.setAllGesturesEnabled(false)
-                map.setMinZoomPreference(4f)
-                holder.render?.invoke(map)
-            }
+        configureOsm(context)
+        (if (interactive) MapView(context) else StaticMapView(context)).apply {
+            setTileSource(tilesFor(com.ninejaride.core.ui.theme.C.dark))
+            setMultiTouchControls(interactive)
+            zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
+            isTilesScaledToDpi = true
+            minZoomLevel = 4.0
         }
     }
     val latestCenterCallback = rememberUpdatedState(onCenterChange)
+    DisposableEffect(view) {
+        // Report the centre once the finger has stopped moving the map, not on every pixel of the drag.
+        val handler = Handler(Looper.getMainLooper())
+        val report = Runnable { latestCenterCallback.value?.let { cb -> val c = view.mapCenter; cb(MapPoint(c.latitude, c.longitude)) } }
+        val listener = object : org.osmdroid.events.MapListener {
+            override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean {
+                handler.removeCallbacks(report); handler.postDelayed(report, 350)
+                return false
+            }
+            override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean = false
+        }
+        view.addMapListener(listener)
+        onDispose { view.removeMapListener(listener); handler.removeCallbacks(report) }
+    }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, view) {
         val observer = LifecycleEventObserver { _, e ->
-            when (e) {
-                Lifecycle.Event.ON_START -> view.onStart()
-                Lifecycle.Event.ON_RESUME -> view.onResume()
-                Lifecycle.Event.ON_PAUSE -> view.onPause()
-                Lifecycle.Event.ON_STOP -> view.onStop()
-                else -> Unit
-            }
+            if (e == Lifecycle.Event.ON_RESUME) view.onResume()
+            if (e == Lifecycle.Event.ON_PAUSE) view.onPause()
         }
         lifecycle.addObserver(observer)
-        // the screen is already showing when this runs, so the view has missed the start and resume events
-        if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) view.onStart()
-        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) view.onResume()
-        onDispose { lifecycle.removeObserver(observer); view.onPause(); view.onStop(); view.onDestroy() }
+        onDispose { lifecycle.removeObserver(observer); view.onDetach() }
     }
 
     AndroidView(
         modifier = modifier,
         factory = { view },
         update = { v ->
-            val render: (GoogleMap) -> Unit = render@{ map ->
-                val dark = com.ninejaride.core.ui.theme.C.dark
-                if (holder.darkApplied != dark) {
-                    holder.darkApplied = dark
-                    map.setMapStyle(if (dark) MapStyleOptions.loadRawResourceStyle(context, R.raw.map_style_dark) else null)
-                }
-                map.clear()
-                if (route.size >= 2) {
-                    map.addPolyline(PolylineOptions().addAll(route.map { LatLng(it) }).color(0xFF0D520D.toInt()).width(7f * v.resources.displayMetrics.density)
-                        .startCap(RoundCap() as Cap).endCap(RoundCap() as Cap).jointType(com.google.android.gms.maps.model.JointType.ROUND))
-                }
-                markers.forEach { m ->
-                    map.addMarker(MarkerOptions().position(LatLng(m.at)).icon(markerIcon(context, m.kind)).anchor(0.5f, 0.5f).flat(false))
-                }
-                map.setOnCameraIdleListener {
-                    latestCenterCallback.value?.let { cb -> val c = map.cameraPosition.target; cb(MapPoint(c.latitude, c.longitude)) }
-                }
+            val dark = com.ninejaride.core.ui.theme.C.dark
+            if (MAPBOX_TOKEN.isNotBlank()) {
+                // Mapbox has a dark style of its own
+                val want = tilesFor(dark)
+                if (v.tileProvider.tileSource.name() != want.name()) v.setTileSource(want)
+                v.overlayManager.tilesOverlay.setColorFilter(null)
+            } else {
+                // The OpenStreetMap tiles are light; in dark mode they are inverted so the map does not glare.
+                v.overlayManager.tilesOverlay.setColorFilter(if (dark) org.osmdroid.views.overlay.TilesOverlay.INVERT_COLORS else null)
+            }
+            v.overlays.clear()
+            v.overlays.add(CopyrightOverlay(v.context).apply { setTextSize(9) }) // the map credit Mapbox and OpenStreetMap ask for
+            if (route.size >= 2) {
+                v.overlays.add(Polyline(v).apply {
+                    setPoints(route.map { GeoPoint(it) })
+                    outlinePaint.color = 0xFF0D520D.toInt()
+                    outlinePaint.strokeWidth = 7f * v.resources.displayMetrics.density
+                    outlinePaint.strokeCap = Paint.Cap.ROUND
+                })
+            }
+            markers.forEach { m ->
+                v.overlays.add(Marker(v).apply {
+                    position = GeoPoint(m.at)
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                    icon = markerIcon(context, m.kind)
+                    infoWindow = null
+                    setOnMarkerClickListener { _, _ -> true }
+                })
+            }
 
-                if (follow != null) {
-                    // glide to the car instead of jumping; set the zoom once when following starts
-                    if (!holder.following) { holder.following = true; map.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(follow), followZoom.toFloat())) }
-                    else map.animateCamera(CameraUpdateFactory.newLatLng(LatLng(follow)))
-                    return@render
-                }
-                holder.following = false
-                val all = (route + markers.map { it.at }).distinct()
-                // The camera is reframed only when the route or the fixed pins change, never because the car moved.
-                val key = if (fit && all.size >= 2) "fit:${markers.filter { it.kind != MarkerKind.Car }.map { it.at }}:${route.lastOrNull()}" else "at:${center}:$zoom"
-                if (holder.lastKey != key) {
-                    holder.lastKey = key
-                    if (fit && all.size >= 2) {
-                        v.post { holder.map?.let { m -> if (!frame(v, m, all, fitBorderDp)) holder.lastKey = null } } // not laid out yet: try again on the next update
-                    } else if (center != null) {
-                        map.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(center), zoom.toFloat()))
-                    }
+            if (follow != null) {
+                // glide to the car instead of jumping; set the zoom once when following starts
+                if (v.tag != "follow") { v.tag = "follow"; v.controller.setZoom(followZoom); v.controller.setCenter(GeoPoint(follow)) }
+                else v.controller.animateTo(GeoPoint(follow))
+                v.invalidate()
+                return@AndroidView
+            }
+            val all = (route + markers.map { it.at }).distinct()
+            // The camera is reframed only when the route or the fixed pins change, never because the car moved.
+            val key = if (fit && all.size >= 2) "fit:${markers.filter { it.kind != MarkerKind.Car }.map { it.at }}:${route.lastOrNull()}" else "at:${center}:$zoom"
+            if (v.tag != key) {
+                v.tag = key
+                if (fit && all.size >= 2) {
+                    v.post { if (!frame(v, all, fitBorderDp)) v.tag = null } // not laid out yet: try again on the next update
+                } else if (center != null) {
+                    v.controller.setZoom(zoom)
+                    v.controller.setCenter(GeoPoint(center))
                 }
             }
-            holder.render = render
-            holder.map?.let(render)
+            v.invalidate()
         },
     )
 }

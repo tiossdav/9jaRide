@@ -543,6 +543,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     fun onVisible(v: Boolean) {
         visible = v
         if (v) loadHomeCards()
+        if (v && api.session != null) checkTopUp()
         if (v) { if (api.session != null && location.hasPermission()) location.start() } else location.stop()
     }
 
@@ -773,12 +774,43 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private val pendingTopUp = com.ninejaride.core.data.PendingTopUp(app)
+
     fun startTopUp(amountKobo: Long) {
         viewModelScope.launch {
             toppingUp = true
-            try { openUrl = api.topUp(amountKobo) } catch (e: ApiException) {
+            try {
+                val start = api.topUp(amountKobo)
+                pendingTopUp.reference = start.reference // so the result is asked for when the rider comes back, even if the app was closed
+                openUrl = start.url
+            } catch (e: ApiException) {
                 say(if (e.status >= 500) "Top-up is not available yet. Please try again later." else words(e))
             } finally { toppingUp = false }
+        }
+    }
+
+    /**
+     * Called when the rider returns to the app: if a payment was started, ask how it went and tell them. The wallet is credited by the
+     * server only after Paystack confirms it; a payment still being confirmed is asked about a few more times before giving up quietly.
+     */
+    fun checkTopUp() {
+        val reference = pendingTopUp.reference ?: return
+        viewModelScope.launch {
+            var outcome: com.ninejaride.core.data.TopUpOutcome? = null
+            for (attempt in 1..4) {
+                outcome = try { api.topUpStatus(reference) } catch (e: ApiException) {
+                    if (e.status == 404) { pendingTopUp.reference = null; return@launch } // not ours or already gone: stop asking
+                    return@launch // no connection now: the reference is kept and asked again next time
+                }
+                if (com.ninejaride.core.data.TopUps.isFinal(outcome)) break
+                if (attempt < 4) delay(2500)
+            }
+            val o = outcome ?: return@launch
+            if (com.ninejaride.core.data.TopUps.isFinal(o)) pendingTopUp.reference = null
+            if (o.state == com.ninejaride.core.data.TopUpState.Success) refreshWallet()
+            if (current == Dest.TopUp && o.state == com.ninejaride.core.data.TopUpState.Success) pop()
+            val (title, text) = com.ninejaride.core.data.TopUps.message(o)
+            say("$title. $text")
         }
     }
 

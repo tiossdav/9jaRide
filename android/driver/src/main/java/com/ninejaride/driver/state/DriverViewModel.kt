@@ -806,9 +806,48 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     /** Demo: the owner opened the link in their email. */
     fun emailVerifiedNow() { profile = profile.copy(emailVerified = true); emailSent = false }
 
+    private val pendingTopUp = com.ninejaride.core.data.PendingTopUp(app)
+
+    /** Real mode opens Paystack's page; the wallet is credited by the server once Paystack confirms, and [checkTopUp] reports back. */
     fun topUp(amount: Kobo) {
-        walletKobo += amount
-        transactions.add(0, WalletTx("Wallet top-up", "Just now", amount, TxDirection.In))
+        if (demo) {
+            walletKobo += amount
+            transactions.add(0, WalletTx("Wallet top-up", "Just now", amount, TxDirection.In))
+            return
+        }
+        viewModelScope.launch {
+            val start = loading.run("Please wait while we open the payment page...") {
+                try { com.ninejaride.core.data.TopUps.start(api.client, amount) } catch (e: ApiException) { null }
+            }
+            if (start == null) { if (!loading.isBusy) say("Top-up not available", "We could not start the payment. Please try again."); return@launch }
+            pendingTopUp.reference = start.reference // asked about again when the driver comes back, even if the app was closed
+            val open = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(start.url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (runCatching { getApplication<Application>().startActivity(open) }.isFailure) say("No browser found", "Install or enable a web browser to pay with Paystack.")
+        }
+    }
+
+    /** When the driver returns to the app after paying: ask how the payment went and say so. */
+    private fun checkTopUp() {
+        val reference = pendingTopUp.reference ?: return
+        viewModelScope.launch {
+            var outcome: com.ninejaride.core.data.TopUpOutcome? = null
+            for (attempt in 1..4) {
+                outcome = try { com.ninejaride.core.data.TopUps.status(api.client, reference) } catch (e: ApiException) {
+                    if (e.status == 404) { pendingTopUp.reference = null; return@launch }
+                    return@launch // no connection now: asked again next time
+                }
+                if (com.ninejaride.core.data.TopUps.isFinal(outcome)) break
+                if (attempt < 4) delay(2500)
+            }
+            val o = outcome ?: return@launch
+            if (com.ninejaride.core.data.TopUps.isFinal(o)) pendingTopUp.reference = null
+            val (title, text) = com.ninejaride.core.data.TopUps.message(o)
+            if (o.state == com.ninejaride.core.data.TopUpState.Success) {
+                runCatching { api.walletBalance() }.getOrNull()?.let { walletKobo = it }
+                runCatching { api.walletTransactions() }.getOrNull()?.let { transactions.clear(); transactions.addAll(it) }
+                toastWarn = false; toast = title to text
+            } else say(title, text)
+        }
     }
 
     val deleteBlockers: List<Check>
@@ -831,7 +870,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             out += if (v != null) Check(true, "Vehicle added", "${v.model} · ${v.colour} · ${v.plate}") else if (profile.arrangement == "business_vehicle") Check(false, "Waiting for a vehicle", "Your business has not given you a vehicle yet") else Check(false, "No vehicle on your account", "Contact support")
             out += if (walletKobo >= 0) Check(true, "Wallet is clear", "Balance ${naira(walletKobo)}")
             else Check(false, "Wallet balance is ${naira(walletKobo)}", "Top up at least ${naira(-walletKobo)} to continue", "Top up")
-            if (walletKobo < 0 && !profile.emailVerified) out += Check(false, "Email not verified", "Needed to fund your wallet", "Verify")
+            if (demo && walletKobo < 0 && !profile.emailVerified) out += Check(false, "Email not verified", "Needed to fund your wallet", "Verify")
             if (vehicleTerms?.accepted == false) out += Check(false, "Agree to your vehicle arrangement", "You pay a share of your earnings toward this vehicle", "Review", fix = "agreement")
             // Booking alerts. These do not stop you going online, but without them a booking can be missed.
             checksTick
@@ -1017,6 +1056,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
 
     /** The app came to the front or went behind another. Nothing here needs the GPS while the screen is not being looked at. */
     fun setVisible(visible: Boolean) {
+        if (visible && !demo && api.session != null) checkTopUp()
         if (visible) { if (!online && current == Dest.Main) startDeviceLocation() } else stopDeviceLocation()
     }
 

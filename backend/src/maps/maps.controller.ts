@@ -22,7 +22,7 @@ class RouteDto {
   @ValidateNested() @Type(() => PointDto) to!: PointDto;
 }
 
-/** Google Maps for the apps, asked through the server so the key never ships inside an app. */
+/** Map search, addresses and routes for the apps, asked through the server so the provider's key never ships inside an app. */
 @Controller('maps')
 export class MapsController {
   constructor(private readonly maps: MapsService) {}
@@ -32,6 +32,12 @@ export class MapsController {
   async places(@CurrentUser() me: Principal, @Query() q: PlacesQuery) {
     const near = q.lat !== undefined && q.lng !== undefined ? { lat: q.lat, lng: q.lng } : null;
     return { places: await this.maps.searchPlaces(me.id, q.q, near) };
+  }
+
+  /** Which map service is answering and whether it is set up. For the admin portal and for checking a deployment; no keys are shown. */
+  @Roles('admin', 'support') @Get('status')
+  status() {
+    return { provider: this.maps.providerName, configured: this.maps.configured };
   }
 
   @Roles('rider', 'driver') @Get('reverse')

@@ -22,7 +22,7 @@ export interface DestinationChangeView {
   newDropoff: { lat: number; lng: number; address: string | null };
   remainingDistanceM: number;
   remainingDurationS: number;
-  routeSource: 'google' | 'estimate';
+  routeSource: 'mapbox' | 'google' | 'estimate';
   deltaExpectedKobo: number;
   createdAt: Date;
 }
@@ -119,7 +119,7 @@ export class DestinationService {
                                                remaining_distance_m, remaining_duration_s, route_source, delta_expected_kobo, delta_low_kobo, delta_high_kobo)
          SELECT r.id, $2, ST_SetSRID(ST_MakePoint($4, $3), 4326)::geography, r.dropoff, r.dropoff_address, ST_SetSRID(ST_MakePoint($6, $5), 4326)::geography, $7, $8, $9, $10, $11, $12, $13
            FROM rides r WHERE r.id = $1 RETURNING id`,
-        [rideId, riderId, from.lat, from.lng, input.lat, input.lng, address, toNew.distanceM, toNew.durationS, toNew.source, delta.expected, delta.low, delta.high]);
+        [rideId, riderId, from.lat, from.lng, input.lat, input.lng, address, toNew.distanceM, toNew.durationS, toNew.provider, delta.expected, delta.low, delta.high]);
       await client.query(`UPDATE rides SET dropoff = ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, dropoff_address = $4, updated_at = now() WHERE id = $1`, [rideId, input.lng, input.lat, address]);
       // the trip's history keeps the original pickup and notes the change; the status itself does not move
       await client.query(

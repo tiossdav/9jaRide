@@ -238,9 +238,11 @@ class RiderApi(private val client: ApiClient) {
         WalletTx(it.str("kind") ?: "", it.str("memo"), it.str("at") ?: "", it.long("amountKobo") ?: 0)
     }
 
-    /** Starts a Paystack payment; returns the page to open. */
-    suspend fun topUp(amountKobo: Long): String =
-        client.call("POST", "/wallet/topups", buildJsonObject { put("amountKobo", amountKobo) }.toString(), auth = true)["authorizationUrl"]!!.jsonPrimitive.content
+    /** Starts a Paystack payment; returns the page to open and the reference to ask about afterwards. */
+    suspend fun topUp(amountKobo: Long): com.ninejaride.core.data.TopUpStart = com.ninejaride.core.data.TopUps.start(client, amountKobo)
+
+    /** How a payment went, as confirmed by Paystack to the server. */
+    suspend fun topUpStatus(reference: String): com.ninejaride.core.data.TopUpOutcome = com.ninejaride.core.data.TopUps.status(client, reference)
 
     // ---- scheduled rides
     suspend fun schedule(

@@ -10,12 +10,12 @@ import kotlin.math.hypot
 data class MapPoint(val lat: Double, val lng: Double)
 
 /**
- * A road route: the line to draw, and how far and how long it is (what the fare quote needs). [estimated] is true when Google could not
+ * A road route: the line to draw, and how far and how long it is (what the fare quote needs). [estimated] is true when the map service could not
  * be reached and the numbers are a straight-line guess, so a screen never pretends a guess is a road route.
  */
 data class RouteInfo(val points: List<MapPoint>, val distanceM: Int, val durationS: Int, val estimated: Boolean = false)
 
-/** Road routes, from Google through the 9jaRide server. */
+/** Road routes, from the map provider the 9jaRide server is set to use. The app does not know or care which one. */
 object Routing {
     suspend fun route(from: MapPoint, to: MapPoint): List<MapPoint> = routeInfo(from, to).points
 
@@ -36,7 +36,7 @@ object Routing {
         val distance = o["distanceM"]?.jsonPrimitive?.doubleOrNull?.toInt() ?: return fallback
         val duration = o["durationS"]?.jsonPrimitive?.doubleOrNull?.toInt() ?: return fallback
         val line = o["polyline"]?.jsonPrimitive?.contentOrNull?.let { PolylineCodec.decode(it) }.orEmpty()
-        val real = o["source"]?.jsonPrimitive?.contentOrNull == "google" && line.size >= 2
+        val real = o["source"]?.jsonPrimitive?.contentOrNull.let { it != null && it != "estimate" } && line.size >= 2
         return RouteInfo(if (line.size >= 2) line else fallback.points, distance, duration, estimated = !real)
     }
 

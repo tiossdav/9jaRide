@@ -1,3 +1,5 @@
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import { TbRouteAltRight } from 'react-icons/tb';
 import { ApiError, blobUrl, get } from './api';
@@ -233,60 +235,37 @@ export function Modal({ children, onClose }: { children: ReactNode; onClose: () 
 
 export interface MapDot { lat: number; lng: number; color: string; label?: string }
 
-declare const google: any;
-let mapsLoading: Promise<void> | null = null;
-/** Loads Google's map script once. Resolves when it is ready; rejects when there is no key or the script cannot load. */
-function loadGoogleMaps(): Promise<void> {
-  const key = import.meta.env.VITE_GOOGLE_MAPS_KEY as string | undefined;
-  if (!key) return Promise.reject(new Error('no key'));
-  if (typeof google !== 'undefined' && google.maps) return Promise.resolve();
-  mapsLoading ??= new Promise<void>((resolve, reject) => {
-    const tag = document.createElement('script');
-    tag.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly`;
-    tag.async = true;
-    tag.onload = () => resolve();
-    tag.onerror = () => { mapsLoading = null; reject(new Error('could not load')); };
-    document.head.appendChild(tag);
-  });
-  return mapsLoading;
-}
-
 /**
- * The live map, drawn by Google Maps. It frames whatever it is given the first time dots appear (and shows all of Nigeria until then),
- * then leaves the camera alone so staff can pan and zoom while the dots move.
+ * The live map. Mapbox's map pictures when VITE_MAPBOX_TOKEN is set (a public pk. token restricted to this portal's address), OpenStreetMap's
+ * own otherwise so a build without a token still shows a map. It frames whatever it is given the first time dots appear (and shows all of
+ * Nigeria until then), then leaves the camera alone so staff can pan and zoom while the dots move.
  */
 export function LiveMap({ dots, height = 340 }: { dots: MapDot[]; height?: number }) {
   const el = useRef<HTMLDivElement>(null);
-  const map = useRef<any>(null);
-  const markers = useRef<any[]>([]);
+  const map = useRef<L.Map | null>(null);
+  const layer = useRef<L.LayerGroup | null>(null);
   const fitted = useRef(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
   useEffect(() => {
-    let live = true;
-    loadGoogleMaps().then(() => {
-      if (!live || !el.current || map.current) return;
-      map.current = new google.maps.Map(el.current, { center: { lat: 9.082, lng: 8.6753 }, zoom: 6, streetViewControl: false, mapTypeControl: false, fullscreenControl: true });
-      setReady(true);
-    }).catch((e: Error) => live && setProblem(e.message === 'no key' ? 'The map is not set up in this build (no Google Maps key).' : 'The map could not be loaded.'));
-    return () => { live = false; };
+    if (!el.current || map.current) return;
+    map.current = L.map(el.current, { zoomControl: true }).setView([9.082, 8.6753], 6);
+    const mapbox = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
+    if (mapbox) L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/512/{z}/{x}/{y}@2x?access_token=${mapbox}`, { maxZoom: 20, tileSize: 512, zoomOffset: -1, attribution: '© Mapbox © OpenStreetMap' }).addTo(map.current);
+    else L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map.current);
+    layer.current = L.layerGroup().addTo(map.current);
+    return () => { map.current?.remove(); map.current = null; };
   }, []);
   useEffect(() => {
-    if (!ready || !map.current) return;
-    markers.current.forEach((m) => m.setMap(null));
-    markers.current = dots.map((d) => new google.maps.Marker({
-      map: map.current, position: { lat: d.lat, lng: d.lng }, title: d.label,
-      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: d.color, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
-    }));
+    if (!map.current || !layer.current) return;
+    layer.current.clearLayers();
+    dots.forEach((d) => {
+      const m = L.circleMarker([d.lat, d.lng], { radius: 8, color: '#fff', weight: 2, fillColor: d.color, fillOpacity: 1 }).addTo(layer.current!);
+      if (d.label) m.bindTooltip(d.label);
+    });
     if (dots.length && !fitted.current) {
-      const bounds = new google.maps.LatLngBounds();
-      dots.forEach((d) => bounds.extend({ lat: d.lat, lng: d.lng }));
-      map.current.fitBounds(bounds, 60);
-      google.maps.event.addListenerOnce(map.current, 'idle', () => { if (map.current.getZoom() > 15) map.current.setZoom(15); });
+      map.current.fitBounds(L.latLngBounds(dots.map((d) => [d.lat, d.lng] as [number, number])).pad(0.3), { maxZoom: 15 });
       fitted.current = true;
     }
-  }, [dots, ready]);
-  if (problem) return <div className="map empty" style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{problem}</div>;
+  }, [dots]);
   return <div className="map" ref={el} style={{ height }} />;
 }
 

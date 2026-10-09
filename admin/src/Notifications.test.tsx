@@ -25,7 +25,7 @@ describe('admin pop-ups', () => {
     expect(await screen.findByText('SOS EMERGENCY')).toBeInTheDocument();
     expect(screen.getByText(/Ada Driver/)).toBeInTheDocument();
     expect(screen.getByText('K7XQ')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Location' })).toHaveAttribute('href', 'https://www.google.com/maps?q=6.5,3.4');
+    expect(screen.getByRole('link', { name: 'Location' })).toHaveAttribute('href', 'https://www.openstreetmap.org/?mlat=6.5&mlon=3.4#map=17/6.5/3.4');
     // it does not fade away
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
     expect(screen.getByText('SOS EMERGENCY')).toBeInTheDocument();
