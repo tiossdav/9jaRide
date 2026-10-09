@@ -40,7 +40,7 @@ class ServerRide(val rideId: String, val code: String, val status: String, val c
                  val destinationVersion: String = "",
                  val destinationChange: com.ninejaride.core.data.DestinationChange? = null)
 
-class ServerFare(val lines: List<Pair<String, Long>>, val totalKobo: Long, val commissionKobo: Long, val driverEarnKobo: Long, val taxKobo: Long, val vehicleDeductionKobo: Long = 0)
+class ServerFare(val lines: List<Pair<String, Long>>, val totalKobo: Long, val commissionKobo: Long, val driverEarnKobo: Long, val taxKobo: Long, val vehicleDeductionKobo: Long = 0, /** How the rider paid: "wallet" or "cash". */ val paymentMethod: String = "cash", /** What the server says about the money: "PAID" only once it has really moved. */ val paymentStatus: String = "")
 
 /** One way of getting a vehicle, as the sign-up screen offers it. */
 class Arrangement(val code: String, val name: String, val description: String, val asksForVehicle: Boolean, val asksForOwner: Boolean, val hasPaymentPlan: Boolean)
@@ -179,6 +179,24 @@ class Api(context: Context) {
         return items to Today((td?.lng("trips") ?: 0).toInt(), td?.lng("earnedKobo") ?: 0, td?.lng("distanceM") ?: 0, td?.lng("durationS") ?: 0, td?.lng("keptKobo") ?: 0, td?.lng("vehicleDeductionKobo") ?: 0)
     }
 
+    /** What the driver owes, how much has been recovered, and each step, as the server worked it out from the wallet ledger. */
+    suspend fun debt(): com.ninejaride.driver.state.DebtSummary {
+        val o = client.call("GET", "/driver/debt", auth = true)
+        val history = o["history"]?.jsonArray?.map {
+            val e = it.jsonObject
+            val kind = e.str("kind") ?: ""
+            val reason = when {
+                kind == "trip_cash" -> "Service charge on a cash trip"
+                kind == "trip_wallet" -> "Earnings from a wallet trip"
+                kind == "topup" -> "Wallet top-up"
+                kind == "bonus" -> "Bonus"
+                else -> e.str("memo") ?: kind.replace('_', ' ').replaceFirstChar { c -> c.uppercase() }
+            }
+            com.ninejaride.driver.state.DebtEntry(e.str("at")?.take(10) ?: "", reason, e.lng("debtChangeKobo") ?: 0, e.lng("debtAfterKobo") ?: 0)
+        } ?: emptyList()
+        return com.ninejaride.driver.state.DebtSummary(o.lng("outstandingKobo") ?: 0, o.lng("incurredKobo") ?: 0, o.lng("recoveredKobo") ?: 0, history)
+    }
+
     suspend fun walletBalance(): Long = client.call("GET", "/wallet", auth = true).lng("balanceKobo") ?: 0
 
     suspend fun walletTransactions(): List<com.ninejaride.driver.state.WalletTx> = client.call("GET", "/wallet/transactions", auth = true)["items"]?.jsonArray?.map {
@@ -265,7 +283,7 @@ class Api(context: Context) {
     suspend fun completeTrip(rideId: String, distanceM: Int, durationS: Int, waitingS: Int): ServerFare {
         val o = client.call("POST", "/driver/rides/$rideId/complete", buildJsonObject { put("distanceM", distanceM); put("durationS", durationS); put("waitingS", waitingS) }.toString(), auth = true)
         val lines = o["lines"]?.jsonArray?.map { val l = it.jsonObject; (l.str("label") ?: "") to (l.lng("amountKobo") ?: 0L) } ?: emptyList()
-        return ServerFare(lines, o.lng("totalKobo") ?: 0, o.lng("commissionKobo") ?: 0, o.lng("driverEarnKobo") ?: 0, o.lng("taxKobo") ?: 0, o.lng("vehicleDeductionKobo") ?: 0)
+        return ServerFare(lines, o.lng("totalKobo") ?: 0, o.lng("commissionKobo") ?: 0, o.lng("driverEarnKobo") ?: 0, o.lng("taxKobo") ?: 0, o.lng("vehicleDeductionKobo") ?: 0, o.str("paymentMethod") ?: "cash", o.str("paymentStatus") ?: "")
     }
 
     suspend fun sos(key: String, at: com.ninejaride.core.data.MapPoint?) {

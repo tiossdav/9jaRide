@@ -276,7 +276,7 @@ class RiderApi(private val client: ApiClient) {
     )
 
     // ---- sign-in is shared with the driver app (ApiClient); the rider adds a role check
-    suspend fun requestOtp(phone: String, voice: Boolean) = client.requestOtp(phone, voice)
+    suspend fun requestOtp(phone: String, voice: Boolean, signUp: Boolean = false) = client.requestOtp(phone, voice, signUp)
     suspend fun verifyOtp(phone: String, code: String) = client.verifyOtp(phone, code)
     suspend fun register(ticket: String, name: String) = client.register(ticket, "rider", name)
     suspend fun logout() = client.logout()

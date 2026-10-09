@@ -225,6 +225,12 @@ private fun DocumentsStep(vm: DriverViewModel, pics: PictureSource) {
                 }
                 "lassdri" -> Txt("Both sides of your LASDRI card.", 12.5f, 500, C.Muted)
                 "vehicle_photo" -> Txt("A clear photo of the car showing the plate number. It must be taken with the camera.", 12.5f, 500, C.Muted)
+                "insurance" -> {
+                    Txt("Required. A photo of your current motor insurance policy or certificate for this car (a JPEG, PNG or WebP photo, or a PDF, up to 8 MB). The expiry date must be in the future.", 12.5f, 500, C.Muted)
+                    Gap(8.dp)
+                    InputField("Policy number", vm.insuranceNumber, clear { vm.insuranceNumber = it }, "Policy number")
+                    Gap(8.dp); DateField("Expiry date", vm.insuranceExpiry, { vm.insuranceExpiry = it; vm.applyError = null }, earliest = java.time.LocalDate.now().plusDays(1), opensAt = java.time.LocalDate.now().plusYears(1))
+                }
             }
             Gap(10.dp)
             val busy = vm.uploading != null

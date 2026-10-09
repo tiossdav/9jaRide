@@ -157,8 +157,12 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     fun sendCode(needName: Boolean) {
         if (!phoneValid) { message = "Enter your 11-digit mobile number."; return }
         if (needName && fullName.trim().length < 2) { message = "Enter your full name."; return }
+        signingUp = needName
         requestCode()
     }
+
+    /** True while the rider is creating an account: the server then checks the number is free before it sends any code. */
+    private var signingUp = false
 
     fun requestCode(voice: Boolean = voiceCode) {
         voiceCode = voice
@@ -166,7 +170,7 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             busy = true
             try {
-                val info = api.requestOtp(intlPhone(), voice)
+                val info = api.requestOtp(intlPhone(), voice, signUp = signingUp)
                 otpLength = info.codeLength; otpTestMode = info.testMode
                 otp = ""
                 resendSeconds = 170

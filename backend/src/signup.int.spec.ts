@@ -28,6 +28,22 @@ suite('sign-up with the temporary code', () => {
     expect((await h.http().post('/auth/otp/verify').send({ phone: p, code: '0000' }).expect(200)).body).toMatchObject({ role: 'rider', isNewUser: false });
   });
 
+  it('refuses a sign-up for a number that already has an account, before any code is sent', async () => {
+    const p = phone();
+    await h.http().post('/auth/otp/request').send({ phone: p }).expect(200);
+    const ticket = await h.http().post('/auth/otp/verify').send({ phone: p, code: '0000' }).expect(422);
+    await h.http().post('/auth/register').send({ registrationTicket: ticket.body.registrationTicket, role: 'rider', fullName: 'First Owner' }).expect(200);
+    const before = await h.pool.query(`SELECT count(*)::int AS n FROM otp_challenges WHERE phone = $1`, [p]);
+    const refused = await h.http().post('/auth/otp/request').send({ phone: p, purpose: 'signup' }).expect(409);
+    expect(refused.body).toMatchObject({ code: 'phone_registered' });
+    expect(refused.body.message).toMatch(/already has an account/);
+    const after = await h.pool.query(`SELECT count(*)::int AS n FROM otp_challenges WHERE phone = $1`, [p]);
+    expect(after.rows[0].n).toBe(before.rows[0].n); // nothing was created, so nothing was sent
+    await h.http().post('/auth/otp/request').send({ phone: p, purpose: 'signin' }).expect(200); // signing in with the same number still works
+    await h.http().post('/auth/otp/request').send({ phone: phone(), purpose: 'signup' }).expect(200); // a free number may go on
+    await h.http().post('/auth/otp/request').send({ phone: 'abc', purpose: 'signup' }).expect(400);
+  });
+
   it('does not limit how often testers ask for a code, but still limits wrong guesses', async () => {
     const p = phone();
     for (let i = 0; i < 6; i++) await h.http().post('/auth/otp/request').send({ phone: p }).expect(200);
@@ -87,12 +103,11 @@ suite('sign-up with the temporary code', () => {
       const driver = await h.login('driver');
       const docs = await h.ownerDocs(driver.token);
       const future = new Date(Date.now() + 300 * 86_400_000).toISOString().slice(0, 10);
-      const old = [{ kind: 'inspection_certificate', fileId: await h.upload(driver.token), expiresOn: future }, { kind: 'owner_consent', fileId: await h.upload(driver.token) }, { kind: 'insurance', fileId: await h.upload(driver.token), number: 'POL-1', expiresOn: future }];
+      const old = [{ kind: 'inspection_certificate', fileId: await h.upload(driver.token), expiresOn: future }, { kind: 'owner_consent', fileId: await h.upload(driver.token) }];
       const sub = await h.http().post('/driver/application').set(h.auth(driver.token)).send({ ...(await base(driver.token, { arrangement: 'own', vehicle: { category: 'regular', make: 'Honda', colour: 'Grey', plate: plate() } })), documents: [...docs, ...old] }).expect(200);
       const kept = await h.pool.query(`SELECT kind FROM application_documents WHERE application_id = $1`, [sub.body.id]);
       expect(kept.rows.map((r) => r.kind)).not.toContain('inspection_certificate');
       expect(kept.rows.map((r) => r.kind)).not.toContain('owner_consent');
-      expect(kept.rows.map((r) => r.kind)).not.toContain('insurance');
       // a made-up kind is still refused
       await h.http().post('/driver/application').set(h.auth((await h.login('driver')).token)).send({ ...(await base(driver.token, {})), documents: [{ kind: 'nonsense', fileId: await h.upload(driver.token) }] }).expect(400);
     });

@@ -64,13 +64,12 @@ import com.ninejaride.rider.state.RiderViewModel
 
 @Composable
 fun SplashScreen() {
-    Box(Modifier.fillMaxSize().background(C.Green)) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            BasicText(
-                buildAnnotatedString { append("9ja"); withStyle(SpanStyle(color = C.OrangeIcon)) { append("Ride") } },
-                style = type(46f, 800, Color.White).copy(textAlign = TextAlign.Center),
-            )
-        }
+    // white with the green 9, the same artwork as the launcher icon
+    Box(Modifier.fillMaxSize().background(Color.White), contentAlignment = Alignment.Center) {
+        androidx.compose.foundation.Image(
+            androidx.compose.ui.res.painterResource(com.ninejaride.rider.R.drawable.brand_nine), contentDescription = "9jaRide Pro",
+            Modifier.height(132.dp),
+        )
     }
 }
 

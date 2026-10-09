@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { post } from '../api';
 import { ReasonModal, Segmented, Toast, useAction, useConfirm, go } from '../bits';
 import { AdjustModal } from '../adjust';
-import { Loading, Pill, Stat, dateTime, naira, title, useLoad } from '../ui';
+import { Loading, Modal, Pill, Stat, dateTime, naira, title, useLoad } from '../ui';
 
 // ---------------------------------------------------------------- overview (Wallet)
 
@@ -192,5 +192,73 @@ function ResolveModal({ exc, onClose, onDone }: { exc: Exc; onClose: () => void;
         <button className="btn" disabled={busy || !ok} onClick={() => run(() => post('/admin/payment-exceptions/resolve', { sourceKind: exc.sourceKind, sourceId: exc.sourceId, resolution, note: note.trim(), ...(resolution === 'corrected' ? { adjustmentId: adj } : {}) }), () => { onDone(); onClose(); })}>{busy ? 'Saving…' : 'Save'}</button>
       </div>
     </div></div>
+  );
+}
+
+// ---------------------------------------------------------------- driver debts
+
+interface Owing { driverId: string; name: string; phone: string; owedKobo: number }
+interface DebtEntry { at: string; kind: string; memo: string | null; amountKobo: number; debtChangeKobo: number; debtAfterKobo: number; type: 'debt_incurred' | 'debt_recovered' }
+interface DebtDetail { driver: { id: string; name: string; phone: string }; outstandingKobo: number; incurredKobo: number; recoveredKobo: number; history: DebtEntry[] }
+
+/**
+ * Drivers whose wallet is below zero (the service charge on cash trips), and how later earnings, top-ups and bonuses have paid it back.
+ * It is read from the wallet ledger, so it always agrees with the driver's balance; nothing can be edited here.
+ */
+export function Debts() {
+  const { data, error, reload } = useLoad<Owing[]>('/admin/debts', 60_000);
+  const [open, setOpen] = useState<string | null>(null);
+  if (!data) return <Loading error={error} retry={reload} />;
+  const total = data.reduce((n, d) => n + d.owedKobo, 0);
+  return (
+    <>
+      <div className="head"><div><h1>Driver debts</h1><div className="sub">What drivers owe 9jaRide. Money that reaches their wallet pays it back first, automatically.</div></div></div>
+      <div className="stats">
+        <Stat icon="wallet" label="Owed right now" value={naira(total, true)} tone={total > 0 ? 'amber' : 'green'} />
+        <Stat icon="user" label="Drivers who owe" value={String(data.length)} />
+      </div>
+      <div className="card" style={{ padding: 0, marginTop: 14 }}>
+        {data.length === 0 ? <div className="empty">No driver owes anything.</div> : (
+          <table><thead><tr><th>Driver</th><th className="num">Owes</th><th /></tr></thead><tbody>
+            {data.map((d) => (
+              <tr key={d.driverId}>
+                <td>{d.name}<div className="note">{d.phone} · <Link to={`/people/${d.driverId}`} style={{ color: 'var(--accent)' }}>Profile</Link></div></td>
+                <td className="num">{naira(d.owedKobo, true)}</td>
+                <td style={{ textAlign: 'right' }}><button className="btn" style={{ height: 30 }} onClick={() => setOpen(d.driverId)}>Recovery history</button></td>
+              </tr>
+            ))}
+          </tbody></table>
+        )}
+      </div>
+      {open && <DebtHistory driverId={open} onClose={() => setOpen(null)} />}
+    </>
+  );
+}
+
+function DebtHistory({ driverId, onClose }: { driverId: string; onClose: () => void }) {
+  const { data, error, reload } = useLoad<DebtDetail>(`/admin/drivers/${driverId}/debt`);
+  return (
+    <Modal onClose={onClose}>
+      <h3 style={{ marginTop: 0 }}>{data ? data.driver.name : 'Debt history'}</h3>
+      {!data ? <Loading error={error} retry={reload} /> : (
+        <>
+          <div className="line"><span>Owed now</span><b>{naira(data.outstandingKobo, true)}</b></div>
+          <div className="line"><span>Total owed over time</span><span>{naira(data.incurredKobo, true)}</span></div>
+          <div className="line"><span>Paid back so far</span><span>{naira(data.recoveredKobo, true)}</span></div>
+          <table style={{ marginTop: 12 }}><thead><tr><th>When</th><th>What happened</th><th className="num">Debt change</th><th className="num">Still owed</th></tr></thead><tbody>
+            {data.history.map((e, i) => (
+              <tr key={i}>
+                <td>{dateTime(e.at)}</td>
+                <td>{e.kind === 'trip_cash' ? 'Service charge on a cash trip' : e.kind === 'trip_wallet' ? 'Earnings from a wallet trip' : title(e.kind)}<div className="note">{e.type === 'debt_recovered' ? 'Debt recovered' : 'Debt added'}</div></td>
+                <td className="num" style={{ color: e.debtChangeKobo < 0 ? 'var(--green, #1a7f37)' : undefined }}>{e.debtChangeKobo < 0 ? '- ' : '+ '}{naira(Math.abs(e.debtChangeKobo), true)}</td>
+                <td className="num">{naira(e.debtAfterKobo, true)}</td>
+              </tr>
+            ))}
+          </tbody></table>
+          {data.history.length === 0 && <div className="empty">No debt has been recorded for this driver.</div>}
+        </>
+      )}
+      <div style={{ textAlign: 'right', marginTop: 12 }}><button className="btn" onClick={onClose}>Close</button></div>
+    </Modal>
   );
 }

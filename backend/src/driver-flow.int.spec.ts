@@ -27,9 +27,9 @@ suite('the driver side of a real order', () => {
     const driver = await h.login('driver', 'Flow Driver');
     await h.pool.query(`INSERT INTO vehicles (driver_id, category, make, colour, plate) VALUES ($1, 'package', 'Toyota', 'Blue', $2)`, [driver.id, uniquePlate()]);
     const ping = () => h.http().post('/driver/location').set(h.auth(driver.token)).send({ lat: pickup.lat + 0.002, lng: pickup.lng + 0.002, accuracyM: 8 }).expect(204);
-    const book = async () => {
+    const book = async (method: 'cash' | 'wallet' = 'cash') => {
       const q = (await h.http().post('/rides/quote').set(h.auth(rider.token)).send({ category: 'package', distanceM: 6000, durationS: 900 }).expect(200)).body;
-      return (await h.http().post('/rides').set(h.auth(rider.token)).set('Idempotency-Key', h.key()).send({ quoteId: q.quoteId, category: 'package', paymentMethod: 'cash', pickup, dropoff, pickupAddress: 'Marina', dropoffAddress: 'Lekki' }).expect(200)).body.rideId as string;
+      return (await h.http().post('/rides').set(h.auth(rider.token)).set('Idempotency-Key', h.key()).send({ quoteId: q.quoteId, category: 'package', paymentMethod: method, pickup, dropoff, pickupAddress: 'Marina', dropoffAddress: 'Lekki' }).expect(200)).body.rideId as string;
     };
     /** Matching starts on its own the moment a ride is requested; wait until it has offered the ride to someone. */
     const offered = async (rideId: string) => {
@@ -72,6 +72,31 @@ suite('the driver side of a real order', () => {
     const seen = (await h.http().get(`/rides/${rideId}`).set(h.auth(rider.token)).expect(200)).body;
     expect(seen.status).toBe('DRIVER_ASSIGNED');
     expect(seen.driver).toMatchObject({ name: 'Flow Driver', phone: driver.phone });
+  });
+
+  it('tells the driver a wallet trip is Paid by the wallet, and a cash trip is paid in cash', async () => {
+    for (const method of ['wallet', 'cash'] as const) {
+      const { rider, driver, ping, book, offered } = await setup();
+      if (method === 'wallet') await h.fund(rider.id, 5_000_000);
+      await ping();
+      const rideId = await book(method);
+      await offered(rideId);
+      await h.http().post(`/driver/rides/${rideId}/accept`).set(h.auth(driver.token)).expect(200);
+      await h.http().post(`/driver/rides/${rideId}/arrive`).set(h.auth(driver.token)).expect(204);
+      await h.http().post(`/driver/rides/${rideId}/start`).set(h.auth(driver.token)).expect(204);
+      const done = (await h.http().post(`/driver/rides/${rideId}/complete`).set(h.auth(driver.token)).send({ distanceM: 6000, durationS: 900, waitingS: 0 }).expect(200)).body;
+      expect(done.paymentMethod).toBe(method);
+      expect(done.paymentStatus).toBe('PAID');
+      // the money really moved: the wallet fare left the rider's wallet exactly once, a cash trip left it untouched
+      const spent = 5_000_000 - (await h.ledger.withTransaction((c) => h.ledger.balanceKobo(c, `wallet:${rider.id}`)));
+      if (method === 'wallet') expect(spent).toBe(done.totalKobo); else expect(spent).not.toBe(done.totalKobo);
+      // asking to complete again must not charge again
+      await h.http().post(`/driver/rides/${rideId}/complete`).set(h.auth(driver.token)).send({ distanceM: 6000, durationS: 900, waitingS: 0 });
+      if (method === 'wallet') {
+        const after = 5_000_000 - (await h.ledger.withTransaction((c) => h.ledger.balanceKobo(c, `wallet:${rider.id}`)));
+        expect(after).toBe(done.totalKobo);
+      }
+    }
   });
 
   it('drives a trip to the end and tells the driver what they earned', async () => {

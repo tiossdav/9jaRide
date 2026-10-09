@@ -7,6 +7,8 @@ import { BankDestination } from './payments.types';
 import { paystackSignature } from './paystack.client';
 import { FakeProvider, TEST_KEY as KEY } from './testing/fake-provider.testing';
 import { ReconciliationService } from './reconciliation.service';
+import { DebtService } from './debt.service';
+import { walletCode } from '../ledger/postings';
 
 // Real Postgres, fake provider. Skipped unless INTEGRATION=1 (it writes rows to DATABASE_URL, and the ledger is
 // append-only, so use a local dev database):  INTEGRATION=1 DATABASE_URL=... npm test -- payments.int
@@ -176,6 +178,64 @@ suite('payments and payouts (real Postgres)', () => {
       await expect(payments.initiateTopUp(rider, 1000.5)).rejects.toThrow(RangeError);
       await expect(payments.initiateTopUp(rider, 99_999)).rejects.toThrow(RangeError); // under 1,000 naira
       await expect(payments.initiateTopUp(rider, 100_000)).resolves.toMatchObject({ reference: expect.any(String) }); // exactly 1,000 naira is fine
+    });
+  });
+
+  describe('driver debt', () => {
+    /** A cash trip's commission: comes out of the driver's wallet and may take it below zero. */
+    const owe = (driverId: string, kobo: number) =>
+      ledger.withTransaction(async (c) => { await ledger.ensureWallet(c, driverId); return ledger.post(c, {
+        kind: 'trip_cash', reference: randomUUID(), idempotencyKey: `debt-${randomUUID()}`,
+        postings: [{ account: walletCode(driverId), amountKobo: -kobo }, { account: 'platform:commission', amountKobo: kobo }],
+      }, { allowNegative: [walletCode(driverId)] }); });
+    const award = (driverId: string, kobo: number, key = randomUUID()) => ledger.withTransaction((c) => ledger.awardBonus(c, driverId, kobo, key));
+    const debts = () => new DebtService(pool);
+
+    it('shows a driver what they owe, and later earnings pay it back automatically, partly then fully', async () => {
+      const driver = await user('driver');
+      await owe(driver, 100_000);
+      expect(await debts().forDriver(driver)).toMatchObject({ outstandingKobo: 100_000, incurredKobo: 100_000, recoveredKobo: 0 });
+      await award(driver, 40_000);
+      expect(await debts().forDriver(driver)).toMatchObject({ outstandingKobo: 60_000, recoveredKobo: 40_000 });
+      expect(await balance(driver)).toBe(-60_000);
+      await award(driver, 100_000);
+      const done = await debts().forDriver(driver);
+      expect(done).toMatchObject({ outstandingKobo: 0, incurredKobo: 100_000, recoveredKobo: 100_000 });
+      expect(await balance(driver)).toBe(40_000); // only what was left over after the debt is theirs to spend
+      expect(done.history.map((h) => h.type)).toEqual(['debt_recovered', 'debt_recovered', 'debt_incurred']); // the record stays after it is repaid
+    });
+
+    it('does nothing for a driver with an empty wallet, and a repeated event never counts twice', async () => {
+      const driver = await user('driver');
+      expect(await debts().forDriver(driver)).toMatchObject({ outstandingKobo: 0, history: [] });
+      await owe(driver, 50_000);
+      const key = randomUUID();
+      await award(driver, 20_000, key);
+      await award(driver, 20_000, key); // the same award delivered again
+      expect(await balance(driver)).toBe(-30_000);
+      expect(await debts().forDriver(driver)).toMatchObject({ outstandingKobo: 30_000, recoveredKobo: 20_000 });
+    });
+
+    it('stays right when many payments arrive at the same moment', async () => {
+      const driver = await user('driver');
+      await owe(driver, 100_000);
+      await Promise.all(Array.from({ length: 10 }, () => award(driver, 15_000)));
+      expect(await balance(driver)).toBe(50_000);
+      expect(await debts().forDriver(driver)).toMatchObject({ outstandingKobo: 0, incurredKobo: 100_000, recoveredKobo: 100_000 });
+    });
+
+    it('lists the drivers who owe, for staff, with the debt to the kobo', async () => {
+      const driver = await user('driver');
+      await owe(driver, 77_700);
+      const listed = (await debts().owing(1000)).find((d) => d.driverId === driver);
+      expect(listed?.owedKobo).toBe(77_700);
+      expect((await debts().forDriverAsStaff(driver)).outstandingKobo).toBe(77_700);
+      await award(driver, 80_000);
+      expect((await debts().owing(1000)).find((d) => d.driverId === driver)).toBeUndefined();
+    });
+
+    it('never lets the books go out of balance', async () => {
+      expect(await ledger.totalImbalanceKobo()).toBe(0);
     });
   });
 

@@ -8,6 +8,7 @@ import { IdempotencyKey } from '../common/idempotency-key';
 import { PG_POOL } from '../common/infra.module';
 import { LedgerService } from '../ledger/ledger.service';
 import { walletCode } from '../ledger/postings';
+import { DebtService } from './debt.service';
 import { PaymentsService } from './payments.service';
 import { PayoutsService } from './payouts.service';
 import { ReconciliationService } from './reconciliation.service';
@@ -98,6 +99,17 @@ export class WalletController {
   }
 }
 
+/** A driver's own debt: what they owe, how much has been recovered by their later earnings and top-ups, and each step. */
+@Controller()
+export class DriverDebtController {
+  constructor(private readonly debt: DebtService) {}
+
+  @Roles('driver') @Get('driver/debt')
+  mine(@CurrentUser() me: Principal) {
+    return this.debt.forDriver(me.id);
+  }
+}
+
 /** Paystack calls this. No login: the signature over the raw body is the authentication. */
 @Controller()
 export class WebhookController {
@@ -147,6 +159,7 @@ export class AdminPaymentsController {
   constructor(
     private readonly payouts: PayoutsService,
     private readonly reconciliation: ReconciliationService,
+    private readonly debt: DebtService,
     @Inject(PG_POOL) private readonly pool: Pool,
   ) {}
 
@@ -163,6 +176,17 @@ export class AdminPaymentsController {
   @Post('payouts/:id/reject') @HttpCode(200)
   async reject(@CurrentUser() me: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RejectDto) {
     return { rejected: await this.payouts.reject(id, me.id, dto.reason) };
+  }
+
+  /** Drivers who owe the platform something right now. */
+  @Get('debts')
+  debts() {
+    return this.debt.owing();
+  }
+
+  @Get('drivers/:id/debt')
+  driverDebt(@Param('id', ParseUUIDPipe) id: string) {
+    return this.debt.forDriverAsStaff(id);
   }
 
   @Get('reconciliation/findings')

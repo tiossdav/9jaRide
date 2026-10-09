@@ -2,4 +2,7 @@
 <resources>
     <color name="bg">#F4F0E6</color>
     <color name="brand_green">#0D520D</color>
+    <!-- launcher icon and splash: the logo green with the white 9 -->
+    <color name="icon_background">#0B7A0A</color>
+    <color name="splash_bg">#0B7A0A</color>
 </resources>

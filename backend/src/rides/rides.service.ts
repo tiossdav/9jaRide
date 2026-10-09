@@ -292,7 +292,10 @@ export class RidesService {
     await this.redis.del(keys.driverState(driverId), keys.driverRide(driverId));
     // The money is settled; a failure here must never undo or hide that, so it is logged, not thrown.
     await this.checkTripDistance(rideId, driverId, measured.distanceM).catch((e) => this.log.error(`distance check failed for ${rideId}: ${e}`));
-    return { ...fare, ...earnings };
+    // How the trip was paid, read back from the database after settling: "PAID" is only ever written by the ledger posting that moved the money,
+    // so the app can show a wallet trip as Paid on the server's word, never on the rider's choice of Wallet.
+    const paid = (await this.pool.query(`SELECT payment_method, payment_status FROM rides WHERE id = $1`, [rideId])).rows[0];
+    return { ...fare, ...earnings, paymentMethod: paid.payment_method as string, paymentStatus: paid.payment_status as string };
   }
 
   /** What the driver keeps from a fare and what the platform takes, by the rules in force when the ride was booked. */

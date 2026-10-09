@@ -6,7 +6,7 @@ import Customers from './pages/Customers';
 import Activity from './pages/Activity';
 import Dashboard from './pages/Dashboard';
 import Drivers from './pages/Drivers';
-import { Adjustments, Payouts, Reconciliation, Wallet } from './pages/Finance';
+import { Adjustments, Debts, Payouts, Reconciliation, Wallet } from './pages/Finance';
 import OnboardingDetail from './pages/OnboardingDetail';
 import Person from './pages/Person';
 import { LedgerPage, Revenue } from './pages/Insights';
@@ -64,6 +64,7 @@ export default function App() {
         <Route path="finances/vehicle-plans" element={<VehiclePlans />} />
         <Route path="finances/vehicle-plans/:id" element={<VehiclePlanDetail />} />
         <Route path="finances/payouts" element={<Payouts />} />
+        <Route path="finances/debts" element={<Debts />} />
         <Route path="finances/adjustments" element={<Adjustments />} />
         <Route path="finances/reconciliation" element={<Reconciliation />} />
         <Route path="finances/revenue" element={<Revenue />} />

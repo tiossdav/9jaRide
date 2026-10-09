@@ -341,24 +341,44 @@ fun ReceiptCard(r: FareReceipt, paymentIsCash: Boolean) {
     }
 }
 
-/** D05: end of trip. For a cash trip the driver collects the fare in hand. */
+/** D05: end of trip. A cash trip: the driver collects the fare in hand. A wallet trip: it is already paid, there is nothing to collect. */
 @Composable
 fun CollectFareScreen(vm: DriverViewModel) {
     val r = vm.receipt
+    val wallet = vm.paidByWallet
     Column(Modifier.fillMaxSize().background(C.Bg).statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.padding(top = 24.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Txt("Collect cash from rider", 13f, 500, C.Muted)
+            Txt(if (wallet) "Trip fare" else "Collect cash from rider", 13f, 500, C.Muted)
             Txt(naira(r.total), 46f, 800)
         }
-        ReceiptCard(r, true)
-        Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(C.Bg).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Icon24(Ic.Wallet, C.Muted, 20.dp)
-            Txt(if (r.vehicleDeduction > 0) "The ${naira(r.serviceCharge, true)} service charge and ${naira(r.vehicleDeduction, true)} for your vehicle are taken from your wallet for cash trips." else "The ${naira(r.serviceCharge, true)} service charge is taken from your wallet for cash trips.", 12.5f, 500, C.Muted, Modifier.weight(1f))
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Txt("Payment method", 11.5f, 500, C.Muted)
+                Txt(if (wallet) "Wallet" else "Cash", 15f, 700)
+            }
+            // "Paid" for a wallet trip only once the server has confirmed the money moved; a cash trip is paid when the driver is handed the cash
+            if (wallet) { if (vm.paymentConfirmed) com.ninejaride.core.ui.components.Chip("Paid") else com.ninejaride.core.ui.components.Chip("Confirming payment", C.Orange, C.OrangeTint) }
         }
-        Btn("Cash collected", vm::cashCollected, Modifier.fillMaxWidth())
+        ReceiptCard(r, !wallet)
+        if (wallet) {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(C.Bg).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon24(Ic.Wallet, C.Muted, 20.dp)
+                Txt(if (vm.paymentConfirmed) "The rider paid from their wallet. Your earnings are in your wallet; you have nothing to collect." else "The rider chose to pay from their wallet. The payment is being confirmed; you do not collect anything.", 12.5f, 500, C.Muted, Modifier.weight(1f))
+            }
+            Btn("Continue", vm::cashCollected, Modifier.fillMaxWidth())
+        } else {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(C.Bg).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon24(Ic.Wallet, C.Muted, 20.dp)
+                Txt(if (r.vehicleDeduction > 0) "The ${naira(r.serviceCharge, true)} service charge and ${naira(r.vehicleDeduction, true)} for your vehicle are taken from your wallet for cash trips." else "The ${naira(r.serviceCharge, true)} service charge is taken from your wallet for cash trips.", 12.5f, 500, C.Muted, Modifier.weight(1f))
+            }
+            Btn("Cash collected", vm::cashCollected, Modifier.fillMaxWidth())
+        }
         Btn("Report a problem", { vm.push(com.ninejaride.driver.state.Dest.Help) }, Modifier.fillMaxWidth(), kind = BtnKind.Outline, height = 46.dp)
     }
 }

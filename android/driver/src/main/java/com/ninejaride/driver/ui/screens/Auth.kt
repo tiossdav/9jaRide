@@ -59,19 +59,12 @@ import com.ninejaride.core.ui.theme.type
 
 @Composable
 fun SplashScreen() {
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                LogoTile()
-                BasicText(
-                    buildAnnotatedString {
-                        append("9jaRide ")
-                        withStyle(SpanStyle(color = C.OrangeIcon)) { append("Pro") }
-                    },
-                    style = type(34f, 800, Color.White),
-                )
-            }
-        }
+    // the logo green with the white 9, the same artwork as the launcher icon
+    Box(Modifier.fillMaxSize().background(Color(0xFF0B7A0A)), contentAlignment = Alignment.Center) {
+        androidx.compose.foundation.Image(
+            androidx.compose.ui.res.painterResource(com.ninejaride.driver.R.drawable.brand_nine), contentDescription = "9jaRide Pro Driver",
+            Modifier.height(132.dp),
+        )
     }
 }
 

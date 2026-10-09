@@ -77,6 +77,35 @@ private fun StatTile(value: String, label: String, modifier: Modifier = Modifier
     }
 }
 
+/**
+ * What the driver owes and how it is being paid back. The cash-trip service charge can take the wallet below zero; wallet earnings, top-ups
+ * and bonuses that arrive then pay it first, automatically, before anything is theirs to spend.
+ */
+@Composable
+private fun DebtCard(d: com.ninejaride.driver.state.DebtSummary) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(if (d.outstandingKobo > 0) C.OrangeTint else Color.White).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Txt(if (d.outstandingKobo > 0) "You owe 9jaRide" else "No debt", 12f, 700, C.Muted, letterSpacing = 0.8f)
+        Txt(naira(d.outstandingKobo, d.outstandingKobo % 100L != 0L), 26f, 800, if (d.outstandingKobo > 0) C.Ink else C.Green)
+        if (d.outstandingKobo > 0) Txt("Money that reaches your wallet, such as wallet-trip earnings, top-ups and bonuses, pays this off first, automatically.", 12.5f, 500, C.Muted)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.weight(1f)) { Txt("Total owed", 11f, 500, C.Muted); Txt(naira(d.incurredKobo, d.incurredKobo % 100L != 0L), 14f, 700) }
+            Column(Modifier.weight(1f)) { Txt("Paid back", 11f, 500, C.Muted); Txt(naira(d.recoveredKobo, d.recoveredKobo % 100L != 0L), 14f, 700, C.Green) }
+        }
+        if (d.history.isNotEmpty()) {
+            Divider()
+            d.history.take(6).forEach { e ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        Txt(e.reason, 13f, 600, maxLines = 1)
+                        Txt(e.at + " · still owed " + naira(e.debtAfterKobo, e.debtAfterKobo % 100L != 0L), 11.5f, 500, C.Muted, maxLines = 1)
+                    }
+                    Txt((if (e.debtChangeKobo < 0) "- " else "+ ") + naira(Math.abs(e.debtChangeKobo), Math.abs(e.debtChangeKobo) % 100L != 0L), 13f, 700, if (e.debtChangeKobo < 0) C.Green else C.Ink)
+                }
+            }
+        }
+    }
+}
+
 /** E1: wallet, overview and the way into daily earnings and payouts. */
 @Composable
 fun EarningsScreen(vm: DriverViewModel) {
@@ -99,6 +128,7 @@ fun EarningsScreen(vm: DriverViewModel) {
                         Btn("Transactions", { vm.push(Dest.Transactions) }, Modifier.weight(1f), height = 44.dp, size = 14f, kind = BtnKind.Light)
                     }
                 }
+                vm.debt?.takeIf { it.outstandingKobo > 0 || it.history.isNotEmpty() }?.let { DebtCard(it) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Txt("EARNINGS OVERVIEW", 12f, 600, C.Muted, Modifier.weight(1f), letterSpacing = 1f)
                     Box(Modifier.clip(RoundedCornerShape(999.dp)).background(Color.White).border(1.dp, C.Border, RoundedCornerShape(999.dp)).tap({ vm.dialog = Dialog.DateFilter }, "Filter by date").padding(horizontal = 12.dp, vertical = 6.dp)) {

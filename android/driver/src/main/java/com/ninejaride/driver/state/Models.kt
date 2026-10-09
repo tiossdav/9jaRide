@@ -135,6 +135,11 @@ fun documentLabel(kind: String): String = when (kind) {
     "nin" -> "NIN slip or card"
     "lassdri" -> "LASDRI card"
     "vehicle_photo" -> "Vehicle photo"
+    "insurance" -> "Insurance policy"
     "selfie" -> "Your photo"
     else -> kind.replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
+
+/** What the driver owes the platform (commission on cash trips that took the wallet below zero) and how later money has paid it back. */
+data class DebtEntry(val at: String, val reason: String, val debtChangeKobo: Long, val debtAfterKobo: Long)
+data class DebtSummary(val outstandingKobo: Long, val incurredKobo: Long, val recoveredKobo: Long, val history: List<DebtEntry>)

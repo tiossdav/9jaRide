@@ -72,7 +72,9 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 
-private val IBADAN = MapPoint(7.3775, 3.9470)
+/** Where the map looks until the phone has a position: the middle of Nigeria, zoomed out to the whole country. Never a particular city. */
+private val NIGERIA_CENTRE = MapPoint(9.0820, 8.6753)
+private const val NIGERIA_ZOOM = 5.6
 private val dayFmt = DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)
 private val timeFmt = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
 
@@ -105,8 +107,8 @@ fun HomeTab(vm: RiderViewModel) {
             MapPanel(
                 Modifier.fillMaxSize(),
                 markers = here?.let { listOf(MapMarker(it, MarkerKind.Pickup)) } ?: emptyList(),
-                center = here ?: IBADAN,
-                zoom = 15.5 + (vm.focusTick % 2) * 0.0001, // a tiny change is what makes the map move back after the rider panned away
+                center = here ?: NIGERIA_CENTRE,
+                zoom = (if (here != null) 15.5 else NIGERIA_ZOOM) + (vm.focusTick % 2) * 0.0001, // a tiny change is what makes the map move back after the rider panned away
                 interactive = true,
             )
             Row(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -273,9 +275,10 @@ fun WhereToScreen(vm: RiderViewModel) {
 
 @Composable
 fun SetOnMapScreen(vm: RiderViewModel) {
-    val start = vm.previewStart ?: (if (vm.activeField == 0) vm.pickup?.point else vm.dropoff?.point) ?: vm.location.point ?: IBADAN
+    val start = vm.previewStart ?: (if (vm.activeField == 0) vm.pickup?.point else vm.dropoff?.point) ?: vm.location.point
+    val known = start != null
     Box(Modifier.fillMaxSize()) {
-        MapPanel(Modifier.fillMaxSize(), center = start, interactive = true, onCenterChange = vm::onMapMoved)
+        MapPanel(Modifier.fillMaxSize(), center = start ?: NIGERIA_CENTRE, zoom = if (known) 15.5 else NIGERIA_ZOOM, interactive = true, onCenterChange = vm::onMapMoved)
         // the pin stays in the middle while the map moves under it
         Box(Modifier.align(Alignment.Center).padding(bottom = 30.dp)) { Icon24(Ic.Pin, if (vm.activeField == 0) C.Green else C.Orange, 44.dp, 2.2f) }
         Box(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(16.dp)) { CircleIconButton(Ic.Back, "Back", { vm.previewStart = null; vm.pop() }) }

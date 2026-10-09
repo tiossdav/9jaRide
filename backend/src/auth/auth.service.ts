@@ -4,6 +4,7 @@ import { promisify } from 'util';
 import { Pool } from 'pg';
 import { PG_POOL } from '../common/infra.module';
 import { OtpService } from './otp.service';
+import { normalisePhone } from './phone';
 import { Principal, Role, TokenPair } from './auth.types';
 import { TokensService } from './tokens.service';
 
@@ -41,8 +42,33 @@ export class AuthService {
     private readonly tokens: TokensService,
   ) {}
 
-  requestOtp(phone: string, channel: 'sms' | 'voice', ip: string | null) {
+  private readonly signupChecks = new Map<string, number[]>();
+
+  /**
+   * Ask for a code. For a sign-up the number is checked FIRST: one that already has an account is refused with a plain message and no
+   * text is sent (so nobody is charged for, or confused by, a code they cannot use). The check is limited per source address so it
+   * cannot be used to list who is registered.
+   */
+  async requestOtp(phone: string, channel: 'sms' | 'voice', ip: string | null, purpose: 'signin' | 'signup' = 'signin') {
+    if (purpose === 'signup') {
+      const normal = normalisePhone(phone);
+      if (!normal) throw new BadRequestException('enter a valid Nigerian mobile number');
+      this.limitSignupChecks(ip ?? 'unknown');
+      const taken = await this.pool.query(`SELECT 1 FROM users WHERE phone = $1`, [normal]);
+      if (taken.rowCount) {
+        throw new ConflictException({ message: 'This number already has an account. Please sign in instead.', code: 'phone_registered' });
+      }
+    }
     return this.otp.request(phone, channel, ip);
+  }
+
+  private limitSignupChecks(who: string): void {
+    const now = Date.now();
+    const recent = (this.signupChecks.get(who) ?? []).filter((t) => now - t < 600_000);
+    if (recent.length >= 20) throw new HttpException('too many attempts, try again later', HttpStatus.TOO_MANY_REQUESTS);
+    recent.push(now);
+    this.signupChecks.set(who, recent);
+    if (this.signupChecks.size > 5000) for (const [k, v] of this.signupChecks) if (!v.some((t) => now - t < 600_000)) this.signupChecks.delete(k);
   }
 
   /**

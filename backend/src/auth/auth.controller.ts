@@ -7,6 +7,8 @@ import { CurrentUser, Principal, Public, Roles } from './auth.types';
 class RequestOtpDto {
   @IsString() @MaxLength(20) phone!: string;
   @IsOptional() @IsIn(['sms', 'voice']) channel?: 'sms' | 'voice';
+  /** "signup" refuses, before any text is sent, a number that already has an account. Left out, a code is sent for signing in. */
+  @IsOptional() @IsIn(['signin', 'signup']) purpose?: 'signin' | 'signup';
 }
 
 class RegistrationDto {
@@ -43,7 +45,7 @@ export class AuthController {
 
   @Public() @Post('auth/otp/request') @HttpCode(200)
   async requestOtp(@Body() dto: RequestOtpDto, @Req() req: Request) {
-    const r = await this.auth.requestOtp(dto.phone, dto.channel ?? 'sms', req.ip ?? null);
+    const r = await this.auth.requestOtp(dto.phone, dto.channel ?? 'sms', req.ip ?? null, dto.purpose ?? 'signin');
     return { sent: true, expiresInSeconds: r.expiresInSeconds, codeLength: r.codeLength, testMode: r.testMode };
   }
 

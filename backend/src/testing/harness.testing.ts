@@ -108,7 +108,7 @@ export async function bootApp(opts: { otpMode?: 'test' | 'live' } = {}) {
     const doc = async (kind: string, extra: object = {}) => ({ kind, fileId: await upload(token), ...extra });
     return [
       await doc('selfie'), await doc('drivers_licence', { number: uniqueLicence(), expiresOn: future }), await doc('nin'), await doc('lassdri'),
-      await doc('vehicle_photo'),
+      await doc('vehicle_photo'), await doc('insurance', { number: 'POL-1', expiresOn: future }),
     ];
   }
 

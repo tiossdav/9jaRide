@@ -266,6 +266,8 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     // documents: the numbers and dates typed in, and the id of the photo uploaded for each
     var licenceNumber by mutableStateOf("")
     var licenceExpiry by mutableStateOf("")
+    var insuranceNumber by mutableStateOf("")
+    var insuranceExpiry by mutableStateOf("")
     val uploads = androidx.compose.runtime.mutableStateMapOf<String, String>() // document kind -> uploaded file id
     var uploading by mutableStateOf<String?>(null)
     /** The driver's photo as picked, shown on the "About you" step. */
@@ -278,7 +280,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         val a = chosen ?: return emptyList()
         return buildList {
             add("drivers_licence"); add("lassdri") // the NIN is checked by a service, so no photo of it is asked for
-            if (a.asksForVehicle) { add("vehicle_photo") }
+            if (a.asksForVehicle) { add("vehicle_photo"); add("insurance") } // a car the driver brings needs a current insurance policy
         }
     }
 
@@ -316,7 +318,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         "arrangement" to arrangementCode, "category" to vehicleCategory, "email" to email, "contact" to contactPreference, "dob" to dateOfBirth,
         "nin" to nin, "lassdri" to lassdri, "address" to address, "kinName" to kinName, "kinPhone" to kinPhone, "kinRel" to kinRelationship,
         "kinAddress" to kinAddress, "plate" to plate, "make" to make, "colour" to colour, "ownerName" to ownerName, "ownerPhone" to ownerPhone,
-        "share" to sharePercent, "licence" to licenceNumber, "licenceExp" to licenceExpiry, 
+        "share" to sharePercent, "licence" to licenceNumber, "licenceExp" to licenceExpiry, "insurance" to insuranceNumber, "insuranceExp" to insuranceExpiry,
         "step" to applyStep.toString(), "uploads" to uploads.entries.joinToString(",") { it.key + "=" + it.value },
     )
 
@@ -333,7 +335,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         arrangementCode = g("arrangement"); vehicleCategory = g("category").ifEmpty { "regular" }; email = g("email"); contactPreference = g("contact").ifEmpty { "whatsapp" }
         dateOfBirth = g("dob"); nin = g("nin"); lassdri = g("lassdri"); address = g("address"); kinName = g("kinName"); kinPhone = g("kinPhone")
         kinRelationship = g("kinRel"); kinAddress = g("kinAddress"); plate = g("plate"); make = g("make"); colour = g("colour"); ownerName = g("ownerName")
-        ownerPhone = g("ownerPhone"); sharePercent = g("share").ifEmpty { "20" }; licenceNumber = g("licence"); licenceExpiry = g("licenceExp")
+        ownerPhone = g("ownerPhone"); sharePercent = g("share").ifEmpty { "20" }; licenceNumber = g("licence"); licenceExpiry = g("licenceExp"); insuranceNumber = g("insurance"); insuranceExpiry = g("insuranceExp")
         uploads.clear(); g("uploads").split(",").filter { it.contains("=") }.forEach { uploads[it.substringBefore("=")] = it.substringAfter("=") }
         applyStep = g("step").toIntOrNull() ?: 0
         return true
@@ -376,6 +378,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             fun show(iso: String?) = iso?.takeIf { it.length == 10 }?.let { "${it.substring(8, 10)}/${it.substring(5, 7)}/${it.substring(0, 4)}" } ?: ""
             when (d.kind) {
                 "drivers_licence" -> { licenceNumber = d.number ?: ""; licenceExpiry = show(d.expiresOn) }
+                "insurance" -> { insuranceNumber = d.number ?: ""; insuranceExpiry = show(d.expiresOn) }
             }
         }
     }
@@ -509,6 +512,8 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             else -> when {
                 licenceNumber.trim().length < 4 -> "Enter your driver's licence number."
                 dateOrNull(licenceExpiry) == null -> "Choose when your licence expires. It must be in the future."
+                a.asksForVehicle && insuranceNumber.trim().length < 3 -> "Enter the insurance policy number."
+                a.asksForVehicle && dateOrNull(insuranceExpiry) == null -> "Choose when the insurance expires. It must be in the future."
                 updateMode && updateItems.any { it !in setOf("about_you", "next_of_kin", "vehicle", "selfie") && it !in replaced } -> "Take a new photo of: " + updateItems.filter { it !in setOf("about_you", "next_of_kin", "vehicle", "selfie") && it !in replaced }.joinToString(", ") { documentLabel(it) } + "."
                 neededDocuments().any { uploads[it] == null } -> "Upload a photo for: " + neededDocuments().filter { uploads[it] == null }.joinToString(", ") { documentLabel(it) } + "."
                 else -> null
@@ -613,6 +618,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         val docs = (listOf("selfie") + neededDocuments()).map {
             when (it) {
                 "drivers_licence" -> doc(it, licenceNumber, licenceExpiry)
+                "insurance" -> doc(it, insuranceNumber, insuranceExpiry)
                 else -> doc(it)
             }
         }
@@ -758,6 +764,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             if (vehicleTerms?.accepted == false && current == Dest.Main && phase == Phase.None) openSettlement()
             runCatching { api.walletBalance() }.getOrNull()?.let { walletKobo = it }
             runCatching { api.walletTransactions() }.getOrNull()?.let { transactions.clear(); transactions.addAll(it) }
+            debt = runCatching { api.debt() }.getOrNull()
         }
     }
 
@@ -796,6 +803,8 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         if (demo) add(TripRecord("7K3M-92QD", "Today, 10:18 AM", DEMO_RECEIPT, "CXX4+65G, Akobo, Ibadan", "Iwo Road, Ibadan", 0.65, 555, "Cash", Rider("Olaoluwa", 5)))
     }
     val transactions = mutableStateListOf<WalletTx>()
+    /** What the driver owes and how it has been paid back; null until the server has answered. */
+    var debt by mutableStateOf<DebtSummary?>(null)
     val payouts = mutableStateListOf<PayoutRecord>()
 
     fun saveBank(bank: String, number: String) {
@@ -1436,14 +1445,21 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** How the finished trip was paid, as the server reported it (or the offer in the demo). */
+    var paidByWallet by mutableStateOf(false)
+    /** True once the server says the money has moved. A wallet trip is shown as Paid only when this is true. */
+    var paymentConfirmed by mutableStateOf(false)
+
     fun endTrip() {
-        if (demo) { rideJob?.cancel(); carPoint = demoDropoff; phase = Phase.Collect; return }
+        if (demo) { rideJob?.cancel(); carPoint = demoDropoff; paidByWallet = offer.payment == "Wallet"; paymentConfirmed = paidByWallet; phase = Phase.Collect; return }
         val id = realRideId ?: return
         server("Could not end the trip", "Please wait while the trip is being completed...") {
             val fare = api.completeTrip(id, (tripKm * 1000).toInt(), tripSeconds, waitingSeconds)
             rideJob?.cancel()
             receipt = FareReceipt(fare.lines.map { FareLine(it.first, it.second) }, fare.totalKobo, fare.commissionKobo, fare.driverEarnKobo, if (fare.totalKobo > 0) Math.round(fare.commissionKobo * 100.0 / Math.max(1L, fare.totalKobo - fare.taxKobo)).toInt() else 0,
                 fare.vehicleDeductionKobo, vehicleTerms?.percent?.toInt() ?: 0)
+            paidByWallet = fare.paymentMethod == "wallet"
+            paymentConfirmed = fare.paymentStatus == "PAID"
             phase = Phase.Collect
             loadAccount() // today's earnings, the trip list and the wallet now include this trip
         }

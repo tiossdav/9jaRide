@@ -176,8 +176,9 @@ class ApiClient(context: Context, private val baseUrl: String, private val appVe
     }
 
     // ---- sign-in, shared by both apps
-    suspend fun requestOtp(phone: String, voice: Boolean): OtpInfo {
-        val o = call("POST", "/auth/otp/request", buildJsonObject { put("phone", phone); put("channel", if (voice) "voice" else "sms") }.toString())
+    /** [signUp] asks the server to refuse a number that already has an account BEFORE sending a code. */
+    suspend fun requestOtp(phone: String, voice: Boolean, signUp: Boolean = false): OtpInfo {
+        val o = call("POST", "/auth/otp/request", buildJsonObject { put("phone", phone); put("channel", if (voice) "voice" else "sms"); put("purpose", if (signUp) "signup" else "signin") }.toString())
         return OtpInfo(o["codeLength"]?.jsonPrimitive?.intOrNull ?: 6, o["testMode"]?.jsonPrimitive?.booleanOrNull == true)
     }
 

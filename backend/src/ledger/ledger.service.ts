@@ -168,6 +168,8 @@ export class LedgerService {
 
   /** Complete a wallet trip: capture the hold and post the split in the same transaction. */
   async completeWalletTrip(client: PoolClient, rideId: string, riderId: string, driverId: string, fare: number, tax = 0, rules: TripRules = {}) {
+    // A driver whose first trip is paid from a wallet has no wallet yet: make it, in the same transaction, or the trip could never complete.
+    await this.ensureWallet(client, driverId);
     // The hold already reserved this money, so check against the raw balance, not balance minus holds.
     const posted = await this.post(
       client,
