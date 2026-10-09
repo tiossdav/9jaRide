@@ -13,19 +13,22 @@ data class MapPoint(val lat: Double, val lng: Double)
  * A road route: the line to draw, and how far and how long it is (what the fare quote needs). [estimated] is true when the map service could not
  * be reached and the numbers are a straight-line guess, so a screen never pretends a guess is a road route.
  */
-data class RouteInfo(val points: List<MapPoint>, val distanceM: Int, val durationS: Int, val estimated: Boolean = false)
+data class RouteInfo(val points: List<MapPoint>, val distanceM: Int, val durationS: Int, val estimated: Boolean = false, /** Turn-by-turn instructions, when asked for and the map provider has them. */ val steps: List<RouteStep> = emptyList())
+
+/** One manoeuvre: what to do, where, and the kind (turn, roundabout, arrive...) so a screen can pick an arrow. */
+data class RouteStep(val instruction: String, val at: MapPoint, val type: String)
 
 /** Road routes, from the map provider the 9jaRide server is set to use. The app does not know or care which one. */
 object Routing {
     suspend fun route(from: MapPoint, to: MapPoint): List<MapPoint> = routeInfo(from, to).points
 
     /** Distance, time and the line to draw. If the server cannot answer, a straight line at city speed stands in and is marked [RouteInfo.estimated]. */
-    suspend fun routeInfo(from: MapPoint, to: MapPoint): RouteInfo {
+    suspend fun routeInfo(from: MapPoint, to: MapPoint, withSteps: Boolean = false): RouteInfo {
         val straightKm = haversineKm(from, to)
         val straight = RouteInfo(listOf(from, to), (straightKm * 1000).toInt(), (straightKm / 25.0 * 3600).toInt(), estimated = true)
         val client = MapsGateway.client ?: return straight
         return try {
-            parse(client.call("POST", "/maps/route", """{"from":{"lat":${from.lat},"lng":${from.lng}},"to":{"lat":${to.lat},"lng":${to.lng}}}""", auth = true), straight)
+            parse(client.call("POST", "/maps/route", """{"from":{"lat":${from.lat},"lng":${from.lng}},"to":{"lat":${to.lat},"lng":${to.lng}}${if (withSteps) ",\"steps\":true" else ""}}""", auth = true), straight)
         } catch (e: Exception) {
             straight
         }
@@ -37,7 +40,14 @@ object Routing {
         val duration = o["durationS"]?.jsonPrimitive?.doubleOrNull?.toInt() ?: return fallback
         val line = o["polyline"]?.jsonPrimitive?.contentOrNull?.let { PolylineCodec.decode(it) }.orEmpty()
         val real = o["source"]?.jsonPrimitive?.contentOrNull.let { it != null && it != "estimate" } && line.size >= 2
-        return RouteInfo(if (line.size >= 2) line else fallback.points, distance, duration, estimated = !real)
+        val steps = (o["steps"] as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { e ->
+            val st = e as? JsonObject ?: return@mapNotNull null
+            val text = st["instruction"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val lat = st["lat"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null
+            val lng = st["lng"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null
+            RouteStep(text, MapPoint(lat, lng), st["type"]?.jsonPrimitive?.contentOrNull.orEmpty())
+        }
+        return RouteInfo(if (line.size >= 2) line else fallback.points, distance, duration, estimated = !real, steps = if (real) steps else emptyList())
     }
 
     fun haversineKm(a: MapPoint, b: MapPoint): Double {

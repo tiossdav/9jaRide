@@ -1098,7 +1098,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         if (!moved) return
         demoDropoff = r.dropoff
         offer = offer.copy(dropoff = r.dropoffAddress ?: offer.dropoff)
-        legRoute = emptyList(); legRouteAt = 0
+        legRoute = emptyList(); legSteps = emptyList(); nextTurn = null; legRouteAt = 0
         viewModelScope.launch { routeTrip = Routing.route(deviceLocation ?: demoPickup, r.dropoff) }
     }
 
@@ -1224,7 +1224,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         deviceLocation?.let { from -> viewModelScope.launch { routeToPickup = Routing.route(from, demoPickup) } }
         rideJob?.cancel()
         etaMin = null; remainingM = null; pickupTravelledM = 0; tripTravelledM = 0
-        legRoute = emptyList(); offRoad = 0
+        legRoute = emptyList(); legSteps = emptyList(); nextTurn = null; offRoad = 0
         rideJob = viewModelScope.launch { var tick = 0; while (phase == Phase.ToPickup) { if (demo) carPoint = deviceLocation ?: carPoint else followRoad(); if (!demo && tick % 8 == 0) refreshProgress(); tick++; delay(1000) } }
     }
 
@@ -1245,6 +1245,9 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
     // ---- the live route, like a navigation app
     /** The road for the part of the trip in progress (to the pickup, or to the drop-off), as last fetched. */
     private var legRoute: List<MapPoint> = emptyList()
+    private var legSteps: List<com.ninejaride.core.data.RouteStep> = emptyList()
+    /** The next manoeuvre on the road, shown in the banner at the top of the navigation screens. Null when the map provider gave no steps. */
+    var nextTurn by mutableStateOf<com.ninejaride.core.data.NextTurn?>(null)
     private var legDurationS = 0
     private var legLengthM = 0.0
     private var legRouteAt = 0L
@@ -1259,8 +1262,8 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         rerouting = true
         try {
             val target = if (phase == Phase.ToPickup) demoPickup else demoDropoff
-            val info = runCatching { Routing.routeInfo(me, target) }.getOrNull() ?: return
-            legRoute = info.points; legDurationS = info.durationS; legLengthM = com.ninejaride.core.data.RouteProgress.lengthM(info.points); legRouteAt = System.currentTimeMillis()
+            val info = runCatching { Routing.routeInfo(me, target, withSteps = true) }.getOrNull() ?: return
+            legRoute = info.points; legSteps = info.steps; legDurationS = info.durationS; legLengthM = com.ninejaride.core.data.RouteProgress.lengthM(info.points); legRouteAt = System.currentTimeMillis()
             offRoad = 0
             followRoad()
         } finally { rerouting = false }
@@ -1283,6 +1286,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
         offRoad = 0
         moveCar(fix.onRoad)
         remainingM = fix.remainingM.toInt()
+        nextTurn = com.ninejaride.core.data.RouteProgress.nextTurn(legRoute, legSteps, fix.onRoad)
         etaMin = com.ninejaride.core.data.RouteProgress.minutesLeft(legDurationS, legLengthM, fix.remainingM)
         if (phase == Phase.ToPickup) routeToPickup = fix.ahead else routeTrip = fix.ahead
     }
@@ -1307,7 +1311,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun beginTripLeg() {
         tripSeconds = 0; tripKm = 0.0; stopReason = null; etaMin = null; remainingM = null
-        legRoute = emptyList(); offRoad = 0
+        legRoute = emptyList(); legSteps = emptyList(); nextTurn = null; offRoad = 0
         tripStartedPoint = deviceLocation
         phase = Phase.InTrip
         startChat()

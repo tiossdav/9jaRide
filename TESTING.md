@@ -169,6 +169,7 @@ The map provider is a server setting, not a code change. Place search, addresses
 - **Later, Google:** set `GOOGLE_MAPS_API_KEY` (Places API (New), Geocoding API, Routes API) and `MAPS_PROVIDER=google`, restart the server. Nothing else changes.
 - Place search is Nigeria-wide and puts matches near the phone's position first, then widens; with no position it searches the whole country.
 - With no provider set up, search says "not set up" and routes fall back to a marked straight-line estimate (the trip is never blocked by a map outage).
+- **Driver navigation stays in the app:** the banner at the top of the driver's ride screens gives the next turn ("Turn left onto ...", "In 300 m") read from the road, plus the distance left; nothing opens another maps app. Turn instructions come from Mapbox; with Google as the provider the banner says where the driver is heading and how far is left.
 - To check the server's setup as an admin: `GET /maps/status` shows which provider is answering.
 
 ## Paystack (wallet top-ups)

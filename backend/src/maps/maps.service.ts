@@ -120,11 +120,11 @@ export class MapsService {
    * The road route between two points. Never throws: if the map service cannot answer, a clearly marked estimate comes back so a trip is not
    * blocked by a map outage, and nothing pretends the estimate is a road route.
    */
-  async route(from: LatLng, to: LatLng): Promise<RouteResult> {
+  async route(from: LatLng, to: LatLng, steps = false): Promise<RouteResult> {
     const provider = this.provider();
     if (!provider) return estimateRoute(from, to);
     try {
-      const r = await provider.route(from, to);
+      const r = await provider.route(from, to, steps);
       if (!r) throw new Error('no route in the answer');
       return { ...r, source: 'road', provider: provider.name };
     } catch (e) {

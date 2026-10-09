@@ -107,6 +107,25 @@ describe('MapsService with Mapbox', () => {
     expect(url).toContain('geometries=polyline');
   });
 
+  it('asks Mapbox for turn-by-turn steps only when told to, and returns them with where each one happens', async () => {
+    const body = { routes: [{ distance: 900, duration: 120, geometry: 'abc', legs: [{ steps: [
+      { distance: 400, maneuver: { instruction: 'Head north on Allen Avenue', type: 'depart', location: [3.35, 6.6] } },
+      { distance: 500, maneuver: { instruction: 'Turn left onto Obafemi Awolowo Way', type: 'turn', modifier: 'left', location: [3.351, 6.604] } },
+      { distance: 0, maneuver: { instruction: 'You have arrived', type: 'arrive', location: [3.36, 6.61] } },
+    ] }] }] };
+    const plain = answer(body);
+    expect((await new MapsService(plain as never).route(LAGOS, IBADAN)).steps).toBeUndefined();
+    expect(called(plain)[0]).toContain('steps=false');
+    const http = answer(body);
+    const withSteps = await new MapsService(http as never).route(LAGOS, IBADAN, true);
+    expect(called(http)[0]).toContain('steps=true');
+    expect(withSteps.steps).toEqual([
+      { instruction: 'Head north on Allen Avenue', distanceM: 400, lat: 6.6, lng: 3.35, type: 'depart' },
+      { instruction: 'Turn left onto Obafemi Awolowo Way', distanceM: 500, lat: 6.604, lng: 3.351, type: 'turn left' },
+      { instruction: 'You have arrived', distanceM: 0, lat: 6.61, lng: 3.36, type: 'arrive' },
+    ]);
+  });
+
   it('gives a marked estimate when Mapbox cannot answer or finds no route', async () => {
     const down = await new MapsService(answer({}, false, 503) as never).route(LAGOS, { lat: 6.5964, lng: 3.3426 });
     expect(down).toMatchObject({ source: 'estimate', provider: 'estimate', polyline: null });

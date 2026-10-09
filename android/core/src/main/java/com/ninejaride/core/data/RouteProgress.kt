@@ -18,7 +18,31 @@ data class RouteFix(
     val ahead: List<MapPoint>,
 )
 
+/** The next thing to do on the road, and how far away it is. */
+data class NextTurn(val instruction: String, val distanceM: Int, val type: String)
+
 object RouteProgress {
+    /**
+     * The next manoeuvre ahead of a car, like the banner in a navigation app. Each step is placed along the road by projecting it onto
+     * the line; the first one the car has not yet passed is the next turn. Null when there are no steps, or
+     * the road is not known.
+     */
+    fun nextTurn(route: List<MapPoint>, steps: List<RouteStep>, car: MapPoint): NextTurn? {
+        if (route.size < 2 || steps.isEmpty()) return null
+        val total = lengthM(route)
+        val carAlong = total - (locate(route, car)?.remainingM ?: return null)
+        var best: Pair<Double, RouteStep>? = null
+        for (st in steps) {
+            val along = total - (locate(route, st.at)?.remainingM ?: continue)
+            if (along >= carAlong - PASSED_M && (best == null || along < best.first)) best = along to st
+        }
+        val (along, step) = best ?: return null
+        return NextTurn(step.instruction, (along - carAlong).toInt().coerceAtLeast(0), step.type)
+    }
+
+    /** A manoeuvre stays on the banner until the car is this far beyond it, so a jumpy GPS reading does not skip a turn the driver is still making. */
+    private const val PASSED_M = 12.0
+
     /** Further than this from the road (after a couple of readings) means the driver took another way: route again. */
     const val OFF_ROUTE_M = 50.0
 

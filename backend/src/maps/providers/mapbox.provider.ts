@@ -1,4 +1,4 @@
-import { Fetch, LatLng, MapProvider, NIGERIA, PlaceResult, callJson, insideNigeria } from '../maps.types';
+import { Fetch, LatLng, MapProvider, NIGERIA, PlaceResult, RouteStep, callJson, insideNigeria } from '../maps.types';
 
 const API = 'https://api.mapbox.com';
 
@@ -54,11 +54,23 @@ export class MapboxMapProvider implements MapProvider {
     return text || null;
   }
 
-  async route(from: LatLng, to: LatLng) {
+  async route(from: LatLng, to: LatLng, steps = false) {
     const path = `/directions/v5/mapbox/driving-traffic/${from.lng},${from.lat};${to.lng},${to.lat}`;
-    const data = await callJson(this.http, 'Mapbox', this.url(path, { geometries: 'polyline', overview: 'full', alternatives: 'false', steps: 'false' }), 'GET');
+    const data = await callJson(this.http, 'Mapbox', this.url(path, { geometries: 'polyline', overview: 'full', alternatives: 'false', steps: steps ? 'true' : 'false', language: 'en' }), 'GET');
     const r = data.routes?.[0];
     if (!r || !Number.isFinite(Number(r.distance)) || !Number.isFinite(Number(r.duration))) return null;
-    return { distanceM: Math.round(Number(r.distance)), durationS: Math.round(Number(r.duration)), polyline: typeof r.geometry === 'string' ? r.geometry : null };
+    const out: { distanceM: number; durationS: number; polyline: string | null; steps?: RouteStep[] } = {
+      distanceM: Math.round(Number(r.distance)), durationS: Math.round(Number(r.duration)), polyline: typeof r.geometry === 'string' ? r.geometry : null,
+    };
+    if (steps) {
+      out.steps = ((r.legs?.[0]?.steps ?? []) as any[])
+        .map((st): RouteStep => ({
+          instruction: String(st.maneuver?.instruction ?? ''), distanceM: Math.round(Number(st.distance) || 0),
+          lat: Number(st.maneuver?.location?.[1]), lng: Number(st.maneuver?.location?.[0]),
+          type: [st.maneuver?.type, st.maneuver?.modifier].filter(Boolean).join(' '),
+        }))
+        .filter((st) => st.instruction && Number.isFinite(st.lat) && Number.isFinite(st.lng));
+    }
+    return out;
   }
 }

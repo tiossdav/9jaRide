@@ -105,6 +105,15 @@ private fun DirectionBanner(title: String, detail: String) {
     }
 }
 
+/** The next turn, read from the road the driver is on, inside the app. With no turn-by-turn from the map provider it names where the driver is heading. */
+@Composable
+private fun NavBanner(vm: DriverViewModel, heading: String) {
+    val turn = vm.nextTurn
+    val left = vm.remainingM?.let { com.ninejaride.core.format.distanceText(it) + " to go" }
+    if (turn != null) DirectionBanner(turn.instruction, listOfNotNull(if (turn.distanceM >= 10) "In " + com.ninejaride.core.format.distanceText(turn.distanceM) else "Now", left).joinToString(" · "))
+    else DirectionBanner(heading, left.orEmpty())
+}
+
 /** D01: a new request with a 15 second countdown. */
 @Composable
 fun OfferScreen(vm: DriverViewModel) {
@@ -163,15 +172,6 @@ fun OfferScreen(vm: DriverViewModel) {
     }
 }
 
-private fun openNavigation(context: android.content.Context, query: String) {
-    // Turn-by-turn is handed to the phone's maps app until an in-app map SDK is chosen.
-    val uri = Uri.parse("google.navigation:q=" + Uri.encode(query))
-    val intent = Intent(Intent.ACTION_VIEW, uri).setPackage("com.google.android.apps.maps")
-    runCatching { context.startActivity(intent) }.onFailure {
-        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(query)))) }
-    }
-}
-
 /** D02: heading to the pickup. */
 @Composable
 fun ToPickupScreen(vm: DriverViewModel) {
@@ -183,7 +183,7 @@ fun ToPickupScreen(vm: DriverViewModel) {
             markers = listOf(MapMarker(vm.demoPickup, MarkerKind.Pickup)) + carMarkers(vm),
             route = vm.routeToPickup, fit = true, fitBorderDp = 120, follow = if (vm.demo) null else vm.carPoint,
         )
-        TopOverlay(vm, { if (vm.demo) DirectionBanner("Head north on Moboluwaduro Street", "400 m · tap to open maps") else DirectionBanner("Go to ${o.pickup.substringBefore(',')}", (vm.remainingM?.let { com.ninejaride.core.format.distanceText(it) + " · " } ?: "") + "tap to open maps") }) { openNavigation(ctx, o.pickup) }
+        TopOverlay(vm, { if (vm.demo) DirectionBanner("Head north on Moboluwaduro Street", "400 m") else NavBanner(vm, "Go to ${o.pickup.substringBefore(',')}") })
         BottomSheetCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -256,7 +256,7 @@ fun InTripScreen(vm: DriverViewModel) {
             markers = listOf(MapMarker(vm.demoDropoff, MarkerKind.Dropoff)) + carMarkers(vm),
             route = vm.routeTrip, fit = true, fitBorderDp = 120, follow = if (vm.demo) null else vm.carPoint,
         )
-        TopOverlay(vm, { if (vm.demo) DirectionBanner("Continue on Iwo Road", "1.1 km · tap to open maps") else DirectionBanner("Continue to ${o.dropoff.substringBefore(',')}", (vm.remainingM?.let { com.ninejaride.core.format.distanceText(it) + " · " } ?: "") + "tap to open maps") }) { openNavigation(ctx, o.dropoff) }
+        TopOverlay(vm, { if (vm.demo) DirectionBanner("Continue on Iwo Road", "1.1 km") else NavBanner(vm, "Continue to ${o.dropoff.substringBefore(',')}") })
         BottomSheetCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {

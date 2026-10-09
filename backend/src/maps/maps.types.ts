@@ -10,6 +10,17 @@ export interface PlaceResult {
   distanceM: number | null;
 }
 
+/** One manoeuvre on a route ("Turn left onto Allen Avenue"), with where it happens and how far the road goes on after it. */
+export interface RouteStep {
+  instruction: string;
+  /** Metres from this manoeuvre to the next one. */
+  distanceM: number;
+  lat: number;
+  lng: number;
+  /** The kind of manoeuvre as the provider names it (turn, roundabout, arrive...), for choosing an arrow. */
+  type: string;
+}
+
 /** Which service answered. "estimate" means none did and the numbers are a straight-line guess. */
 export type RouteProvider = 'mapbox' | 'google' | 'estimate';
 
@@ -21,6 +32,8 @@ export interface RouteResult {
   /** "road" is a real road route; "estimate" is a straight-line guess used only when the map service could not answer. */
   source: 'road' | 'estimate';
   provider: RouteProvider;
+  /** Turn-by-turn instructions, only when asked for and only from a provider that has them. */
+  steps?: RouteStep[];
 }
 
 /** The HTTP call both providers use. Replaced by a stand-in in tests. */
@@ -38,8 +51,8 @@ export interface MapProvider {
   searchPlaces(query: string, near: LatLng | null): Promise<PlaceResult[]>;
   /** The street address for a spot, or null when the provider has nothing better than a code. */
   reverse(at: LatLng): Promise<string | null>;
-  /** The driving route, or null when the provider found none. */
-  route(from: LatLng, to: LatLng): Promise<{ distanceM: number; durationS: number; polyline: string | null } | null>;
+  /** The driving route, or null when the provider found none. [steps] asks for turn-by-turn instructions too (a provider without them leaves them out). */
+  route(from: LatLng, to: LatLng, steps?: boolean): Promise<{ distanceM: number; durationS: number; polyline: string | null; steps?: RouteStep[] } | null>;
 }
 
 /** Nigeria's outline as a box. Used to throw away results from other countries, not to limit where a rider can go within Nigeria. */

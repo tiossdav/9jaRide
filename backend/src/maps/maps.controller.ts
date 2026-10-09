@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Module, Post, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { CurrentUser, Principal, Roles } from '../auth/auth.types';
 import { MapsService } from './maps.service';
 
@@ -20,6 +20,8 @@ class PointDto {
 class RouteDto {
   @ValidateNested() @Type(() => PointDto) from!: PointDto;
   @ValidateNested() @Type(() => PointDto) to!: PointDto;
+  /** Also return turn-by-turn instructions (the driver's navigation asks for them; fare quotes do not). */
+  @IsOptional() @IsBoolean() steps?: boolean;
 }
 
 /** Map search, addresses and routes for the apps, asked through the server so the provider's key never ships inside an app. */
@@ -47,7 +49,7 @@ export class MapsController {
 
   @Roles('rider', 'driver') @Post('route') @HttpCode(200)
   route(@Body() dto: RouteDto) {
-    return this.maps.route(dto.from, dto.to);
+    return this.maps.route(dto.from, dto.to, dto.steps === true);
   }
 }
 
