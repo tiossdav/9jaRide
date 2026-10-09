@@ -399,7 +399,7 @@ fun WalletHoldScreen(vm: RiderViewModel) {
                 com.ninejaride.core.ui.components.MoneyLine("Top up at least", naira((need - have).coerceAtLeast(0)), bold = true)
             }
         }
-        Btn("Top up wallet", { vm.topUpAmount = (((need - have).coerceAtLeast(10_000L) + 49_999L) / 50_000L) * 50_000L; vm.push(Dest.TopUp) }, Modifier.fillMaxWidth())
+        Btn("Top up wallet", { vm.topUpAmount = (((need - have).coerceAtLeast(com.ninejaride.core.format.MIN_TOPUP_KOBO) + 49_999L) / 50_000L) * 50_000L; vm.push(Dest.TopUp) }, Modifier.fillMaxWidth())
         Gap(8.dp)
         Btn("Pay with cash instead", { vm.payMethod = "cash"; vm.pop() }, Modifier.fillMaxWidth(), kind = BtnKind.Outline)
     }

@@ -389,8 +389,11 @@ fun TransactionsScreen(vm: DriverViewModel) {
 @Composable
 fun FundWalletScreen(vm: DriverViewModel) {
     val debt: Kobo = if (vm.walletKobo < 0) -vm.walletKobo else 0
-    val presets = listOf(50_000L, 100_000L, 200_000L, 500_000L, 1_000_000L)
-    var amount by remember { mutableStateOf(if (debt > 0) ((debt + 9_999) / 10_000) * 10_000 else 100_000L) }
+    val presets = listOf(100_000L, 200_000L, 500_000L, 1_000_000L, 2_000_000L)
+    var amountText by remember { mutableStateOf((maxOf(if (debt > 0) ((debt + 9_999) / 10_000) * 10_000 else 100_000L, com.ninejaride.core.format.MIN_TOPUP_KOBO) / 100).toString()) }
+    val typed = com.ninejaride.core.format.nairaTextToKobo(amountText)
+    val amount: Kobo = typed ?: 0
+    val problem = com.ninejaride.core.format.topUpProblem(typed)
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         ScreenHeader("Fund wallet", null, vm::pop)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -417,22 +420,27 @@ fun FundWalletScreen(vm: DriverViewModel) {
                 presets.chunked(3).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         row.forEach { p ->
-                            val on = p == amount
+                            val on = p == typed
                             Box(
                                 Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(14.dp)).background(if (on) C.GreenTint else Color.White)
-                                    .border(1.5.dp, if (on) C.GreenAccent else C.Border, RoundedCornerShape(14.dp)).tap({ amount = p }, naira(p)),
+                                    .border(1.5.dp, if (on) C.GreenAccent else C.Border, RoundedCornerShape(14.dp)).tap({ amountText = (p / 100).toString() }, naira(p)),
                                 contentAlignment = Alignment.Center,
                             ) { Txt(naira(p), 15f, 700, if (on) C.Green else C.Ink) }
                         }
                         repeat(3 - row.size) { Box(Modifier.weight(1f)) }
                     }
                 }
-                Txt("You pay with your card or bank transfer on a secure Paystack page.", 12.5f, 500, C.Muted)
+                com.ninejaride.core.ui.components.InputField(
+                    "Or enter any amount (naira)", amountText, { amountText = it }, "Enter an amount, at least 1,000",
+                    keyboard = androidx.compose.ui.text.input.KeyboardType.Number, helper = "At least ${naira(com.ninejaride.core.format.MIN_TOPUP_KOBO)}.",
+                    format = { v -> v.filter { c -> c.isDigit() }.take(9) }, error = problem,
+                )
+                Txt("You pay with your card or bank transfer on a secure Paystack page, inside this app.", 12.5f, 500, C.Muted)
             }
         }
         if (!vm.demo || vm.profile.emailVerified) {
             Box(Modifier.padding(horizontal = 20.dp).navigationBarsPadding().padding(bottom = 20.dp)) {
-                Btn("Pay ${naira(amount)}", { vm.confirm("Pay ${naira(amount)}?", "This amount is added to your wallet to cover what you owe.", "Yes, pay", false) { vm.topUp(amount); vm.pop() } }, Modifier.fillMaxWidth(), enabled = amount >= debt)
+                Btn("Pay ${naira(amount)}", { vm.confirm("Pay ${naira(amount)}?", "This amount is added to your wallet to cover what you owe.", "Yes, pay", false) { vm.topUp(amount) } }, Modifier.fillMaxWidth(), enabled = com.ninejaride.core.format.topUpAllowed(typed) && amount >= debt)
             }
         }
     }

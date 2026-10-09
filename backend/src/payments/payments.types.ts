@@ -45,7 +45,7 @@ export const PAYOUT_PROVIDER = Symbol('PAYOUT_PROVIDER');
 
 /** Placeholder policy values, all overridable from the environment until finance decides. */
 export const PAYOUT_MIN_KOBO = Number(process.env.PAYOUT_MIN_KOBO ?? 100_000); // ₦1,000
-export const TOPUP_MIN_KOBO = Number(process.env.TOPUP_MIN_KOBO ?? 10_000); // ₦100
+export const TOPUP_MIN_KOBO = Number(process.env.TOPUP_MIN_KOBO ?? 100_000); // ₦1,000
 export const TOPUP_MAX_KOBO = Number(process.env.TOPUP_MAX_KOBO ?? 50_000_000); // ₦500,000
 /** A PROCESSING payout the provider has never heard of after this long is failed and refunded. */
 export const PAYOUT_STUCK_SECONDS = Number(process.env.PAYOUT_STUCK_SECONDS ?? 1800);

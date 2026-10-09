@@ -63,6 +63,8 @@ sealed interface Dest {
     data object BankAccountForm : Dest
     data object Transactions : Dest
     data object FundWallet : Dest
+    /** Paystack's payment page, shown inside the app. */
+    data object Checkout : Dest
     data object PersonalDetails : Dest
     data object VehicleDetails : Dest
     data object Bonus : Dest
@@ -808,11 +810,15 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
 
     private val pendingTopUp = com.ninejaride.core.data.PendingTopUp(app)
 
-    /** Real mode opens Paystack's page; the wallet is credited by the server once Paystack confirms, and [checkTopUp] reports back. */
+    /** The Paystack page being shown inside the app (see [Dest.Checkout]). */
+    var checkoutUrl by mutableStateOf<String?>(null)
+
+    /** Real mode shows Paystack's page inside the app; the wallet is credited by the server once Paystack confirms, and [checkTopUp] reports back. */
     fun topUp(amount: Kobo) {
         if (demo) {
             walletKobo += amount
             transactions.add(0, WalletTx("Wallet top-up", "Just now", amount, TxDirection.In))
+            pop()
             return
         }
         viewModelScope.launch {
@@ -821,9 +827,16 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
             }
             if (start == null) { if (!loading.isBusy) say("Top-up not available", "We could not start the payment. Please try again."); return@launch }
             pendingTopUp.reference = start.reference // asked about again when the driver comes back, even if the app was closed
-            val open = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(start.url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (runCatching { getApplication<Application>().startActivity(open) }.isFailure) say("No browser found", "Install or enable a web browser to pay with Paystack.")
+            checkoutUrl = start.url
+            push(Dest.Checkout)
         }
+    }
+
+    /** The payment page has finished (or was closed): leave it and ask the server how the payment went. */
+    fun finishCheckout() {
+        checkoutUrl = null
+        if (current == Dest.Checkout) pop()
+        checkTopUp()
     }
 
     /** When the driver returns to the app after paying: ask how the payment went and say so. */
@@ -846,6 +859,7 @@ class DriverViewModel(app: Application) : AndroidViewModel(app) {
                 runCatching { api.walletBalance() }.getOrNull()?.let { walletKobo = it }
                 runCatching { api.walletTransactions() }.getOrNull()?.let { transactions.clear(); transactions.addAll(it) }
                 toastWarn = false; toast = title to text
+                if (current == Dest.FundWallet) pop() // paid: leave the fund-wallet screen too
             } else say(title, text)
         }
     }

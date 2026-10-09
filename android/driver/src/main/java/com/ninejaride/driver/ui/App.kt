@@ -113,6 +113,9 @@ fun App(vm: DriverViewModel = viewModel()) {
             Dest.BankAccountForm -> BankAccountScreen(vm)
             Dest.Transactions -> TransactionsScreen(vm)
             Dest.FundWallet -> FundWalletScreen(vm)
+            Dest.Checkout -> vm.checkoutUrl?.let { url ->
+                com.ninejaride.core.ui.components.PaystackCheckout(url, com.ninejaride.driver.BuildConfig.API_BASE_URL.trimEnd('/') + "/payments/return", onFinished = vm::finishCheckout, onClose = vm::finishCheckout)
+            }
             Dest.PersonalDetails -> PersonalDetailsScreen(vm)
             Dest.VehicleDetails -> VehicleScreen(vm)
             Dest.Bonus -> BonusScreen(vm)

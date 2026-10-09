@@ -61,6 +61,8 @@ sealed interface Dest {
     data class ReportProblem(val rideId: String) : Dest
     data object Wallet : Dest
     data object TopUp : Dest
+    /** Paystack's payment page, shown inside the app. */
+    data object Checkout : Dest
     data object PersonalDetails : Dest
     data object Refer : Dest
     data object Help : Dest
@@ -763,7 +765,8 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
     // ------------------------------------------------------------------ wallet
     var wallet by mutableStateOf<Wallet?>(null)
     val walletTx = mutableStateListOf<WalletTx>()
-    var openUrl by mutableStateOf<String?>(null)
+    /** The Paystack page being shown inside the app (see [Dest.Checkout]). */
+    var checkoutUrl by mutableStateOf<String?>(null)
     var topUpAmount by mutableStateOf(200_000L)
     var toppingUp by mutableStateOf(false)
 
@@ -782,11 +785,19 @@ class RiderViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val start = api.topUp(amountKobo)
                 pendingTopUp.reference = start.reference // so the result is asked for when the rider comes back, even if the app was closed
-                openUrl = start.url
+                checkoutUrl = start.url
+                push(Dest.Checkout)
             } catch (e: ApiException) {
                 say(if (e.status >= 500) "Top-up is not available yet. Please try again later." else words(e))
             } finally { toppingUp = false }
         }
+    }
+
+    /** The payment page has finished (or was closed): leave it and ask the server how the payment went. */
+    fun finishCheckout() {
+        checkoutUrl = null
+        if (current == Dest.Checkout) pop()
+        checkTopUp()
     }
 
     /**

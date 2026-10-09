@@ -123,6 +123,9 @@ fun App(vm: RiderViewModel = viewModel()) {
             is Dest.ReportProblem -> HelpScreen(vm)
             Dest.Wallet -> WalletScreen(vm)
             Dest.TopUp -> TopUpScreen(vm)
+            Dest.Checkout -> vm.checkoutUrl?.let { url ->
+                com.ninejaride.core.ui.components.PaystackCheckout(url, com.ninejaride.rider.BuildConfig.API_BASE_URL.trimEnd('/') + "/payments/return", onFinished = vm::finishCheckout, onClose = vm::finishCheckout)
+            }
             Dest.PersonalDetails -> PersonalDetailsScreen(vm)
             Dest.Refer -> ReferScreen(vm)
             Dest.Help -> HelpScreen(vm)

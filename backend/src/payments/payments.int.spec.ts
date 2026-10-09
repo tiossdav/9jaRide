@@ -155,6 +155,8 @@ suite('payments and payouts (real Postgres)', () => {
       const rider = await user('rider');
       await expect(payments.initiateTopUp(rider, 5)).rejects.toThrow(RangeError);
       await expect(payments.initiateTopUp(rider, 1000.5)).rejects.toThrow(RangeError);
+      await expect(payments.initiateTopUp(rider, 99_999)).rejects.toThrow(RangeError); // under 1,000 naira
+      await expect(payments.initiateTopUp(rider, 100_000)).resolves.toMatchObject({ reference: expect.any(String) }); // exactly 1,000 naira is fine
     });
   });
 

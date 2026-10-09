@@ -16,6 +16,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -147,28 +151,36 @@ fun WalletScreen(vm: RiderViewModel) {
 
 @Composable
 fun TopUpScreen(vm: RiderViewModel) {
-    val ctx = LocalContext.current
-    LaunchedEffect(vm.openUrl) {
-        vm.openUrl?.let { url -> runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }; vm.openUrl = null; vm.refreshWallet() }
-    }
+    // what is typed in the box; the chips fill it in, and typing in it clears the chip highlight
+    var text by remember { mutableStateOf((vm.topUpAmount / 100).toString()) }
+    val typed = com.ninejaride.core.format.nairaTextToKobo(text)
+    val problem = com.ninejaride.core.format.topUpProblem(typed)
+    val ok = com.ninejaride.core.format.topUpAllowed(typed)
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         Box(Modifier.statusBarsPadding()) { ScreenHeader("Top up wallet", onBack = vm::pop) }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Txt("Amount", 12.5f, 600, C.Muted)
-            Txt(naira(vm.topUpAmount), 36f, 800)
+            Txt(naira(typed ?: 0), 36f, 800, if (ok || typed == null) C.Ink else C.Orange)
             listOf(listOf(100_000L, 200_000L, 500_000L), listOf(1_000_000L, 2_000_000L, 5_000_000L)).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     row.forEach { a ->
-                        val on = vm.topUpAmount == a
-                        Box(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(if (on) C.GreenTint else C.Raised).border(1.5.dp, if (on) C.GreenAccent else C.Border, RoundedCornerShape(12.dp)).tap({ vm.topUpAmount = a }, naira(a)).padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
+                        val on = typed == a
+                        Box(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(if (on) C.GreenTint else C.Raised).border(1.5.dp, if (on) C.GreenAccent else C.Border, RoundedCornerShape(12.dp)).tap({ text = (a / 100).toString(); vm.topUpAmount = a }, naira(a)).padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
                             Txt(naira(a), 14f, 700)
                         }
                     }
                 }
             }
-            Txt("You will pay securely with Paystack in your browser, then come back to the app. Your balance updates as soon as the payment is confirmed.", 12.5f, 500, C.Muted)
+            com.ninejaride.core.ui.components.InputField(
+                "Or enter any amount (naira)", text,
+                { text = it; com.ninejaride.core.format.nairaTextToKobo(it)?.let { k -> vm.topUpAmount = k } },
+                "Enter an amount, at least 1,000", keyboard = androidx.compose.ui.text.input.KeyboardType.Number,
+                helper = "At least ${naira(com.ninejaride.core.format.MIN_TOPUP_KOBO)}.",
+                format = { v -> v.filter { c -> c.isDigit() }.take(9) }, error = problem,
+            )
+            Txt("You pay securely with Paystack without leaving the app. Your balance updates as soon as the payment is confirmed.", 12.5f, 500, C.Muted)
         }
-        Box(Modifier.navigationBarsPadding().padding(20.dp)) { Btn(if (vm.toppingUp) "Opening..." else "Pay ${naira(vm.topUpAmount)}", { vm.confirm("Top up ${naira(vm.topUpAmount)}?", "You will pay securely with Paystack in your browser.", "Yes, continue", false) { vm.startTopUp(vm.topUpAmount) } }, Modifier.fillMaxWidth(), enabled = !vm.toppingUp) }
+        Box(Modifier.navigationBarsPadding().padding(20.dp)) { Btn(if (vm.toppingUp) "Opening..." else if (ok) "Pay ${naira(typed!!)}" else "Enter an amount", { vm.confirm("Top up ${naira(typed!!)}?", "You will pay securely with Paystack inside the app.", "Yes, continue", false) { vm.startTopUp(typed!!) } }, Modifier.fillMaxWidth(), enabled = !vm.toppingUp && ok) }
     }
     if (vm.dialog == Dialog.Notice) NoticeSheet(vm)
 }
