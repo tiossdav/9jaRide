@@ -4,7 +4,10 @@ export interface ProviderTransaction {
   reference: string;
   /** Normalised: only 'success' may ever credit a wallet. */
   status: 'success' | 'failed' | 'abandoned' | 'pending';
+  /** What the customer was charged. Can exceed the amount we asked for when Paystack's fee is added on top for the customer. */
   amountKobo: Kobo;
+  /** The amount we asked for, which Paystack echoes back. This is what a wallet is credited and what must match our record. */
+  requestedAmountKobo?: Kobo;
   currency: string;
 }
 

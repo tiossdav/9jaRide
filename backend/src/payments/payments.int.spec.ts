@@ -151,6 +151,25 @@ suite('payments and payouts (real Postgres)', () => {
       });
     });
 
+    it('credits the amount asked for when Paystack adds its fee for the customer', async () => {
+      const rider = await user('rider');
+      const { reference } = await payments.initiateTopUp(rider, 200_000);
+      provider.txs.set(reference, { reference, status: 'success', amountKobo: 203_046, requestedAmountKobo: 200_000, currency: 'NGN' });
+      expect((await payments.topUpStatus(rider, reference))?.state).toBe('success');
+      expect(await balance(rider)).toBe(200_000); // the fee is the customer's, the wallet gets what they asked for, once
+    });
+
+    it('still refuses a payment that is for a different request or less than asked', async () => {
+      const rider = await user('rider');
+      const a = (await payments.initiateTopUp(rider, 200_000)).reference;
+      const b = (await payments.initiateTopUp(rider, 200_000)).reference;
+      provider.txs.set(a, { reference: a, status: 'success', amountKobo: 250_000, requestedAmountKobo: 250_000, currency: 'NGN' }); // asked for another amount
+      provider.txs.set(b, { reference: b, status: 'success', amountKobo: 150_000, requestedAmountKobo: 200_000, currency: 'NGN' }); // paid less than asked
+      expect((await payments.topUpStatus(rider, a))?.state).toBe('mismatch');
+      expect((await payments.topUpStatus(rider, b))?.state).toBe('mismatch');
+      expect(await balance(rider)).toBe(0);
+    });
+
     it('refuses out-of-range top-ups', async () => {
       const rider = await user('rider');
       await expect(payments.initiateTopUp(rider, 5)).rejects.toThrow(RangeError);

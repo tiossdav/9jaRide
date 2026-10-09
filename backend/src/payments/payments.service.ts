@@ -137,8 +137,11 @@ export class PaymentsService {
       return tx.status === 'abandoned' ? 'cancelled' : 'failed';
     }
 
-    if (tx.amountKobo !== Number(intent.amount_kobo) || tx.currency !== 'NGN') {
-      this.log.error(`top-up ${reference}: provider collected ${tx.amountKobo} ${tx.currency}, expected ${intent.amount_kobo} NGN. Not credited.`);
+    // Paystack can add its fee on top for the customer, so the amount charged may be more than what we asked for. What must match is the
+    // amount requested (which Paystack echoes back), and the customer must have paid at least that much. Anything else is not credited.
+    const asked = tx.requestedAmountKobo ?? tx.amountKobo;
+    if (asked !== Number(intent.amount_kobo) || tx.amountKobo < asked || tx.currency !== 'NGN') {
+      this.log.error(`top-up ${reference}: provider collected ${tx.amountKobo} ${tx.currency} for a request of ${asked}, expected ${intent.amount_kobo} NGN. Not credited.`);
       await this.pool.query(
         `UPDATE payment_intents SET status = 'AMOUNT_MISMATCH', provider_amount_kobo = $2, updated_at = now()
           WHERE reference = $1 AND status IN ('PENDING', 'FAILED')`,

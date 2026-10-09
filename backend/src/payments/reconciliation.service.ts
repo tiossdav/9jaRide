@@ -106,7 +106,7 @@ export class ReconciliationService {
         if (!intent) {
           await finding('unknown_reference', tx.reference, { amountKobo: tx.amountKobo });
         } else if (intent.status === 'SUCCESS') {
-          if (Number(intent.amount_kobo) !== tx.amountKobo) {
+          if (Number(intent.amount_kobo) !== (tx.requestedAmountKobo ?? tx.amountKobo)) {
             await finding('amount_mismatch', tx.reference, { credited: Number(intent.amount_kobo), providerKobo: tx.amountKobo });
           }
         } else {

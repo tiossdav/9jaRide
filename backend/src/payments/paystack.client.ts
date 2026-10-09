@@ -69,7 +69,10 @@ export class PaystackClient implements PaymentProvider, PayoutProvider {
   }
 
   private toTransaction(d: any): ProviderTransaction {
-    return { reference: d.reference, status: normaliseStatus(d.status), amountKobo: Number(d.amount), currency: d.currency };
+    return {
+      reference: d.reference, status: normaliseStatus(d.status), amountKobo: Number(d.amount), currency: d.currency,
+      ...(d.requested_amount != null ? { requestedAmountKobo: Number(d.requested_amount) } : {}),
+    };
   }
 
   async verifyTransaction(reference: string): Promise<ProviderTransaction | null> {

@@ -72,6 +72,11 @@ describe('Paystack client requests (stand-in for Paystack, no network)', () => {
     expect(calls[0].url).toBe('https://api.paystack.co/transaction/verify/topup_1');
   });
 
+  it('reads the amount we asked for as well as the amount charged when Paystack adds its fee for the customer', async () => {
+    answer(200, { status: true, data: { reference: 'topup_1', status: 'success', amount: 203046, requested_amount: 200000, fees: 3046, currency: 'NGN' } });
+    expect(await client.verifyTransaction('topup_1')).toEqual({ reference: 'topup_1', status: 'success', amountKobo: 203046, requestedAmountKobo: 200000, currency: 'NGN' });
+  });
+
   it('says "no such payment" for a 404 and throws for a server error, so a hiccup is never read as a failed payment', async () => {
     answer(404, { status: false, message: 'Transaction reference not found' });
     expect(await client.verifyTransaction('nope')).toBeNull();
